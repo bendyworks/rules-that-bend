@@ -82,11 +82,11 @@ Which prompt carries which part:
 
 **There is no isolated run when the project's tests run inside a container, or when the unchanged run (the ending's step 3) does not pass.** A container that mounts the checkout cannot reach a worktree elsewhere on disk. A sub-agent then reports `unverified:` and writes nothing. The main agent has two fallbacks, in this order:
 
-1. **A parallel checkout, and only one the developer has named as free for this run** -- another session may be working in any other. It is a second full copy of the project with its own stack, as the parallel-checkouts skill (bundled in this plugin) sets up. In that checkout, once `git -C <checkout> status --porcelain` prints nothing:
-   1. Record what it has checked out: `git -C <checkout> symbolic-ref -q --short HEAD || git -C <checkout> rev-parse HEAD`.
-   2. `git -C <checkout> fetch <this checkout's path> HEAD`, then `git -C <checkout> checkout --detach FETCH_HEAD`.
-   3. Make the change, run the test with that checkout's stack, and read the result as the ending's step 5 says.
-   4. `git -C <checkout> reset --hard` and `git -C <checkout> clean -fd`, which lose nothing there because it began with nothing uncommitted. Then check out what the first of these steps recorded, and confirm `git -C <checkout> status --porcelain` is empty.
+1. **A parallel checkout, and only one the developer has named as free for this run** -- another session may be working in any other. It is a second full copy of the project with its own stack, as the parallel-checkouts skill (bundled in this plugin) sets up. Run `git -C <parallel checkout> status --porcelain` first. **If it prints anything, this fallback is not available: never reset or clean that checkout to make it so.** Otherwise:
+   1. Record what it has checked out: `git -C <parallel checkout> symbolic-ref -q --short HEAD || git -C <parallel checkout> rev-parse HEAD`.
+   2. `git -C <parallel checkout> fetch <this checkout's path> HEAD`, then `git -C <parallel checkout> checkout --detach FETCH_HEAD`.
+   3. Make the change, noting every file the experiment creates. Run the test with that checkout's stack, and read the result as the ending's step 5 says.
+   4. `git -C <parallel checkout> reset --hard`, delete by name the files the third step noted, and check out what the first step recorded. **Never run `git clean` there:** a file that checkout's own branch ignores shows as untracked while this branch is checked out, and `clean` would delete it. Then confirm `git -C <parallel checkout> status --porcelain` prints nothing.
 2. **Otherwise, in the working tree.** Only the main agent: take the fingerprint from the ending's step 1, make the change, run the test, restore every changed file to exactly its prior content, and take the fingerprint again before anything else runs. The two must match; when they do not, the stop below applies. "When the suite gate runs" says why the gate's evidence then still stands.
 
 An experiment that cannot run by any of these, or that uncommitted work in the tree rules out, settles nothing, and its finding goes to `[ask]` (see "When Phase 3 fixes").
