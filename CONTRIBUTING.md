@@ -119,6 +119,15 @@ way and are not parked; move any that could reach an arm yourself. The
 tell for a contaminated run is an arm citing a rule only your global
 file carries.
 
+**A refused park means the batch never ran.** A batch started in the
+background while another checkout's dry runs hold the lock exits at
+once with no arm run, which reads like an empty result rather than a
+refusal. Check `scripts/park-claude-md.sh --status` before starting
+one. When it names a session that is still running, wait for that
+session rather than taking the lock: loop on `--status` until it
+reports the file is not parked, then start the batch. `--recover` is
+only for a holder that is no longer running.
+
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
 trigger instead of mutating anything real -- e.g.
