@@ -36,7 +36,7 @@ Each sub-agent should *read* the relevant CLAUDE.md(s) to inform its findings. T
 
 ## Never write to the tree to find something out
 
-**No sub-agent whose prompt this skill writes changes the working tree, in any phase, not even with a change it means to undo. Every such prompt carries the no-write block below, word for word: the parts the table gives its lane.** A sub-agent sees only its prompt, never this skill, so a rule left out of the prompt does not exist for it. The built-ins this skill invokes, `/code-review` and `/security-review`, write their own prompts; Phase 1 says what to do if one of them edits. Nobody is watching the tree while an audit runs, and a change an agent leaves behind reads as the developer's own edit in the next commit.
+**No sub-agent whose prompt this skill writes changes the working tree, in any phase, not even with a change it means to undo. Every such prompt carries the no-write block below, word for word: the parts the table gives its lane.** A sub-agent sees only its prompt, never this skill, so a rule left out of the prompt does not exist for it. The built-ins this skill invokes, `/code-review` and `/security-review`, write their own prompts; Phase 1 says what to do if `/code-review` edits, and `/security-review` runs inside the `security` agent, whose prompt carries the block. Nobody is watching the tree while an audit runs, and a change an agent leaves behind reads as the developer's own edit in the next commit.
 
 ### The no-write block
 
@@ -48,7 +48,7 @@ The block is two paragraphs and one of two endings.
 
 The experiments ending:
 
-> **Your lane runs experiments, and the ordinary way is a throwaway worktree.** If the project's tests run inside a container, there is no isolated run: do none of the steps below, and report the finding as `unverified:`. Your shell keeps neither its directory nor its variables between commands, so begin every command by setting `checkout`, and `scratch` once it exists, to their absolute paths written out in full.
+> **Your lane runs experiments, and the ordinary way is a throwaway worktree.** If the project's tests run inside a container, there is no isolated run: do none of the steps below, and report the finding as `unverified:`, naming the experiment that would settle it: what to break, which test file to run, and what a failure would show. Your shell keeps neither its directory nor its variables between commands, so begin every command by setting `checkout`, and `scratch` once it exists, to their absolute paths written out in full.
 >
 > 1. Fingerprint the checkout before anything else: `{ git -C "$checkout" rev-parse HEAD; git -C "$checkout" symbolic-ref -q HEAD; git -C "$checkout" status --porcelain --untracked-files=all -- . ':(exclude).claude/gauntlets' ':(exclude).claude/plans'; git -C "$checkout" diff HEAD -- . ':(exclude).claude/gauntlets' ':(exclude).claude/plans'; git -C "$checkout" ls-files -z --others --exclude-standard -- . ':(exclude).claude/gauntlets' ':(exclude).claude/plans' | xargs -0 -n1 git -C "$checkout" hash-object --; } | git hash-object --stdin`. A fingerprint printed alongside a `fatal:` line is not one: correct `checkout` and run the command again.
 > 2. Make the worktree outside the checkout: `scratch="$(mktemp -d "${TMPDIR:-/tmp}/gauntlet-experiment.XXXXXX")"; echo "$scratch"`, then `git -C "$checkout" worktree add --detach "$scratch/tree" HEAD`. Keep the path `mktemp` printed. Copy into the worktree the ignored files the project needs to boot. Link a dependency directory only when a test run does not write to it, and never a log, cache, or coverage directory: a write through a link lands in the checkout. The worktree holds `HEAD`: when a file you are testing differs in the checkout, say so in the finding.
@@ -57,7 +57,7 @@ The experiments ending:
 > 5. Read the result. The test depends on the code only when the test cases in question fail on their assertions. A load error, a setup error, or a failure somewhere else settles nothing: report `unverified:`.
 > 6. `git -C "$checkout" worktree remove --force "$scratch/tree"`, delete `$scratch`, and run step 1's command again. The two fingerprints must match; if they do not, say so in the first line of your report.
 >
-> **To confirm a suspected bug, steps 4 and 5 change:** add a test that reproduces the bug under `$scratch/tree` and run that test file. The bug is confirmed only when the new test fails on its assertion; a load or setup error settles nothing.
+> **To confirm a suspected bug, steps 3 to 5 change:** in step 3, run the existing test file nearest the code, only to show the worktree can run tests. Then add a test that reproduces the bug under `$scratch/tree` and run that test file. The bug is confirmed only when the new test fails on its assertion; a load or setup error settles nothing.
 >
 > Run one test file at a time, never two runs at once.
 
@@ -82,11 +82,11 @@ Which prompt carries which part:
 
 **There is no isolated run when the project's tests run inside a container, or when the unchanged run (the ending's step 3) does not pass.** A container that mounts the checkout cannot reach a worktree elsewhere on disk. A sub-agent then reports `unverified:` and writes nothing. The main agent has two fallbacks, in this order:
 
-1. **A parallel checkout, and only one the developer has named as free for this run** -- another session may be working in any other. It is a second full copy of the project with its own stack, as the parallel-checkouts skill (bundled in this plugin) sets up. In that checkout, with nothing uncommitted:
+1. **A parallel checkout, and only one the developer has named as free for this run** -- another session may be working in any other. It is a second full copy of the project with its own stack, as the parallel-checkouts skill (bundled in this plugin) sets up. In that checkout, once `git -C <checkout> status --porcelain` prints nothing:
    1. Record what it has checked out: `git -C <checkout> symbolic-ref -q --short HEAD || git -C <checkout> rev-parse HEAD`.
    2. `git -C <checkout> fetch <this checkout's path> HEAD`, then `git -C <checkout> checkout --detach FETCH_HEAD`.
    3. Make the change, run the test with that checkout's stack, and read the result as the ending's step 5 says.
-   4. `git -C <checkout> checkout -- .`, delete any file the experiment added, check out what the first of these steps recorded, and confirm `git -C <checkout> status --porcelain` is empty.
+   4. `git -C <checkout> reset --hard` and `git -C <checkout> clean -fd`, which lose nothing there because it began with nothing uncommitted. Then check out what the first of these steps recorded, and confirm `git -C <checkout> status --porcelain` is empty.
 2. **Otherwise, in the working tree.** Only the main agent: take the fingerprint from the ending's step 1, make the change, run the test, restore every changed file to exactly its prior content, and take the fingerprint again before anything else runs. The two must match; when they do not, the stop below applies. "When the suite gate runs" says why the gate's evidence then still stands.
 
 An experiment that cannot run by any of these, or that uncommitted work in the tree rules out, settles nothing, and its finding goes to `[ask]` (see "When Phase 3 fixes").
