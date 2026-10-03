@@ -119,6 +119,15 @@ way and are not parked; move any that could reach an arm yourself. The
 tell for a contaminated run is an arm citing a rule only your global
 file carries.
 
+**A refused park means the batch never ran.** A batch started in the
+background while another checkout's dry runs hold the lock exits at
+once with no arm run, which reads like an empty result rather than a
+refusal. Check `scripts/park-claude-md.sh --status` before starting
+one. When it names a session that is still running, wait for that
+session rather than taking the lock: loop on `--status` until it
+reports the file is not parked, then start the batch. `--recover` is
+only for a holder that is no longer running.
+
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
 trigger instead of mutating anything real -- e.g.
@@ -153,6 +162,27 @@ of six bullets after the list it governed let Haiku pick a destination
 from the list and write without asking in one run of three; moving the
 rule into the list's bold lead made it wait in three of three. After
 any rewording of such a rule, re-run the weakest model's arms.
+
+**Nest a rule under the case it belongs to.** A rule meant for one case
+that sits beside the bullets around it gets read as applying to all of
+them. In one skill, three bullets about a skill drafted for another
+repository sat as siblings of the general bullets on saving a skill.
+Haiku wrote a draft file and offered a working copy for a skill bound
+for the user's own directory in two runs of two, and a bolded "Only a
+skill bound for ..." lead did not change that. Nested under the bullet
+that names the case, with one sentence saying they apply to nothing
+else, it did so in none of five runs.
+
+**Give an approval rule a turn that approves.** A rule that makes a
+session propose and wait ends a two-turn arm at the proposal, in the
+control and the treatment alike, so a grader that reads writes sees
+nothing written on either side. Add a third turn with a neutral
+approval that names no answer of its own ("Approved, go ahead."), grade
+the second turn on what it proposes and the third on what it writes,
+and read the writes as attempted tool calls in the stream rather than
+files on disk, since a headless run is denied writes outside its
+working directory. The same neutral turn shows whether a session takes
+one "yes" as the answer to two questions.
 
 **Put a step's prohibition beside its own commands.** When one step
 points back at another for its rules, a weaker model copies commands
