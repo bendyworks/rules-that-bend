@@ -39,6 +39,15 @@ full name is exactly how a fabricated one slips through.
   instance method, and verify its return value. Handle both success
   and failure cases.
 
+## Look up identifiers; never complete them
+
+Never write a full commit SHA, issue number, URL, or other identifier
+you have not just read from its source. A short SHA expanded by hand
+looks exactly like a real one and names nothing: run
+`git rev-parse <short>` for the full form. An identifier recalled from
+earlier in the session gets the same lookup before it lands in a
+commit, a record file, or a message.
+
 ## A planned check closes only by running
 
 When a plan names a specific check -- a browser walkthrough, a console
