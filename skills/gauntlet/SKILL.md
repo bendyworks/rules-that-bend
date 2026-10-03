@@ -36,17 +36,17 @@ Each sub-agent should *read* the relevant CLAUDE.md(s) to inform its findings. T
 
 ## Never write to the tree to find something out
 
-**No sub-agent this skill dispatches writes to the working tree, in any phase, not even a change it means to undo. Every sub-agent prompt carries the no-write block below, word for word.** A sub-agent sees only its prompt, never this skill, so a rule left out of the prompt does not exist for it. Nobody is watching the tree while an audit runs, and a change an agent leaves behind reads as the developer's own edit in the next commit.
+**No sub-agent whose prompt this skill writes changes the working tree, in any phase, not even with a change it means to undo. Every such prompt carries the no-write block below, word for word: the parts the table gives its lane.** A sub-agent sees only its prompt, never this skill, so a rule left out of the prompt does not exist for it. The built-ins this skill invokes, `/code-review` and `/security-review`, write their own prompts; Phase 1 says what to do if one of them edits. Nobody is watching the tree while an audit runs, and a change an agent leaves behind reads as the developer's own edit in the next commit.
 
 ### The no-write block
 
-The block is two paragraphs every prompt carries, then one of two endings.
+The block is two paragraphs and one of two endings.
 
 > **Never write to the working tree, not even a change you intend to undo.** An undo that depends on you finishing normally is not an undo. Run `git rev-parse --show-toplevel` first: that directory is the checkout. Inside it, do not edit, create, move, or delete any file, and do not run `git stash`, `git restore`, `git reset`, `git checkout <ref> -- <path>`, or any other command that rewrites files there. Do not run the project's tests or code there either: a run writes coverage files, logs, and test-database rows. Read files, run read-only commands, and report.
 >
 > **Reading a test can rule a dependency out, never in.** A test that never observes a value cannot depend on it, and reading settles that. A test that does observe it may still pass with the production code broken: a default, a setup record, a second code path, or a loose assertion can supply the same answer. A claim that a test does or does not depend on something it observes needs a run, not a read. **A doubt you reach by reading is a finding either way, never something to drop:** report it as confirmed when a run confirms it, and with `unverified:` in front when no run settled it.
 
-The ending for a lane that runs experiments:
+The experiments ending:
 
 > **Your lane runs experiments, and the ordinary way is a throwaway worktree.** If the project's tests run inside a container, there is no isolated run: do none of the steps below, and report the finding as `unverified:`. Your shell keeps neither its directory nor its variables between commands, so begin every command by setting `checkout`, and `scratch` once it exists, to their absolute paths written out in full.
 >
@@ -61,17 +61,17 @@ The ending for a lane that runs experiments:
 >
 > Run one test file at a time, never two runs at once.
 
-The ending for every other lane:
+The report-only ending:
 
-> **Your lane does not run experiments.** When a finding rests on a claim only a run can settle, report it with `unverified:` in front and name the experiment that would settle it: what to break, which test file to run, and what a failure would show. Never state it as settled, and never touch a file to find out.
+> **Your lane does not run experiments.** When a finding rests on a claim only a run can settle, report it with `unverified:` in front, under the severity it would have if confirmed, and name the experiment that would settle it: what to break, which test file to run, and what a failure would show. Never state it as settled, and never touch a file to find out.
 
-Which dispatch gets which:
+Which prompt carries which part:
 
 | Dispatch                                                                 | Block                                 |
 |--------------------------------------------------------------------------|---------------------------------------|
 | `rspec-quality`, in Phase 1 and as a Phase 5 lane                        | Both paragraphs, experiments ending   |
 | The Phase 4 agent, and each scoped bug hunt                              | Both paragraphs, experiments ending   |
-| Every other Phase 1 agent and Phase 5 code lane                          | Both paragraphs, the other ending     |
+| Every other Phase 1 agent and Phase 5 code lane                          | Both paragraphs, report-only ending   |
 | Phase 5's `prose` lane                                                   | The first paragraph only              |
 
 **Only one agent holding the experiments ending runs at a time.** Worktrees of one checkout may share its test database, so two experiment runs can collide. Each dispatch above sends at most one such agent; when more than one scoped bug hunt is owed, dispatch them one after another.
@@ -243,7 +243,7 @@ Every sub-agent prompt MUST tell the agent to:
 
 1. Read the relevant CLAUDE.md(s) for project context and rules.
 2. Run `git diff main...HEAD` (and `--name-only` / `--stat` as helpful) to see exactly what changed.
-3. **Report only, and never write to the working tree.** Fixes happen in Phase 3. Paste the no-write block here, word for word ("The no-write block"). **Only `rspec-quality` gets the experiments ending; every other Phase 1 agent gets the other ending.**
+3. **Report only, and never write to the working tree.** Fixes happen in Phase 3.
 4. Return findings in this exact format:
 
    ```markdown
@@ -265,7 +265,9 @@ Every sub-agent prompt MUST tell the agent to:
 
 5. Stay in lane. The cruft agent doesn't comment on RSpec patterns; the rspec-quality agent doesn't comment on security; etc.
 
-The agent-specific briefs below are starting templates. Adjust wording to match the project's stack and conventions. Each ends "Report only": the no-write block from item 3 says what that means, and it goes into the prompt unadjusted.
+**Under item 3, paste the no-write block word for word ("The no-write block"). Only `rspec-quality` gets the experiments ending; every other audit agent gets the report-only ending.**
+
+The agent-specific briefs below are starting templates. Adjust wording to match the project's stack and conventions. Each says "Report only": the no-write block says what that means, and it goes into the prompt unadjusted.
 
 ### Agent: cruft
 
@@ -559,7 +561,7 @@ Prose findings have fixed buckets, because correcting prose rewrites history or 
 - **A wrong pull request description is `[ask]`**, with the corrected text in the batch: the description is text under the developer's name.
 - **A wrong follow-up draft is corrected in place** in the record file, since it has not been filed, under developer triage too: the correction publishes nothing, and filing still waits for the developer. Say in the batch what changed.
 
-**A scoped bug hunt for the riskiest Phase 5 fixes.** A Phase 5 fix to a must-fix finding, or one tagged `(guard rewrite)`, gets the Phase 4 sub-agent brief and the no-write block that goes with it, dispatched fresh, with its scope narrowed to that fix's commit (`git show <sha>`). When more than one hunt is owed, dispatch them one after another ("The no-write block" says why). It runs without asking, like a fired Phase 4 trigger. Before dispatching, append `Phase 5 bug hunt: ran (<short sha>)`. Its findings go in the Phase 5 section, in a subsection named for that commit and written when the hunt returns, even when it found nothing, and are sorted and fixed the same way; its own fixes get the suite gate and nothing more. When the hunt returns after the batch was sent, as it does under developer triage, where Phase 5's fixes wait for the pick, its findings go in one last short batch, as a late Phase 4's do.
+**A scoped bug hunt for the riskiest Phase 5 fixes.** A Phase 5 fix to a must-fix finding, or one tagged `(guard rewrite)`, gets the Phase 4 sub-agent brief and the no-write block that goes with it, dispatched fresh, with its scope narrowed to that fix's commit (`git show <sha>`). "The no-write block" says how many hunts run at once. It runs without asking, like a fired Phase 4 trigger. Before dispatching, append `Phase 5 bug hunt: ran (<short sha>)`. Its findings go in the Phase 5 section, in a subsection named for that commit and written when the hunt returns, even when it found nothing, and are sorted and fixed the same way; its own fixes get the suite gate and nothing more. When the hunt returns after the batch was sent, as it does under developer triage, where Phase 5's fixes wait for the pick, its findings go in one last short batch, as a late Phase 4's do.
 
 **Developer triage.** Under `Phase 3: developer triages`, Phase 5's findings are sorted and recorded, then presented in the batch for the developer's pick; none is fixed first.
 
