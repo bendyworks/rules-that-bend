@@ -53,6 +53,8 @@ while quietly testing the wrong thing. The RED run proves the spec
 depends on the production behavior, not on something incidental (a
 setup callback, a default value, an unrelated migration). Skip it and
 you can ship code that's untested in spirit, even when CI is green.
+The verification-habits guidance has the question to ask of a setup
+step that prepares state for the code under test.
 
 When TDD doesn't fit:
 
