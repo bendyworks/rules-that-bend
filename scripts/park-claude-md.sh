@@ -3,6 +3,8 @@
 # headless dry run started inside it cannot read the author's personal
 # rules. Every checkout of this repo on a machine shares one config
 # directory, so the park is guarded by a lock that names its holder.
+# CONTRIBUTING.md's dry-run section says when to use this, with or
+# without `--setting-sources project`.
 #
 # Usage:
 #   scripts/park-claude-md.sh [--none-ok] -- <command> [args...]

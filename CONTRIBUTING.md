@@ -51,14 +51,18 @@ Three techniques cover most skills:
 **Invocation.** Run from the target project's directory and point
 `--plugin-dir` at your clone of this repo. Headless (`-p`) sessions
 cannot answer permission prompts, so pre-approve the tools the skill
-needs:
+needs and no more, and pass `--setting-sources project` so the run
+leaves your own user-level files out. Read "Keep your own rules out of
+every arm" below before the first run: the flag needs Claude Code
+2.1.101 or later.
 
 ```bash
 cd path/to/target-project
 claude --plugin-dir path/to/rules-that-bend \
+  --setting-sources project --model sonnet \
   -p "Invoke the <name> skill from the bendyworks plugin on the current
       branch, following it exactly. Report what it produces." \
-  --allowedTools "Bash,Read,Grep,Glob"
+  --allowedTools "Bash(git diff *),Bash(git log *),Read,Grep,Glob"
 ```
 
 Keep the prompt neutral -- do not tell the session what outcome you
@@ -66,58 +70,119 @@ expect, or the run stops being a test. Decide the expected answer
 beforehand from your own reading of the project's state, then grade the
 output against it.
 
-**Park stale local copies of changed skills.** If your machine keeps
-synced copies of this repo's skills in `~/.claude/skills` (the
-post-merge `scripts/sync-local-skills.sh` flow), a headless session
-loads both those copies and the `--plugin-dir` working tree -- and can
-silently follow the stale local text instead of your branch's. Before
-dry-running a change to an existing skill, move the affected
-`~/.claude/skills/<name>` directories out of `~/.claude/skills`
-entirely (a scratch directory works; a rename in place does not --
-discovery keys off SKILL.md frontmatter, not the directory name), run
-the test, then move them back. The tell that a run was contaminated:
-it cites skill wording that matches main rather than your branch.
-
 **Mind the CLAUDE.md a run inherits.** A session started from a
 directory inside this repo picks up the root `CLAUDE.md`, including its
-Deploy-on-Merge declaration, and a session started anywhere picks up
-your personal global one. Both can hand the run an answer the skill
+Deploy-on-Merge declaration. It can hand the run an answer the skill
 under test was supposed to supply, which quietly turns a test into a
-tautology. Run each arm from a throwaway project directory that carries
-exactly the rules that arm is meant to have. The related trap when
-writing a project declaration for an arm: state the *fact* the project
-is asserting, never the behavior you expect the skill to produce, or
-the session will simply follow your wording.
+tautology, and so can your own user-level files (next paragraph). Run
+each arm from a throwaway project directory that carries exactly the
+rules that arm is meant to have. The related trap when writing a
+project declaration for an arm: state the *fact* the project is
+asserting, never the behavior you expect the skill to produce, or the
+session will simply follow your wording.
 
-No command-line flag keeps the personal global file out:
-`--setting-sources project` governs settings files, not CLAUDE.md, and
-pointing `CLAUDE_CONFIG_DIR` or `HOME` elsewhere leaves the run logged
-out. Park the file instead, by wrapping the whole batch in
-`scripts/park-claude-md.sh`:
+**Keep your own rules out of every arm.** Pass
+`--setting-sources project` on every arm, and again on every
+`--resume` turn: the flag covers one invocation. Seen on Claude Code
+2.1.285, 2.1.288, and 2.1.289, a resumed turn without the flag loaded
+the user-level files again, and an arm run with it started without:
+
+- your user-level `CLAUDE.md` and every file it imports;
+- files under `~/.claude/rules/`;
+- personal skills under `~/.claude/skills`, including synced copies of
+  this repo's skills, which an arm without the flag loads beside the
+  `--plugin-dir` working tree and can follow instead of your branch;
+- plugins and MCP servers enabled in your user settings.
+
+It still loads the project's own `CLAUDE.md` and `.claude/rules/`, the
+project's `.claude/settings.json` with its permission rules and hooks,
+any `CLAUDE.md` in a directory above the arm's, the `--plugin-dir`
+skills, and the arm directory's auto-memory.
+
+**The flag needs Claude Code 2.1.101 or later.** Before that, a session
+run with it deleted conversation history older than 30 days, whatever
+your settings said.
+
+Whether the flag does this has differed between builds, so confirm it
+on yours before a batch that relies on it, and again after an update:
+
+```bash
+scripts/check-arm-isolation.sh
+```
+
+It runs two one-word sessions, one with the flag and one without, and
+reads which instruction files Claude Code itself reports loading. It
+passes when user-level files load without the flag and none load with
+it. It observes instruction files only; skills, plugins, and MCP
+servers come from the same user source but are not checked. The
+session without the flag is a real one with your own settings: it runs
+your hooks and loads your plugins, though with no tools and no MCP
+servers, and each session makes one small model request. It starts no
+session at all on a build older than 2.1.101.
+"Cannot tell" comes with its reason. The two you are likeliest to see:
+an arm failed, and if it is the one with the flag, your sign-in may
+come from your user settings, which is the second case under "Park the
+file" below; or nothing user-level loaded either way, because you have
+no such files or another session has your `CLAUDE.md` parked.
+
+The flag drops everything else in your user settings too, so an arm
+gets none of your permission rules, hooks, or model choice. That
+includes your `deny` rules and any hook that guards a tool, which
+apply to an arm run without the flag. Pass `--model` on every arm, and
+give `--allowedTools` only what the skill needs (`Bash(git diff *)`
+rather than `Bash` or `Bash(git *)`, which still allows a push or a
+hard reset), restating a deny you rely on with `--disallowedTools` and
+a guard hook you rely on with `--settings`. `--allowedTools`
+pre-approves and does not limit; `--tools` sets which built-in tools
+an arm has at all. Read a run's stream for permission denials before
+grading it: a denied tool changes what the arm does.
+
+The flag stops Claude Code loading those files, not an arm reading
+them: `Read`, `Grep`, and `Glob` as the example grants them reach any
+file you can read, so an arm can still open `~/.claude/CLAUDE.md` or a
+stale skill copy off disk. Where that matters, add
+`--disallowedTools "Read(~/.claude/**)"`. The tell for a contaminated
+run is an arm citing a rule only your own files carry, or skill wording
+that matches main rather than your branch.
+
+**Park the file when the flag will not do.** Two cases: the check above
+reports that a user-level file loaded with the flag, or your arms need
+your user settings to run at all (a sign-in that comes from an
+`apiKeyHelper` or an `env` block there, say). Pointing
+`CLAUDE_CONFIG_DIR` or `HOME` elsewhere is no substitute; it leaves the
+run logged out. Wrap the whole batch in `scripts/park-claude-md.sh`:
 
 ```bash
 scripts/park-claude-md.sh -- ./run-arms.sh
 ```
 
-It moves the file aside, runs the command, and moves it back on exit,
-Ctrl-C, `kill`, or a closed terminal. Every checkout of this repo on
-your machine shares one config directory, so the script holds a lock
+In the first case keep passing the flag as well. In the second the
+arms run without it, so everything the flag keeps out loads again,
+except the parked `CLAUDE.md` and whatever you move: your other
+personal skills, plugins, and MCP servers stay loaded. The script
+parks only the user-level `CLAUDE.md`. Files under `~/.claude/rules/`
+load the same way and are not parked, so move any that could reach an
+arm yourself. Do the same for synced copies of a skill you changed:
+move the affected `~/.claude/skills/<name>` directories out of
+`~/.claude/skills` entirely (a scratch directory works; a rename in
+place does not -- discovery keys off SKILL.md frontmatter, not the
+directory name), run the test, then move them back.
+
+The script moves the file aside, runs the command, and moves it back on
+exit, Ctrl-C, `kill`, or a closed terminal. Every checkout of this repo
+on your machine shares one config directory, so the script holds a lock
 while the file is parked and refuses to start while another session
 holds it. Arms that the batch starts in parallel can each wrap
 themselves in the script too; they share the batch's park. The batch
-must `wait` for its arms before it exits, since the file goes back
-when the wrapped command ends. Run headless, with no controlling
-terminal as in a Claude Code session, the script stops any arm still
-running then, with a warning; from a terminal, and for an arm that
-starts its own session, it cannot find them. Any Claude Code session
-you start while the file is parked runs without it, and if one of them
-saves a new CLAUDE.md meanwhile, the script keeps both copies and
-prints how to merge them. After a crash or `kill -9`,
-`scripts/park-claude-md.sh --status` shows what is parked and
-`--recover` puts it back. Files under `~/.claude/rules/` load the same
-way and are not parked; move any that could reach an arm yourself. The
-tell for a contaminated run is an arm citing a rule only your global
-file carries.
+must `wait` for its arms before it exits, since the file goes back when
+the wrapped command ends. Run headless, with no controlling terminal as
+in a Claude Code session, the script stops any arm still running then,
+with a warning; from a terminal, and for an arm that starts its own
+session, it cannot find them. Any Claude Code session you start while
+the file is parked runs without it, and if one of them saves a new
+CLAUDE.md meanwhile, the script keeps both copies and prints how to
+merge them. After a crash or `kill -9`, `scripts/park-claude-md.sh
+--status` shows what is parked and `--recover` puts it back.
 
 **A refused park means the batch never ran.** A batch started in the
 background while another checkout's dry runs hold the lock exits at
