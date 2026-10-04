@@ -277,6 +277,18 @@ fault that read as a finding. Match subcommands the way the real tool
 parses them, and run each command the skill under test newly relies on
 once through the stub before the batch.
 
+**Trace the tool calls before rewording a rule that never fires.** A
+rule keyed on an event ("a line added because the test failed without
+it") cannot fire for a session that never has the event. In one guidance
+story Haiku ignored such a rule in every run, and its tool calls showed
+why: it wrote the line into the test's first draft, copied from a
+neighboring test, so the test never failed. The rule was rewritten to
+key on what the line does, however it got there. When a rule scores the
+same on control and treatment, print each run's tool calls in order from
+its stream-json log and find the step where the rule should have
+applied, before changing a word. A model that never consults the rule at
+that step is a limit to record, not a wording to tune.
+
 ## Writing a new skill
 
 A skill is a folder under `skills/<name>/` with a `SKILL.md` and any
