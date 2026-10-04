@@ -191,6 +191,14 @@ Refs: #123
   conventions other tooling and readers rely on (`git log
   --merges`, bot changelogs). Reverts are not exempt (see Reverts).
 - Never amend or rewrite pushed commits without an explicit request.
+- **A pushed commit message cannot be edited without rewriting
+  history, so check the visibility of the repository it is going to
+  before writing it** (`gh repo view <owner>/<repo> --json
+  visibility`). Unless the answer is `PRIVATE`, keep out anything that
+  identifies a private source: names, other projects' tracker IDs,
+  links, and figures that sit beside any of those. The project's own
+  `Refs:` ID stays. The public-destinations guidance carries the full
+  rule.
 
 ## Enforcing the prefix in CI
 

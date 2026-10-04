@@ -46,15 +46,21 @@ edited them on GitHub, and `gh pr edit --body-file` replaces the whole
 body.
 
 A draft is not private. On a public repository anyone can read it the
-moment it opens, and repository watchers and integrations are notified,
-so the checks that come before publishing anything -- the destination's
-visibility, identifiers that must not appear there -- still happen
-before it opens.
+moment it opens, and repository watchers and integrations are notified.
+So before it opens, check the repository's visibility
+(`gh repo view <owner>/<repo> --json visibility`). Unless the answer is
+`PRIVATE`, keep out anything that identifies a private source: names,
+other projects' tracker IDs, links, and figures that sit beside any of
+those. The project's own issue and pull request numbers and a bare ID
+from its own tracker stay; a private tracker's titles and URLs do not.
+A pull request opened ready for review, a comment, and a review reply
+get the same check first. The public-destinations guidance carries the
+full rule.
 
-This covers only pull requests that open as drafts; in a stacked
-chain, only the ones created as drafts. A pull request opened ready for
-review, a PR comment, and a review reply keep whatever approval the
-team requires.
+A draft being its own review covers only pull requests that open as
+drafts; in a stacked chain, only the ones created as drafts. A pull
+request opened ready for review, a PR comment, and a review reply keep
+whatever approval the team requires.
 
 ## Lead with why
 
