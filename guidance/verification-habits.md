@@ -48,6 +48,41 @@ looks exactly like a real one and names nothing: run
 earlier in the session gets the same lookup before it lands in a
 commit, a record file, or a message.
 
+## Setup reproduces production; it never repairs the test
+
+**A setup step that prepares state for the code under test, beyond the
+input it works on, gets one question before it stays: when this code
+runs in production, what guarantees this state, and can it have changed
+since?** Such a step creates a directory the code writes into, builds or
+refreshes a cache it reads, sets a variable it requires, or runs
+something that has to come first. The question applies however the
+step got there: added because the test failed without it, written in
+advance because you could see the test would fail, or copied from a
+neighboring test. When setup does something the code under test should
+do itself, the test measures the harness: it passes, and it keeps
+passing after the code breaks.
+
+- **The code under test should, or nothing does:** the step hides a bug.
+- **Something set it once:** it can go stale, so the step hides a bug
+  too. A cache built at install time and the default branch `git clone`
+  records were each right once, and nothing keeps them right.
+- **Something else does, every time the code runs** (the environment
+  the service starts in, the framework, a step the user always takes
+  first): the step reproduces production. Keep it, with a comment naming
+  what guarantees the state. Name only a guarantee you have found in the
+  project or its framework; when you cannot find one, ask the developer.
+
+**Never keep a step that hides a bug: fix the code when it is part of
+the current story, and otherwise stop and tell the developer, with the
+failing test left uncommitted.**
+
+Setup that builds the input the code works on (records, input files,
+arguments) needs none of this, though a step that then refreshes or
+corrects that input does. Neither do the controls that make a test
+isolated and repeatable: stubs, a frozen clock, seeded randomness, a
+test delivery mode, database cleaning. Those have no production
+counterpart to ask about.
+
 ## A planned check closes only by running
 
 When a plan names a specific check -- a browser walkthrough, a console
