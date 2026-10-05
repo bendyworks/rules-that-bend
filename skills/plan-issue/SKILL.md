@@ -1246,6 +1246,10 @@ via the Skill tool. It will:
 - Run a permission-prompt sweep (via the /fewer-permission-prompts
   built-in, when available), gating any settings-file write on the
   user's approval.
+- Commit the files the pass wrote inside the repository (a tracked
+  plan file, rule and skill files, the settings diff): to the default
+  branch where the project declares that, otherwise on a draft pull
+  request.
 
 Relay the housekeeping skill's summary to the user when it finishes.
 
