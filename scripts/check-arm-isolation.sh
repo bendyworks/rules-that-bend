@@ -35,8 +35,8 @@
 #   1  a user-level file loaded with the flag, so an arm run with it on
 #      this build reads your own rules; CONTRIBUTING.md says what to do
 #   2  cannot tell, and the message says why: among other reasons, claude
-#      is older than 2.1.101, an arm failed, or nothing user-level loaded
-#      even without the flag
+#      is older than 2.1.101, an arm failed, nothing user-level loaded
+#      even without the flag, or the user-level CLAUDE.md is parked
 #
 # The arm without the flag is what makes a pass mean something: with the
 # user-level files absent, an arm loads none either way.
@@ -93,6 +93,186 @@ tilde() {
 indented() {
   if [ -s "$1" ]; then sed 's/^/  /' "$1"; else echo "  (no error output)"; fi
 }
+
+# Prints $1 in double quotes for a command the reader will paste, with
+# a leading home directory written as $HOME for the same reason.
+quoted() {
+  local home
+  home="$(home_dir)"
+  if [ -n "$home" ]; then
+    case "$1" in "$home"/*) printf '"$HOME%s"' "${1#"$home"}"; return ;; esac
+  fi
+  printf '"%s"' "$1"
+}
+
+# Whether $1 holds a character a terminal acts on instead of showing: a
+# control character, or one that reorders the text around it. Matched
+# byte by byte in the C locale, so the answer is the same whatever the
+# caller's locale is and whether or not it is installed: the ASCII
+# controls, then the UTF-8 forms of U+0080 to U+009F, U+202A to U+202E,
+# and U+2066 to U+2069. Other text outside ASCII, a name with an accent
+# in it, say, is left alone.
+acts_on_a_terminal() {
+  local LC_ALL=C
+  case "$1" in
+    *[[:cntrl:]]*) return 0 ;;
+    *$'\xc2'[$'\x80'-$'\x9f']*) return 0 ;;
+    *$'\xe2\x80'[$'\xaa'-$'\xae']*) return 0 ;;
+    *$'\xe2\x81'[$'\xa6'-$'\xa9']*) return 0 ;;
+  esac
+  return 1
+}
+
+# Whether $1 can go inside those double quotes, where a quote ends the
+# word, and $, a backtick, a backslash, or an interactive shell's ! is
+# expanded by the shell the command is pasted into.
+pasteable() {
+  ! acts_on_a_terminal "$1" || return 1
+  case "$1" in *[\"\$\`\\!]*) return 1 ;; esac
+}
+
+# Prints the path $1 for a message, home directory as ~. A path a
+# terminal would act on is not printed back to it; its last part is
+# named instead. Only a path under the config directory can be one, and
+# those end in a fixed file name.
+shown() {
+  if acts_on_a_terminal "$1"; then
+    printf '%s in the config directory' "${1##*/}"
+  else
+    printf '%s\n' "$1" | tilde
+  fi
+}
+
+# Older checkouts of this repository, and harnesses written against
+# them, carry a script that parks the user-level CLAUDE.md: moves it
+# into a lock directory beside itself for the length of a batch. While
+# it sits there neither arm loads it, and an arm started for this check
+# would be one more session running without the user's rules, so a lock
+# is reported before any arm starts, and again once they finish, for a
+# park that began meanwhile. Nothing here moves the file: whether its
+# holder is still running is for the reader to judge.
+config="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+# Made absolute so the commands printed below mean the same thing in
+# whatever directory they are pasted.
+case "$config" in /*) ;; *) config="$PWD/$config" ;; esac
+live="$config/CLAUDE.md"
+lock="$config/CLAUDE.md.park-lock"
+parked="$lock/CLAUDE.md"
+exists() { [ -e "$1" ] || [ -L "$1" ]; }
+
+# The value of field $1 in the lock's owner record, or nothing when the
+# value has anything but printable ASCII in it: any process could have
+# written the record, and what it holds is printed to a terminal, where
+# a control sequence acts and other scripts' characters can reorder a
+# line or pass for a quote. Read and matched in the C locale, where the
+# range means those bytes whatever the caller's language, and where sed
+# does not stop at a byte that is not valid text. The locale is set
+# here and in the checks that need it, each for its own match alone.
+owner_field() {
+  local value LC_ALL=C
+  value="$(LC_ALL=C sed -n "s/^$1=//p" "$lock/owner" 2>/dev/null | head -n 1)"
+  case "$value" in *[!\ -~]*) return 0 ;; esac
+  printf '%s' "$value"
+}
+
+# Whether $1 is a process ID: digits and nothing else.
+all_digits() {
+  local LC_ALL=C
+  case "$1" in '' | *[!0-9]*) return 1 ;; esac
+}
+
+# Whether $1 is a start time as ps prints it in the C locale, the form
+# the park script records: "Sun Oct  4 12:00:00 2026".
+start_time_shaped() {
+  local LC_ALL=C
+  case "$1" in
+    [A-Z][a-z][a-z]\ [A-Z][a-z][a-z]\ [\ 0-9][0-9]\ [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\ [0-9][0-9][0-9][0-9]) return 0 ;;
+  esac
+  return 1
+}
+
+# Reports the lock and exits 2. $1 is "before" when no arm has started,
+# and "during" when the lock was found after the arms ran.
+report_park_lock() {
+  local holder who from started restore
+  {
+    # A harness that parked by renaming CLAUDE.md would leave the
+    # user's only copy under this name, so nothing here says to delete
+    # it or to move it over a CLAUDE.md that is in place. A link is
+    # different: removing one never removes what it points at.
+    if [ ! -d "$lock" ] && [ ! -L "$lock" ]; then
+      if [ "$1" = during ]; then
+        say "cannot tell: $(shown "$lock") appeared while the check ran, so what its arms loaded proves nothing."
+      else
+        say "cannot tell: $(shown "$lock") is in the way, so no session was started."
+      fi
+      say "No command is printed for it, since nothing here knows what it holds. If a dry-run batch is running on this machine, wait for it to finish."
+      if [ ! -f "$lock" ]; then
+        # Reading a named pipe would wait for a writer.
+        say "It is neither a file, a directory, nor a link. Look at it with ls -l, and remove it if nothing needs it."
+      elif exists "$live"; then
+        say "It is a file, where a park script makes a directory. A CLAUDE.md is also in place at $(shown "$live"): if this file is another copy of your rules, compare the two and keep what you need before you remove it."
+      else
+        say "It is a file, where a park script makes a directory. Read it, and if it is your CLAUDE.md, move it back to $(shown "$live") yourself. Otherwise remove it."
+      fi
+      exit 2
+    fi
+    if [ "$1" = during ]; then
+      say "cannot tell: a park lock at $(shown "$lock") appeared while the check ran, so what its arms loaded proves nothing."
+    elif exists "$parked"; then
+      say "cannot tell: the user-level CLAUDE.md is parked in $(shown "$lock"), so no session was started."
+    else
+      say "cannot tell: a park lock at $(shown "$lock") holds no parked file, and the check cannot say what a batch that finds it will do, so no session was started."
+    fi
+    # The reader acts on the sentence the record is printed in, so each
+    # field is printed only in the form the park script writes it: a
+    # number, the absolute path of a directory that is there to look
+    # at, and a start time as ps gives it in the C locale. The path
+    # goes in quotes, as something read from a file.
+    holder="$(owner_field pid)"
+    if all_digits "$holder"; then
+      who="process $holder"
+      from="$(owner_field checkout)"
+      case "$from" in
+        *\"*) ;;
+        /*) [ ! -d "$from" ] || who="checkout \"$(shown "$from")\", $who" ;;
+      esac
+      # The start time tells the holder from a later process that was
+      # given the same ID.
+      started="$(owner_field started)"
+      if start_time_shaped "$started"; then who="$who, started $started"; else started=; fi
+      say "A park script from an older checkout of this repository took the lock: $who. If process $holder is still running${started:+ and started then}, wait for it to finish, then run this check again."
+    else
+      say "The lock holds no record of what parked it. If a dry-run batch is running on this machine, wait for it to finish, then run this check again."
+    fi
+    restore=
+    if exists "$parked" && exists "$live"; then
+      say "a CLAUDE.md is also in place at $(shown "$live"). Compare it with the parked copy, keep what you need, delete the parked copy, then clear the lock:"
+    elif exists "$parked"; then
+      say "Otherwise put the file back and clear the lock:"
+      restore=1
+    else
+      say "Otherwise clear the lock:"
+    fi
+    if ! pasteable "$lock"; then
+      say "The config directory's path has a character double quotes cannot carry, so no command is printed. By hand: ${restore:+move CLAUDE.md out of the lock directory into the config directory, }delete owner and owner.tmp from the lock directory, and remove the lock directory."
+    else
+      [ -z "$restore" ] || echo "  mv -n $(quoted "$parked") $(quoted "$live")"
+      if [ -d "$lock" ] && [ ! -L "$lock" ]; then
+        # owner.tmp is what the park script leaves when it is killed
+        # while recording itself.
+        echo "  rm -f $(quoted "$lock/owner") $(quoted "$lock/owner.tmp")"
+        echo "  rmdir $(quoted "$lock")"
+        say "If rmdir says the directory is not empty, look at anything else in it, remove that, and run rmdir again."
+      else
+        # rmdir cannot remove a link.
+        echo "  rm -f $(quoted "$lock")"
+      fi
+    fi
+  } >&2
+  exit 2
+}
+! exists "$lock" || report_park_lock before
 
 # Checked before anything is created, and made absolute because the
 # arms run from the scratch directory.
@@ -246,6 +426,7 @@ plain_pid=
 wait "$flagged_pid" 2>/dev/null
 flagged_status=$?
 flagged_pid=
+! exists "$lock" || report_park_lock during
 
 # Says which arm ($1, in words) failed with status $2, and shows what
 # arm $3 wrote to stderr beneath it.
