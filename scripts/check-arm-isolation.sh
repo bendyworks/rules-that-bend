@@ -7,8 +7,14 @@
 # Usage:
 #   scripts/check-arm-isolation.sh
 #
-#   CLAUDE_BIN  the claude to check (default: claude on PATH)
-#   TMPDIR      where the scratch directory goes (default: /tmp)
+#   CLAUDE_BIN    the claude to check (default: claude on PATH)
+#   TMPDIR        where the scratch directory goes (default: /tmp)
+#   ARM_SETTINGS  a settings file the arm with the flag also gets, for a
+#                 sign-in that comes from your user settings (an
+#                 `apiKeyHelper`), which the flag leaves out. Give it
+#                 the file your batch passes its arms with --settings.
+#                 That arm is a real session on those settings, so
+#                 the file's `apiKeyHelper` and hooks run. Needs ruby.
 #
 # It starts two one-word sessions from a scratch directory, one with the
 # flag and one without, and has Claude Code itself report each
@@ -26,14 +32,14 @@
 #
 # Exit status:
 #   0  the flag isolates: user-level files loaded without it, none with
-#   1  a user-level file loaded with the flag; park as well, with
-#      scripts/park-claude-md.sh
+#   1  a user-level file loaded with the flag, so an arm run with it on
+#      this build reads your own rules; CONTRIBUTING.md says what to do
 #   2  cannot tell, and the message says why: among other reasons, claude
-#      is older than 2.1.101, an arm failed, or nothing user-level loaded
-#      even without the flag
+#      is older than 2.1.101, an arm failed, nothing user-level loaded
+#      even without the flag, or the user-level CLAUDE.md is parked
 #
 # The arm without the flag is what makes a pass mean something: with the
-# user-level CLAUDE.md parked or absent, an arm loads none either way.
+# user-level files absent, an arm loads none either way.
 # A rules file scoped with `paths:` loads only when a session reads a
 # matching file, so it is not seen here; it comes from the same
 # user-level source as the files that are.
@@ -43,9 +49,7 @@
 set -uo pipefail
 
 CLAUDE="${CLAUDE_BIN:-claude}"
-# Named beside this script, so the advice below is right from any
-# directory.
-PARK="$(dirname "$0")/park-claude-md.sh"
+origin="$PWD"
 
 say() { echo "check-arm-isolation: $*"; }
 cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
@@ -62,6 +66,224 @@ case "$resolved" in
   */*) CLAUDE="$PWD/$resolved" ;;
   *) cannot_tell "$CLAUDE is a shell function or builtin here, not a file. Set CLAUDE_BIN to the path of claude." ;;
 esac
+
+# The home directory without a trailing slash, which would keep it from
+# matching the front of any path not built from $HOME itself.
+home_dir() {
+  local home="${HOME:-}"
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
+  printf '%s' "$home"
+}
+
+# Copies stdin with a leading home directory written as ~, so a report
+# pasted into an issue carries no home-directory path.
+tilde() {
+  local line home
+  home="$(home_dir)"
+  while IFS= read -r line; do
+    if [ -n "$home" ]; then
+      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
+# Copies the error output saved in file $1, indented, or says there was
+# none.
+indented() {
+  if [ -s "$1" ]; then sed 's/^/  /' "$1"; else echo "  (no error output)"; fi
+}
+
+# Prints $1 in double quotes for a command the reader will paste, with
+# a leading home directory written as $HOME for the same reason.
+quoted() {
+  local home
+  home="$(home_dir)"
+  if [ -n "$home" ]; then
+    case "$1" in "$home"/*) printf '"$HOME%s"' "${1#"$home"}"; return ;; esac
+  fi
+  printf '"%s"' "$1"
+}
+
+# Whether $1 holds a character a terminal acts on instead of showing: a
+# control character, or one that reorders the text around it. Matched
+# byte by byte in the C locale, so the answer is the same whatever the
+# caller's locale is and whether or not it is installed: the ASCII
+# controls, then the UTF-8 forms of U+0080 to U+009F, U+202A to U+202E,
+# and U+2066 to U+2069. Other text outside ASCII, a name with an accent
+# in it, say, is left alone.
+acts_on_a_terminal() {
+  local LC_ALL=C
+  case "$1" in
+    *[[:cntrl:]]*) return 0 ;;
+    *$'\xc2'[$'\x80'-$'\x9f']*) return 0 ;;
+    *$'\xe2\x80'[$'\xaa'-$'\xae']*) return 0 ;;
+    *$'\xe2\x81'[$'\xa6'-$'\xa9']*) return 0 ;;
+  esac
+  return 1
+}
+
+# Whether $1 can go inside those double quotes, where a quote ends the
+# word, and $, a backtick, a backslash, or an interactive shell's ! is
+# expanded by the shell the command is pasted into.
+pasteable() {
+  ! acts_on_a_terminal "$1" || return 1
+  case "$1" in *[\"\$\`\\!]*) return 1 ;; esac
+}
+
+# Prints the path $1 for a message, home directory as ~. A path a
+# terminal would act on is not printed back to it; its last part is
+# named instead. Only a path under the config directory can be one, and
+# those end in a fixed file name.
+shown() {
+  if acts_on_a_terminal "$1"; then
+    printf '%s in the config directory' "${1##*/}"
+  else
+    printf '%s\n' "$1" | tilde
+  fi
+}
+
+# Older checkouts of this repository, and harnesses written against
+# them, carry a script that parks the user-level CLAUDE.md: moves it
+# into a lock directory beside itself for the length of a batch. While
+# it sits there neither arm loads it, and an arm started for this check
+# would be one more session running without the user's rules, so a lock
+# is reported before any arm starts, and again once they finish, for a
+# park that began meanwhile. Nothing here moves the file: whether its
+# holder is still running is for the reader to judge.
+config="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+# Made absolute so the commands printed below mean the same thing in
+# whatever directory they are pasted.
+case "$config" in /*) ;; *) config="$PWD/$config" ;; esac
+live="$config/CLAUDE.md"
+lock="$config/CLAUDE.md.park-lock"
+parked="$lock/CLAUDE.md"
+exists() { [ -e "$1" ] || [ -L "$1" ]; }
+
+# The value of field $1 in the lock's owner record, or nothing when the
+# value has anything but printable ASCII in it: any process could have
+# written the record, and what it holds is printed to a terminal, where
+# a control sequence acts and other scripts' characters can reorder a
+# line or pass for a quote. Read and matched in the C locale, where the
+# range means those bytes whatever the caller's language, and where sed
+# does not stop at a byte that is not valid text. The locale is set
+# here and in the checks that need it, each for its own match alone.
+owner_field() {
+  local value LC_ALL=C
+  value="$(LC_ALL=C sed -n "s/^$1=//p" "$lock/owner" 2>/dev/null | head -n 1)"
+  case "$value" in *[!\ -~]*) return 0 ;; esac
+  printf '%s' "$value"
+}
+
+# Whether $1 is a process ID: digits and nothing else.
+all_digits() {
+  local LC_ALL=C
+  case "$1" in '' | *[!0-9]*) return 1 ;; esac
+}
+
+# Whether $1 is a start time as ps prints it in the C locale, the form
+# the park script records: "Sun Oct  4 12:00:00 2026".
+start_time_shaped() {
+  local LC_ALL=C
+  case "$1" in
+    [A-Z][a-z][a-z]\ [A-Z][a-z][a-z]\ [\ 0-9][0-9]\ [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\ [0-9][0-9][0-9][0-9]) return 0 ;;
+  esac
+  return 1
+}
+
+# Reports the lock and exits 2. $1 is "before" when no arm has started,
+# and "during" when the lock was found after the arms ran.
+report_park_lock() {
+  local holder who from started restore
+  {
+    # A harness that parked by renaming CLAUDE.md would leave the
+    # user's only copy under this name, so nothing here says to delete
+    # it or to move it over a CLAUDE.md that is in place. A link is
+    # different: removing one never removes what it points at.
+    if [ ! -d "$lock" ] && [ ! -L "$lock" ]; then
+      if [ "$1" = during ]; then
+        say "cannot tell: $(shown "$lock") appeared while the check ran, so what its arms loaded proves nothing."
+      else
+        say "cannot tell: $(shown "$lock") is in the way, so no session was started."
+      fi
+      say "No command is printed for it, since nothing here knows what it holds. If a dry-run batch is running on this machine, wait for it to finish."
+      if [ ! -f "$lock" ]; then
+        # Reading a named pipe would wait for a writer.
+        say "It is neither a file, a directory, nor a link. Look at it with ls -l, and remove it if nothing needs it."
+      elif exists "$live"; then
+        say "It is a file, where a park script makes a directory. A CLAUDE.md is also in place at $(shown "$live"): if this file is another copy of your rules, compare the two and keep what you need before you remove it."
+      else
+        say "It is a file, where a park script makes a directory. Read it, and if it is your CLAUDE.md, move it back to $(shown "$live") yourself. Otherwise remove it."
+      fi
+      exit 2
+    fi
+    if [ "$1" = during ]; then
+      say "cannot tell: a park lock at $(shown "$lock") appeared while the check ran, so what its arms loaded proves nothing."
+    elif exists "$parked"; then
+      say "cannot tell: the user-level CLAUDE.md is parked in $(shown "$lock"), so no session was started."
+    else
+      say "cannot tell: a park lock at $(shown "$lock") holds no parked file, and the check cannot say what a batch that finds it will do, so no session was started."
+    fi
+    # The reader acts on the sentence the record is printed in, so each
+    # field is printed only in the form the park script writes it: a
+    # number, the absolute path of a directory that is there to look
+    # at, and a start time as ps gives it in the C locale. The path
+    # goes in quotes, as something read from a file.
+    holder="$(owner_field pid)"
+    if all_digits "$holder"; then
+      who="process $holder"
+      from="$(owner_field checkout)"
+      case "$from" in
+        *\"*) ;;
+        /*) [ ! -d "$from" ] || who="checkout \"$(shown "$from")\", $who" ;;
+      esac
+      # The start time tells the holder from a later process that was
+      # given the same ID.
+      started="$(owner_field started)"
+      if start_time_shaped "$started"; then who="$who, started $started"; else started=; fi
+      say "A park script from an older checkout of this repository took the lock: $who. If process $holder is still running${started:+ and started then}, wait for it to finish, then run this check again."
+    else
+      say "The lock holds no record of what parked it. If a dry-run batch is running on this machine, wait for it to finish, then run this check again."
+    fi
+    restore=
+    if exists "$parked" && exists "$live"; then
+      say "a CLAUDE.md is also in place at $(shown "$live"). Compare it with the parked copy, keep what you need, delete the parked copy, then clear the lock:"
+    elif exists "$parked"; then
+      say "Otherwise put the file back and clear the lock:"
+      restore=1
+    else
+      say "Otherwise clear the lock:"
+    fi
+    if ! pasteable "$lock"; then
+      say "The config directory's path has a character double quotes cannot carry, so no command is printed. By hand: ${restore:+move CLAUDE.md out of the lock directory into the config directory, }delete owner and owner.tmp from the lock directory, and remove the lock directory."
+    else
+      [ -z "$restore" ] || echo "  mv -n $(quoted "$parked") $(quoted "$live")"
+      if [ -d "$lock" ] && [ ! -L "$lock" ]; then
+        # owner.tmp is what the park script leaves when it is killed
+        # while recording itself.
+        echo "  rm -f $(quoted "$lock/owner") $(quoted "$lock/owner.tmp")"
+        echo "  rmdir $(quoted "$lock")"
+        say "If rmdir says the directory is not empty, look at anything else in it, remove that, and run rmdir again."
+      else
+        # rmdir cannot remove a link.
+        echo "  rm -f $(quoted "$lock")"
+      fi
+    fi
+  } >&2
+  exit 2
+}
+! exists "$lock" || report_park_lock before
+
+# Checked before anything is created, and made absolute because the
+# arms run from the scratch directory.
+arm_settings="${ARM_SETTINGS:-}"
+if [ -n "$arm_settings" ]; then
+  { [ -f "$arm_settings" ] && [ -r "$arm_settings" ]; } ||
+    cannot_tell "could not read the ARM_SETTINGS file $(printf '%s\n' "$arm_settings" | tilde), so no session was started."
+  case "$arm_settings" in /*) ;; *) arm_settings="$PWD/$arm_settings" ;; esac
+  command -v ruby >/dev/null ||
+    cannot_tell "ARM_SETTINGS needs ruby, to merge the file with the hook this check passes its arms, and ruby is not on PATH. No session was started."
+fi
 
 # The arms are stopped before the scratch directory goes, so a check
 # that is interrupted leaves no session running. Each process ID is
@@ -129,28 +351,74 @@ fi
 # is also what a hook that never fired looks like.
 echo "# check-arm-isolation scratch project" > CLAUDE.md || cannot_tell "could not write $scratch/arm/CLAUDE.md."
 
-# Runs one arm named $1 with any further arguments added, logging each
-# instruction file it loads to $scratch/$1.log, one JSON object a line.
-# awk 1 copies the hook's input and ends it with a newline, in one write
-# for a payload this small, so two hooks running at once cannot share a
-# line. exec makes the background job claude itself, so its process ID
-# is the one to stop.
+# Settings that log each instruction file the arm named $1 loads to
+# $scratch/$1.log, one JSON object a line. awk 1 copies the hook's input
+# and ends it with a newline, in one write for a payload this small, so
+# two hooks running at once cannot share a line.
+logging_settings() {
+  printf '%s' "{\"hooks\":{\"InstructionsLoaded\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"awk 1 >> '$scratch/$1.log'\"}]}]}}"
+}
+
+plain_settings="$(logging_settings plain)"
+flagged_settings="$(logging_settings flagged)"
+# Claude Code keeps only the last --settings it is given, so the file
+# cannot ride beside the logging hook as a second one. The hook is added
+# to the file's own settings and the arm gets the two as one file, in
+# the scratch directory, which only this user can read: a process's
+# arguments show in ps to everyone, and the file may hold what should
+# not, so it is written for this user alone. ruby runs from the
+# directory the check was started in, where a version manager picks the
+# ruby the user expects, and exits 3 for a file that is wrong, so a ruby
+# that will not run is told apart. A JSON error is never shown: its
+# message can quote the file.
+if [ -n "$arm_settings" ]; then
+  merged="$scratch/flagged-settings.json"
+  (umask 077 && { cd "$origin" 2>/dev/null || true; } && ruby -rjson -e '
+    logging = JSON.parse(ARGV[1]).dig("hooks", "InstructionsLoaded")
+    begin
+      given = JSON.parse(File.read(ARGV[0]))
+      hooks = given.is_a?(Hash) ? given.fetch("hooks", {}) : nil
+      loads = hooks.is_a?(Hash) ? hooks.fetch("InstructionsLoaded", []) : nil
+      exit 3 unless loads.is_a?(Array)
+      merged = JSON.generate(given.merge("hooks" => hooks.merge("InstructionsLoaded" => logging + loads)))
+    rescue JSON::JSONError, EncodingError, SystemCallError
+      exit 3
+    end
+    File.write(ARGV[2], merged)
+    ' "$arm_settings" "$flagged_settings" "$merged") 2> "$scratch/merge.err"
+  merge_status=$?
+  case "$merge_status" in
+    0) flagged_settings="$merged" ;;
+    3) cannot_tell "the ARM_SETTINGS file $(printf '%s\n' "$arm_settings" | tilde) cannot be used, so no session was started. It must be a JSON object, and its hooks, when it has any, an object whose InstructionsLoaded is a list." ;;
+    *)
+      {
+        say "cannot tell: ruby could not merge the ARM_SETTINGS file with the hook this check passes its arms (it exited $merge_status), so no session was started:"
+        indented "$scratch/merge.err"
+      } >&2
+      exit 2
+      ;;
+  esac
+fi
+
+# Runs one arm named $1 on the settings in $2, JSON or a file's path,
+# with any further arguments added. exec makes the background job
+# claude itself, so its process ID is the one to stop.
 arm() {
-  local name="$1" hook
-  shift
-  hook="{\"hooks\":{\"InstructionsLoaded\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"awk 1 >> '$scratch/$name.log'\"}]}]}}"
+  local name="$1" settings="$2"
+  shift 2
   CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 exec "$CLAUDE" -p "Reply with the single word ready." \
-    --model haiku --tools "" --strict-mcp-config --no-session-persistence --settings "$hook" "$@" \
+    --model haiku --tools "" --strict-mcp-config --no-session-persistence --settings "$settings" "$@" \
     > /dev/null 2> "$scratch/$name.err" < /dev/null
 }
 
-# The two arms run side by side, so a CLAUDE.md parked or restored
-# partway through is far likelier to be there for both or for neither.
+# The two arms run side by side, so a user-level file that appears or
+# goes partway through is far likelier to be there for both or for
+# neither.
 # bash's own report of an arm killed by a signal is silenced; the status
 # says as much.
-arm plain &
+arm plain "$plain_settings" &
 plain_pid=$!
-arm flagged --setting-sources project &
+arm flagged "$flagged_settings" --setting-sources project &
 flagged_pid=$!
 wait "$plain_pid" 2>/dev/null
 plain_status=$?
@@ -158,17 +426,21 @@ plain_pid=
 wait "$flagged_pid" 2>/dev/null
 flagged_status=$?
 flagged_pid=
+! exists "$lock" || report_park_lock during
 
 # Says which arm ($1, in words) failed with status $2, and shows what
 # arm $3 wrote to stderr beneath it.
 arm_failed() {
   {
     say "cannot tell: the arm $1 exited $2:"
-    if [ -s "$scratch/$3.err" ]; then sed 's/^/  /' "$scratch/$3.err"; else echo "  (no error output)"; fi
+    indented "$scratch/$3.err"
   } >&2
   exit 2
 }
 [ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
+if [ "$flagged_status" -ne 0 ] && [ -z "$arm_settings" ]; then
+  say "the arm with the flag failed and the one without it did not. If your sign-in comes from your user settings, which the flag leaves out, put it in a settings file and set ARM_SETTINGS to that file." >&2
+fi
 [ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
 
 # The paths of the files of kind $1 (User or Project) in arm $2's log,
@@ -180,18 +452,6 @@ loaded() {
     sed -n -E 's/.*"file_path": *"(([^"\\]|\\.)*)".*/\1/p'
 }
 
-# Copies stdin with a leading home directory written as ~, so a report
-# pasted into an issue carries no home-directory path.
-tilde() {
-  local line home="${HOME:-}"
-  while IFS= read -r line; do
-    if [ -n "$home" ]; then
-      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
-    fi
-    printf '%s\n' "$line"
-  done
-}
-
 plain_files="$(loaded User plain)"
 leaked="$(loaded User flagged)"
 
@@ -199,7 +459,7 @@ if [ -n "$leaked" ]; then
   {
     say "--setting-sources project does not isolate an arm on $version. These user-level files loaded with it:"
     printf '%s\n' "$leaked" | tilde | sed 's/^/  /'
-    say "keep the flag and wrap the batch in $PARK as well; see CONTRIBUTING.md."
+    say "run no batch that relies on the flag on this build; see \"When the flag will not do\" in CONTRIBUTING.md."
   } >&2
   exit 1
 fi
@@ -215,7 +475,7 @@ if [ -z "$(loaded Project plain)" ]; then
 fi
 
 if [ -z "$plain_files" ]; then
-  cannot_tell "no user-level instruction file loaded even without the flag. Either this machine has none, so there is nothing to keep out, or CLAUDE.md is parked right now: check $PARK --status."
+  cannot_tell "no user-level instruction file loaded even without the flag. This machine has none for the flag to keep out, so the check has nothing to tell by."
 fi
 
 say "--setting-sources project isolates an arm on $version: $(printf '%s\n' "$plain_files" | wc -l | tr -d ' ') user-level instruction file(s) loaded without the flag, none with it."
