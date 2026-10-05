@@ -40,7 +40,10 @@ module Fixtures
     # exactly where they are not.
     UPSTREAM = 'github.com/fixture/upstream'
 
-    Record = Struct.new(:number, :state, :branch, :head, :base, :cross_repo)
+    # merge_commit is the commit the pull request merged by, where a
+    # record needs one: the backup rule reads it to tell whether a pull
+    # request based on some other branch reached the default one.
+    Record = Struct.new(:number, :state, :branch, :head, :base, :cross_repo, :merge_commit)
 
     # One record per row of expected.txt that needs the forge to decide
     # it, plus the branches the content check settles first -- those are
@@ -91,21 +94,64 @@ module Fixtures
       Record.new(202, 'MERGED', 'gf-landed-on-main', 'gf-landed-on-main', 'main', false)
     ].freeze
 
+    # BackupRepo's records: the pull requests of the story branches its
+    # backups were taken from. Two records name a branch under backup/
+    # itself, the open one and the feature branch's own merged one;
+    # asked about its own name every other has no pull request at all.
+    BACKUP_RECORDS = [
+      Record.new(120, 'MERGED', 'w-squashed', 'refs/fixture/w-squashed', 'main', false),
+      Record.new(121, 'MERGED', 'x-grew', 'refs/fixture/x-grew', 'main', false),
+      Record.new(122, 'MERGED', 'y-conflicted', 'refs/fixture/y-conflicted', 'main', false),
+      Record.new(123, 'MERGED', 'z-differs', 'refs/fixture/z-differs', 'main', false),
+      Record.new(124, 'MERGED', 'aa-layer', 'refs/fixture/aa-layer', 'aa-lower', false,
+                 'refs/fixture/aa-layer-merge'),
+      # Merged by a commit the default branch does not contain: the
+      # story's own head stands in for a merge commit on a release
+      # branch.
+      Record.new(125, 'MERGED', 'ab-elsewhere', 'refs/fixture/ab-elsewhere', 'release/2.0',
+                 false, 'refs/fixture/ab-elsewhere'),
+      Record.new(126, 'MERGED', 'ac-absent', UNKNOWN_SHA, 'main', false),
+      Record.new(127, 'MERGED', 'ad-fork', 'refs/fixture/ad-fork', 'main', true),
+      Record.new(128, 'CLOSED', 'ae-closed', 'refs/fixture/ae-closed', 'main', false),
+      Record.new(129, 'MERGED', 'af-plural', 'refs/fixture/af-plural', 'main', false),
+      Record.new(130, 'MERGED', 'ah-reverted', 'refs/fixture/ah-reverted', 'main', false),
+      Record.new(131, 'MERGED', 'ai-open', 'refs/fixture/ai-open', 'main', false),
+      Record.new(132, 'OPEN', 'backup/ai-open', 'backup/ai-open', 'main', false),
+      # An absent head and one with a different tree come first, so a
+      # rule that needs every head present or matching, or reads only
+      # the first, keeps the backup.
+      Record.new(141, 'MERGED', 'aj-two', UNKNOWN_SHA, 'main', false),
+      Record.new(133, 'MERGED', 'aj-two', 'refs/fixture/z-differs', 'main', false),
+      Record.new(134, 'MERGED', 'aj-two', 'refs/fixture/aj-two', 'main', false),
+      Record.new(135, 'MERGED', 'al-ancestor', 'refs/fixture/al-ancestor', 'main', false),
+      Record.new(136, 'MERGED', 'backup/an-own-job', 'backup/an-own-job', 'main', false),
+      Record.new(137, 'MERGED', 'an', UNKNOWN_SHA, 'main', false),
+      Record.new(138, 'CLOSED', 'ao-v2', 'refs/fixture/ao', 'main', false),
+      Record.new(139, 'MERGED', 'ao', 'refs/fixture/ao', 'main', false),
+      Record.new(140, 'MERGED', 'ap-merge-absent', 'refs/fixture/ap-merge-absent', 'ap-lower',
+                 false, UNKNOWN_SHA)
+    ].freeze
+
     # The same pull requests as a clone of a fork actually sees them.
     # Every one of your own goes from your fork to the upstream project,
     # so GitHub reports all of them cross-repository -- which is the
     # whole reason --repo has to stand the fork clause down, and the
     # reason reusing RECORDS here graded the fork arm against records no
     # fork clone can produce.
-    FORK_RECORDS = RECORDS.map do |record|
+    AS_A_FORK_SEES = lambda do |record|
       Record.new(record.number, record.state, record.branch, record.head,
-                 record.base, true)
-    end.freeze
+                 record.base, true, record.merge_commit)
+    end
 
-    # A rev already spelled as a full object name is taken as written;
-    # anything else is resolved through refs/heads, never as a bare
-    # name, because a bare name resolves through refs/tags first and the
-    # fixture builds a tag that shadows a branch.
+    FORK_RECORDS = RECORDS.map(&AS_A_FORK_SEES).freeze
+    BACKUP_FORK_RECORDS = BACKUP_RECORDS.map(&AS_A_FORK_SEES).freeze
+
+    # A rev already spelled as a full object name is taken as written,
+    # and a full refname is resolved as given, which is how a record
+    # reaches a story head kept under refs/fixture/. Anything else is
+    # resolved through refs/heads, never as a bare name, because a bare
+    # name resolves through refs/tags first and the fixture builds a tag
+    # that shadows a branch.
     OBJECT_NAME = /\A[0-9a-f]{40}\z/
 
     module_function
@@ -125,12 +171,12 @@ module Fixtures
     # and only one of them holds anything, which is the shape that
     # makes asking the wrong one an answer rather than an error --
     # and an answer of [] is what a sweep reads as "no pull request".
-    def fork_data(repo)
-      { CWD => [] }.merge(data(repo, key: UPSTREAM, records: FORK_RECORDS))
+    def fork_data(repo, records: FORK_RECORDS)
+      { CWD => [] }.merge(data(repo, key: UPSTREAM, records: records))
     end
 
-    def write_fork(repo, path)
-      File.write(path, JSON.pretty_generate(fork_data(repo)))
+    def write_fork(repo, path, records: FORK_RECORDS)
+      File.write(path, JSON.pretty_generate(fork_data(repo, records: records)))
       path
     end
 
@@ -140,11 +186,13 @@ module Fixtures
         'headRefName' => record.branch,
         'headRefOid' => resolve(repo, record.head),
         'baseRefName' => record.base,
-        'isCrossRepository' => record.cross_repo }
+        'isCrossRepository' => record.cross_repo,
+        'mergeCommit' => record.merge_commit && { 'oid' => resolve(repo, record.merge_commit) } }
     end
 
     def resolve(repo, rev)
       return rev if rev.match?(OBJECT_NAME)
+      return repo.git('rev-parse', rev).strip if rev.start_with?('refs/')
 
       repo.git('rev-parse', "refs/heads/#{rev}").strip
     end

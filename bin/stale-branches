@@ -9,10 +9,12 @@
 # ref, working tree, or index is touched. (The content check does write
 # a tree object into the repository's object store, which is
 # unreferenced and reclaimed by the next gc -- "touches nothing" would
-# be a nice claim and is not a true one.) With --delete it removes
-# exactly the branches that same report marks DELETE. The judgment of
-# whether a keeper deserves a closer look is the caller's; this tool's
-# job is to make the evidence explicit and to refuse to guess.
+# be a nice claim and is not a true one. In a partial clone git also
+# downloads any object a check asks for and the clone lacks.) With
+# --delete it removes exactly the branches that same report marks
+# DELETE. The judgment of whether a keeper deserves a closer look is
+# the caller's; this tool's job is to make the evidence explicit and
+# to refuse to guess.
 #
 # Stdlib-only (no gems). Run with --help for usage.
 #
@@ -101,6 +103,11 @@ module StaleBranches
   # something; the sweep is not the tool that second-guesses that.
   BACKUP_SUFFIX = '-backup'
 
+  # The prefix a backup taken before a rewrite carries, ahead of the
+  # name of the branch it backs up. Unlike the suffix above, it marks a
+  # branch meant to go once the branch it names has merged.
+  BACKUP_PREFIX = 'backup/'
+
   # Where `merge-tree --write-tree` arrived. Before it, merge-tree was
   # a different tool taking three arguments, so the command below does
   # not fail in some recognizable way -- it fails the way a conflict
@@ -180,7 +187,7 @@ module StaleBranches
   # A bare object name, and the message git uses for two histories with
   # no commit in common. Both are how merge-tree distinguishes a
   # question it answered from one it could not attempt.
-  OBJECT_NAME = /\A[0-9a-f]{40,64}\z/
+  OBJECT_NAME = /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   UNMERGEABLE = /unrelated histories/
 
   # What became of one branch the report marked. `deleted` is decided
@@ -461,6 +468,48 @@ module StaleBranches
     trust_forks ? merged : merged.select { |record| record['isCrossRepository'] == false }
   end
 
+  # The branches a backup's name may be saying it backs up, most
+  # specific first: everything after backup/, then each shorter form
+  # cut at a hyphen, because a label follows the branch name
+  # (backup/<branch>-pre-squash) and nothing in the name says where
+  # one ends and the other begins. Empty for any other branch.
+  #
+  # A wrong guess costs a query and decides nothing. The name only
+  # finds a pull request; the backup is cleared on its tree.
+  def backed_up_names(branch)
+    return [] unless branch.start_with?(BACKUP_PREFIX)
+
+    words = branch.delete_prefix(BACKUP_PREFIX).split('-', -1)
+    words.length.downto(1).map { |count| words.first(count).join('-') }.reject(&:empty?)
+  end
+
+  # Which of a branch's pull requests put its work on the default
+  # branch, for the backup rule. The first two clauses are proof (b)'s
+  # own. The third is wider than proof (b)'s: a merged layer of a stack
+  # keeps the layer below as its base for good, so a base that is not
+  # the default branch counts when the commit that merged it is one the
+  # default branch contains. The block answers that for a commit.
+  #
+  # mergeCommit is the forge's text on its way to a git argument, so
+  # anything that is not a full object name is dropped here and the
+  # block never sees it.
+  def landed_records(records, default:, trust_forks: false)
+    from_this_repository(merged_records(records), trust_forks: trust_forks).select do |record|
+      next true if record['baseRefName'] == default
+
+      merge_commit = record['mergeCommit']
+      commit = merge_commit['oid'] if merge_commit.is_a?(Hash)
+      object_name?(commit) && yield(commit)
+    end
+  end
+
+  # What the forge reports as a commit is held to this before it is
+  # passed to git, where a ref name or a revision expression would
+  # resolve to something the forge never meant.
+  def object_name?(text)
+    text.is_a?(String) && text.match?(OBJECT_NAME)
+  end
+
   # Compared without regard to case. gh spells these in capitals today,
   # and the failure a case-sensitive test would produce is silent: every
   # state goes unrecognized, which reads as closed and keeps every
@@ -631,6 +680,14 @@ module StaleBranches
       sha("#{ref}^{tree}")
     end
 
+    # Whether `head` carries what `ref` holds: every commit on `ref` is
+    # one of its ancestors, or a commit it has and `ref` lacks has the
+    # tree `ref` has.
+    def carries?(head, ref)
+      ancestor?(ref, head) ||
+        lines('log', '--format=%T', head, '--not', ref).include?(tree_of(ref))
+    end
+
     # nil rather than a failure where the ref is absent or is not
     # symbolic, both of which are ordinary states rather than problems.
     def symbolic_ref(name)
@@ -777,8 +834,9 @@ module StaleBranches
     # does not know, so this list is checked by the first query rather
     # than by a verdict that quietly went wrong. headRefName is read
     # only to confirm the reply is about the branch that was asked
-    # about; the other four are what the verdict turns on.
-    FIELDS = %w[state headRefName headRefOid baseRefName isCrossRepository].freeze
+    # about, and mergeCommit only by the backup rule; the other four
+    # are what the verdict turns on.
+    FIELDS = %w[state headRefName headRefOid baseRefName isCrossRepository mergeCommit].freeze
 
     # gh truncates at 30 by default and says nothing when it does. A
     # branch with more pull requests than this is not a shape worth
@@ -1073,9 +1131,9 @@ module StaleBranches
         # either, the stage below reports the conflict as the reason.
         next unless merged
         next ['KEEP', 'kept:not-landed'] unless tree == landed
-        next ['KEEP', 'proof-a:tip-only'] unless history_landed?(ref, landed)
+        next ['DELETE', 'proof-a:content-landed'] if history_landed?(ref, landed)
 
-        ['DELETE', 'proof-a:content-landed']
+        backup_verdict(branch) || ['KEEP', 'proof-a:tip-only']
       end
     end
 
@@ -1104,9 +1162,14 @@ module StaleBranches
         records = @forge.pull_requests(branch)
         next ['KEEP', 'proof-a:conflict'] if records.nil?
 
-        StaleBranches.pull_request_verdict(records, tip: @git.sha("refs/heads/#{branch}"),
-                                                    default: @default.name,
-                                                    trust_forks: @forge.named_repo?)
+        own = StaleBranches.pull_request_verdict(records, tip: @git.sha("refs/heads/#{branch}"),
+                                                          default: @default.name,
+                                                          trust_forks: @forge.named_repo?)
+        # A branch its own merged pull request clears is cleared on
+        # that, the stronger evidence, whatever its name suggests.
+        next own if own.first == 'DELETE'
+
+        backup_verdict(branch) || own
       end
     end
 
@@ -1125,6 +1188,61 @@ module StaleBranches
       @git.lines('rev-list', "#{@measured_ref}..#{ref}").all? do |commit|
         tree, merged = @git.merge_tree(@measured_ref, commit)
         merged && tree == landed
+      end
+    end
+
+    # The backup rule: what the pull requests of the branch a backup was
+    # taken from say about the backup, or nil where they say nothing and
+    # the row keeps the reason it would have had: not a backup, the
+    # forge unread, or no pull request for that branch that reached the
+    # default branch.
+    #
+    # A backup is taken before a squash, a reword or a rebase, and the
+    # commits it holds are the ones that rewrite replaced. Once the
+    # rewritten branch has merged, a backup whose tree is one that
+    # branch held has nothing left to restore, and it is deleted on
+    # that. This is weaker evidence than proof (b) has and is meant to
+    # be: no commit on the backup is an ancestor of anything the forge
+    # keeps, so the commits themselves, and whatever a middle one held
+    # that the last did not, go with the branch. Discarding those is
+    # what the rewrite was for.
+    #
+    # Called only for a branch whose tip the content check found adds
+    # nothing, or could not answer for. One it found adds something is
+    # kept before this is reached, whatever a pull request says -- a
+    # backup of work the default branch later reverted is that case
+    # when the merge runs cleanly. Where it conflicts instead, the
+    # backup is cleared on its pull request as any branch is by proof
+    # (b), which reads no later history either.
+    def backup_verdict(branch)
+      heads = merged_heads_of_the_branch_backed_up(branch)
+      return if heads.nil?
+
+      present = heads.select { |head| StaleBranches.object_name?(head) && @git.object?(head) }
+      return ['KEEP', 'proof-b:backup-head-absent'] if present.empty?
+
+      ref = "refs/heads/#{branch}"
+      carried = present.any? { |head| @git.carries?(head, ref) }
+      carried ? ['DELETE', 'proof-b:backup-landed'] : ['KEEP', 'proof-b:backup-differs']
+    end
+
+    # The heads of the first candidate name with a pull request that
+    # reached the default branch. A longer name that only a closed pull
+    # request answers to is passed over, since the label after a branch's
+    # name can itself be some other branch's name. nil where no candidate
+    # has one, which is also what an unread forge comes to.
+    def merged_heads_of_the_branch_backed_up(branch)
+      StaleBranches.backed_up_names(branch).each do |name|
+        reached = records_that_reached_the_default_branch(@forge.pull_requests(name) || [])
+        return reached.map { |record| record['headRefOid'] } unless reached.empty?
+      end
+      nil
+    end
+
+    def records_that_reached_the_default_branch(records)
+      StaleBranches.landed_records(records, default: @default.name,
+                                            trust_forks: @forge.named_repo?) do |commit|
+        @git.object?(commit) && @git.ancestor?(commit, @measured_ref)
       end
     end
 

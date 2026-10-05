@@ -36,12 +36,15 @@ module Fixtures
     #   backup/ac-absent          the merged head is in no local object
     #   backup/ad-fork            the merged pull request is a fork's
     #   backup/ae-closed          the pull request closed unmerged
-    #   backup/aj-two             two merged pull requests, and only the
-    #                             older head is one this clone holds
+    #   backup/aj-two             three merged pull requests: one head
+    #                             absent, one with another tree, and
+    #                             one with the backup's
+    #   backup/ao-v2              labelled v2, and a pull request that
+    #                             closed unmerged is named ao-v2: the
+    #                             merged one belongs to ao
+    #   backup/ap-merge-absent    a stack layer whose merge commit is in
+    #                             no local object
     #   backups/af-plural         not under backup/ at all
-    #   backup/ak-clean           one commit, so nothing on it is the
-    #                             only copy of anything and the content
-    #                             check clears it with no pull request
     BACKUPS = {
       'backup/w-squashed' => 'w-squashed',
       'backup/x-grew-pre-squash' => 'x-grew',
@@ -52,6 +55,8 @@ module Fixtures
       'backup/ad-fork' => 'ad-fork',
       'backup/ae-closed' => 'ae-closed',
       'backup/aj-two' => 'aj-two',
+      'backup/ao-v2' => 'ao',
+      'backup/ap-merge-absent' => 'ap-merge-absent',
       'backups/af-plural' => 'af-plural'
     }.freeze
 
@@ -65,7 +70,21 @@ module Fixtures
     # any pull request is read.
     BACKUP_REVERTED = 'backup/ah-reverted'
 
+    # One commit, so nothing on it is the only copy of anything and the
+    # content check clears it with no pull request.
     BACKUP_ONE_COMMIT = 'backup/ak-clean'
+
+    # The rewrite never happened: the story branch carried on from the
+    # backup's tip, added a commit, and was squash-merged. Every commit
+    # on the backup is in the merged head, and its tree is no commit's
+    # that the head has and the backup lacks.
+    BACKUP_NEVER_REWRITTEN = 'backup/al-ancestor'
+
+    # A feature branch that happens to live under backup/, with a merged
+    # pull request of its own at this tip. Cut at a hyphen its name
+    # reads as a backup of `an`, whose pull request merged at a head
+    # this clone lacks.
+    BRANCH_UNDER_THE_PREFIX = 'backup/an-own-job'
 
     # A backup somebody opened a pull request on, pushed and left on the
     # remote as a branch with an open pull request has to be.
@@ -95,18 +114,14 @@ module Fixtures
       build_backup(BACKUP_REVERTED, 'ah-reverted')
       git('revert', '--no-edit', 'HEAD')
       build_backup(BACKUP_WITH_OPEN_PR, 'ai-open')
-    end
-
-    def build_one_commit_backup
-      git('checkout', '-q', 'main')
-      git('checkout', '-qb', BACKUP_ONE_COMMIT)
-      commit('ak-clean.txt', 'ak', 'ak-clean work')
-      squash_into('main', BACKUP_ONE_COMMIT, 'squash ak-clean')
+      build_never_rewritten
+      build_branch_under_the_prefix
     end
 
     # A backup, the story branch squashed from it, and the squash-merge
     # of that story into the default branch. Leaves HEAD on the default
-    # branch at the merge.
+    # branch at the merge, which refs/fixture/<story>-merge points at for
+    # the pull request record of a story that merged as a stack layer.
     def build_backup(backup, story)
       git('checkout', '-q', 'main')
       git('checkout', '-qb', backup)
@@ -136,6 +151,42 @@ module Fixtures
     def stage(path, contents)
       File.write(File.join(work, path), "#{contents}\n")
       git('add', path)
+    end
+
+    def build_one_commit_backup
+      git('checkout', '-q', 'main')
+      git('checkout', '-qb', BACKUP_ONE_COMMIT)
+      commit('ak-clean.txt', 'ak', 'ak-clean work')
+      squash_into('main', BACKUP_ONE_COMMIT, 'squash ak-clean')
+    end
+
+    def build_never_rewritten
+      git('checkout', '-q', 'main')
+      git('checkout', '-qb', BACKUP_NEVER_REWRITTEN)
+      write_lines('al-ancestor.txt', %w[l1 DRAFT l3])
+      git('add', 'al-ancestor.txt')
+      git('commit', '-qm', 'al-ancestor draft')
+      write_lines('al-ancestor.txt', %w[l1 FINAL l3])
+      git('commit', '-qam', 'al-ancestor final')
+      git('checkout', '-qb', 'al-ancestor')
+      commit('al-later.txt', 'added after the backup', 'al-ancestor later work')
+      git('update-ref', 'refs/fixture/al-ancestor', 'HEAD')
+      squash_into('main', 'al-ancestor', 'squash al-ancestor')
+      git('branch', '-q', '-D', 'al-ancestor')
+    end
+
+    # Built the way BranchRepo forces a branch to the pull-request
+    # stage: squash-merge, then edit the same lines on the default
+    # branch, so that merging the branch back conflicts.
+    def build_branch_under_the_prefix
+      git('checkout', '-q', 'main')
+      git('checkout', '-qb', BRANCH_UNDER_THE_PREFIX)
+      write_lines('an-own-job.txt', %w[l1 l2 l3])
+      git('add', 'an-own-job.txt')
+      git('commit', '-qm', 'an-own-job work')
+      squash_into('main', BRANCH_UNDER_THE_PREFIX, 'squash an-own-job')
+      write_lines('an-own-job.txt', ['l1', 'EDITED-LATER', 'l3'])
+      git('commit', '-qam', "main edits an-own-job's lines")
     end
   end
 end
