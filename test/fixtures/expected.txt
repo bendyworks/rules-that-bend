@@ -36,6 +36,24 @@
 #                          reachable from nothing
 #   proof-a:conflict       that merge conflicts, so the check cannot say
 #                          either way, and nothing offline can clear it
+#   proof-b:backup-landed  a branch under backup/, named for the branch
+#                          it backs up with an optional -label after
+#                          it, whose tree is one the merged pull request
+#                          for that branch held: its head's, or that of
+#                          a commit the head has and the backup does
+#                          not. The pull request reached the default
+#                          branch, by being based on it or by a merge
+#                          commit the default branch contains, and did
+#                          not come from a fork. Decided for a backup
+#                          the content check called tip-only or could
+#                          not answer for
+#   proof-b:backup-differs such a pull request exists and none of those
+#                          trees is the backup's, so the backup holds
+#                          something that did not merge
+#   proof-b:backup-head-absent
+#                          such a pull request exists and this clone
+#                          holds none of the head commits, so nothing
+#                          could be compared
 #   proof-b:pr-merged      a merged pull request, based on the default
 #                          branch, not from a fork, whose head is this
 #                          branch's tip

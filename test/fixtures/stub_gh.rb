@@ -216,7 +216,8 @@ module StubGh
   # guarantees. This switch is how the filter gets a subject.
   MISMATCHED = {
     'number' => 999, 'state' => 'MERGED', 'headRefName' => 'a-branch-nobody-asked-about',
-    'headRefOid' => '9' * 40, 'baseRefName' => 'main', 'isCrossRepository' => false
+    'headRefOid' => '9' * 40, 'baseRefName' => 'main', 'isCrossRepository' => false,
+    'mergeCommit' => nil
   }.freeze
 
   def mismatched_records

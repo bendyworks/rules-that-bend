@@ -28,6 +28,7 @@
 # close.
 
 require_relative 'cli_test_case'
+require_relative 'fixtures/backup_repo'
 require_relative 'fixtures/branch_repo'
 require_relative 'fixtures/gitflow_repo'
 require_relative 'fixtures/forge_stub'
@@ -51,6 +52,8 @@ FLAT_FORGE_ORACLE = File.expand_path('fixtures/expected.txt', __dir__)
 FLAT_DEGRADED_ORACLE = File.expand_path('fixtures/expected-degraded.txt', __dir__)
 GITFLOW_ORACLE = File.expand_path('fixtures/gitflow-expected-degraded.txt', __dir__)
 GITFLOW_FORGE_ORACLE = File.expand_path('fixtures/gitflow-expected.txt', __dir__)
+BACKUP_ORACLE = File.expand_path('fixtures/backup-expected-degraded.txt', __dir__)
+BACKUP_FORGE_ORACLE = File.expand_path('fixtures/backup-expected.txt', __dir__)
 
 class OracleTableTest < Minitest::Test
   FLAT = FLAT_DEGRADED_ORACLE
@@ -59,7 +62,7 @@ class OracleTableTest < Minitest::Test
   GITFLOW_FORGE = GITFLOW_FORGE_ORACLE
 
   # Every table, for the guarantees that hold of all of them.
-  ALL = [FLAT_FORGE, FLAT, GITFLOW_FORGE, GITFLOW].freeze
+  ALL = [FLAT_FORGE, FLAT, GITFLOW_FORGE, GITFLOW, BACKUP_FORGE_ORACLE, BACKUP_ORACLE].freeze
 
   def test_the_flat_table_lists_exactly_the_branches_its_fixture_builds
     assert_tables_agree(Fixtures::BranchRepo, FLAT, 'flat')
@@ -78,6 +81,14 @@ class OracleTableTest < Minitest::Test
 
   def test_the_gitflow_forge_table_lists_exactly_the_branches_its_fixture_builds
     assert_tables_agree(Fixtures::GitflowRepo, GITFLOW_FORGE, 'gitflow')
+  end
+
+  def test_the_backup_table_lists_exactly_the_branches_its_fixture_builds
+    assert_tables_agree(Fixtures::BackupRepo, BACKUP_ORACLE, 'backup')
+  end
+
+  def test_the_backup_forge_table_lists_exactly_the_branches_its_fixture_builds
+    assert_tables_agree(Fixtures::BackupRepo, BACKUP_FORGE_ORACLE, 'backup')
   end
 
   # Both tables must demand a deletion from EVERY stage that can reach
@@ -229,6 +240,14 @@ class FixtureShapeTest < Minitest::Test
     proof-b:pr-closed proof-b:pr-from-fork proof-b:pr-other-base proof-b:no-pr
   ].freeze
 
+  # The reasons the backup rule decides. They are a claim about the
+  # canned records and the repository together, and about the records
+  # of a branch other than the row's own, so neither check above can
+  # grade them.
+  BACKUP_REASONS = %w[
+    proof-b:backup-landed proof-b:backup-differs proof-b:backup-head-absent
+  ].freeze
+
   # The rows that say "protected" are graded elsewhere; these are the ones
   # that say what git will report, and they are the rows a wrong fixture
   # would silently invalidate. proof-a:conflict matters most: it is the
@@ -243,7 +262,8 @@ class FixtureShapeTest < Minitest::Test
   def test_every_reason_is_either_graded_here_or_decided_by_a_name
     name_decided = Fixtures::Oracle::REASONS
                    .select { |reason| Fixtures::Oracle.stage(reason) == 'protected' } - FORGE_REASONS
-    ungraded = Fixtures::Oracle::REASONS - name_decided - EVIDENCE_REASONS - FORGE_REASONS
+    ungraded = Fixtures::Oracle::REASONS - name_decided - EVIDENCE_REASONS - FORGE_REASONS -
+               BACKUP_REASONS
 
     assert_empty ungraded, 'these reasons are checked against git or the records by nothing'
   end
@@ -262,6 +282,51 @@ class FixtureShapeTest < Minitest::Test
     assert_forge_reasons_match(Fixtures::GitflowRepo, GITFLOW_FORGE_ORACLE,
                                Fixtures::GitflowRepo::DEFAULT_BRANCH,
                                Fixtures::PullRequests::GITFLOW_RECORDS, 'gitflow')
+  end
+
+  def test_the_backup_forge_tables_forge_reasons_are_what_the_canned_records_say
+    assert_forge_reasons_match(Fixtures::BackupRepo, BACKUP_FORGE_ORACLE, 'main',
+                               Fixtures::PullRequests::BACKUP_RECORDS, 'backup')
+  end
+
+  def test_the_backup_tables_evidence_reasons_are_what_git_reports
+    assert_evidence_matches(Fixtures::BackupRepo, BACKUP_ORACLE, 'main', 'backup')
+    assert_evidence_matches(Fixtures::BackupRepo, BACKUP_FORGE_ORACLE, 'main', 'backup')
+  end
+
+  # The rows the rule declines are graded here too, as proof-a:tip-only:
+  # git says that of them whatever the records hold, so only this shows
+  # that no record qualifies. The test below shows the tree would have.
+  def test_the_backup_tables_backup_reasons_are_what_the_records_and_git_say
+    graded = BACKUP_REASONS + ['proof-a:tip-only']
+    rows = Fixtures::Oracle.load(BACKUP_FORGE_ORACLE).select { |row| graded.include?(row.reason) }
+    assert_empty graded - rows.map(&:reason)
+
+    with_fixture(Fixtures::BackupRepo, 'backup') do |repo|
+      records = Fixtures::PullRequests.data(repo, records: Fixtures::PullRequests::BACKUP_RECORDS)
+                                      .fetch(Fixtures::PullRequests::CWD)
+      rows.each do |row|
+        assert_equal row.reason, backup_reason_for(repo, records, row.branch, 'main'),
+                     "the table says #{row.branch} is #{row.reason}, the records and git disagree"
+      end
+    end
+  end
+
+  # A declined backup whose tree had drifted from its story's head would
+  # be kept for two reasons, and its row would stop saying which clause
+  # keeps it.
+  def test_every_backup_the_rule_declines_has_the_tree_its_story_merged_with
+    declined = Fixtures::Oracle.load(BACKUP_FORGE_ORACLE)
+                               .select { |row| row.reason == 'proof-a:tip-only' }.map(&:branch)
+
+    with_fixture(Fixtures::BackupRepo, 'backup') do |repo|
+      declined.each do |branch|
+        story = Fixtures::BackupRepo::BACKUPS.fetch(branch)
+        assert_equal repo.git('rev-parse', "refs/fixture/#{story}^{tree}"),
+                     repo.git('rev-parse', "refs/heads/#{branch}^{tree}"),
+                     "#{branch} no longer has the tree #{story} merged with"
+      end
+    end
   end
 
   def test_the_flat_tables_evidence_reasons_are_what_git_reports
@@ -463,6 +528,51 @@ class FixtureShapeTest < Minitest::Test
 
     tip = repo.git('rev-parse', "refs/heads/#{branch}").strip
     on_default.any? { |record| record['headRefOid'] == tip } ? 'proof-b:pr-merged' : 'proof-b:pr-tip-differs'
+  end
+
+  # Reimplements the header's documented backup rule against the canned
+  # records and the built repository.
+  def backup_reason_for(repo, records, branch, default)
+    return 'proof-a:tip-only' unless branch.start_with?('backup/')
+
+    heads = qualifying_records(repo, records, branch, default).map { |record| record['headRefOid'] }
+    return 'proof-a:tip-only' if heads.empty?
+
+    present = heads.select { |head| repo.git_succeeds?('cat-file', '-e', "#{head}^{commit}") }
+    return 'proof-b:backup-head-absent' if present.empty?
+
+    ref = "refs/heads/#{branch}"
+    tree = repo.git('rev-parse', "#{ref}^{tree}").strip
+    carried = present.any? do |head|
+      repo.git_succeeds?('merge-base', '--is-ancestor', ref, head) ||
+        repo.git('log', '--format=%T', head, '--not', ref).lines(chomp: true).include?(tree)
+    end
+    carried ? 'proof-b:backup-landed' : 'proof-b:backup-differs'
+  end
+
+  # The records of the longest hyphen-cut form of the backup's name that
+  # has a pull request which merged from this repository and reached the
+  # default branch.
+  def qualifying_records(repo, records, branch, default)
+    words = branch.delete_prefix('backup/').split('-', -1)
+    names = words.length.downto(1).map { |count| words.first(count).join('-') }
+
+    names.each do |name|
+      found = records.select do |record|
+        record['headRefName'] == name && record['state'] == 'MERGED' &&
+          !record['isCrossRepository'] && reached?(repo, record, default)
+      end
+      return found unless found.empty?
+    end
+    []
+  end
+
+  def reached?(repo, record, default)
+    return true if record['baseRefName'] == default
+
+    merge_commit = record.dig('mergeCommit', 'oid')
+    !merge_commit.nil? &&
+      repo.git_succeeds?('merge-base', '--is-ancestor', merge_commit, "refs/heads/#{default}")
   end
 
   # Every commit the branch does not share with the default branch,
@@ -1362,10 +1472,11 @@ class OracleTestCase < CliTestCase
   end
 
   # The same records as a clone of a fork sees them.
-  def with_forked_forge(repo, **switches)
+  def with_forked_forge(repo, records: Fixtures::PullRequests::FORK_RECORDS, **switches)
     with_stub_switches(switches) do |dir|
       ENV['STUB_GH_PRS'] =
-        Fixtures::PullRequests.write_fork(repo, File.join(dir, 'pull-requests.json'))
+        Fixtures::PullRequests.write_fork(repo, File.join(dir, 'pull-requests.json'),
+                                          records: records)
       yield
     end
   end
@@ -1470,6 +1581,12 @@ class OracleTestCase < CliTestCase
   def with_gitflow_fixture(label)
     Dir.mktmpdir("stale-branches-gitflow-#{label}") do |dir|
       yield Fixtures::GitflowRepo.new(File.join(dir, 'gf')).build
+    end
+  end
+
+  def with_backup_fixture(label)
+    Dir.mktmpdir("stale-branches-backup-#{label}") do |dir|
+      yield Fixtures::BackupRepo.new(File.join(dir, 'backup')).build
     end
   end
 
@@ -2849,6 +2966,108 @@ class PullRequestVerdictTest < Minitest::Test
   end
 end
 
+# The pure halves of the backup rule (Sweep#backup_verdict): which
+# branch a backup's name says it backs up, and which of that branch's
+# pull requests count as having reached the default branch.
+class BackupRuleTest < Minitest::Test
+  HEAD = ('a' * 40).freeze
+  MERGE = ('c' * 40).freeze
+
+  def record(state: 'MERGED', base: 'main', fork: false, merge: nil)
+    { 'number' => 1, 'state' => state, 'headRefName' => 'story', 'headRefOid' => HEAD,
+      'baseRefName' => base, 'isCrossRepository' => fork,
+      'mergeCommit' => merge && { 'oid' => merge } }
+  end
+
+  def landed(*records, trust_forks: false, on_default: [])
+    asked = []
+    kept = StaleBranches.landed_records(records, default: 'main', trust_forks: trust_forks) do |commit|
+      asked << commit
+      on_default.include?(commit)
+    end
+    [kept, asked]
+  end
+
+  def test_a_backup_names_its_branch_and_every_shorter_form_cut_at_a_hyphen
+    assert_equal %w[rtb-9-fix-pre-squash rtb-9-fix-pre rtb-9-fix rtb-9 rtb],
+                 StaleBranches.backed_up_names('backup/rtb-9-fix-pre-squash')
+  end
+
+  def test_a_backed_up_branch_name_may_hold_a_slash
+    assert_equal %w[feature/x-y feature/x], StaleBranches.backed_up_names('backup/feature/x-y')
+  end
+
+  def test_only_the_backup_prefix_names_a_backup
+    %w[backups/x x/backup/y backup backup/ r-spike-backup backup-of-something].each do |branch|
+      assert_empty StaleBranches.backed_up_names(branch), "#{branch} was read as a backup"
+    end
+  end
+
+  def test_a_leading_hyphen_yields_no_empty_name
+    assert_equal ['-x'], StaleBranches.backed_up_names('backup/-x')
+  end
+
+  def test_a_trailing_hyphen_is_part_of_the_first_name
+    assert_equal %w[foo- foo], StaleBranches.backed_up_names('backup/foo-')
+  end
+
+  def test_an_object_name_is_a_full_lowercase_hex_name_and_nothing_else
+    assert StaleBranches.object_name?(HEAD)
+    assert StaleBranches.object_name?('a' * 64), 'a SHA-256 object name was refused'
+    [nil, 12, '', 'main', 'main^{tree}', HEAD.upcase, HEAD[0, 39], "#{HEAD}a", 'a' * 63,
+     "#{HEAD}\n", "--upload-pack=#{HEAD}"].each do |text|
+      refute StaleBranches.object_name?(text), "#{text.inspect} passed as an object name"
+    end
+  end
+
+  def test_a_merged_pull_request_based_on_the_default_branch_reached_it
+    kept, asked = landed(record)
+
+    assert_equal 1, kept.length
+    assert_empty asked, 'a pull request based on the default branch needs no merge commit read'
+  end
+
+  def test_a_closed_pull_request_reached_nothing
+    assert_empty landed(record(state: 'CLOSED')).first
+  end
+
+  def test_a_forks_pull_request_counts_only_when_the_repository_was_named
+    assert_empty landed(record(fork: true)).first
+    assert_equal 1, landed(record(fork: true), trust_forks: true).first.length
+  end
+
+  def test_another_base_counts_when_its_merge_commit_is_on_the_default_branch
+    kept, asked = landed(record(base: 'lower', merge: MERGE), on_default: [MERGE])
+
+    assert_equal 1, kept.length
+    assert_equal [MERGE], asked
+  end
+
+  def test_another_base_does_not_count_when_its_merge_commit_is_elsewhere
+    assert_empty landed(record(base: 'lower', merge: MERGE)).first
+  end
+
+  def test_another_base_with_no_merge_commit_does_not_count
+    kept, asked = landed(record(base: 'lower'), on_default: [nil])
+
+    assert_empty kept
+    assert_empty asked
+  end
+
+  def test_a_merge_commit_that_is_not_an_object_name_is_never_handed_to_git
+    odd = record(base: 'lower').merge('mergeCommit' => { 'oid' => 'main^{tree}' })
+    text = record(base: 'lower').merge('mergeCommit' => 'main')
+    list = record(base: 'lower').merge('mergeCommit' => ['main'])
+
+    [odd, text, list].each do |shaped|
+      kept, asked = landed(shaped, on_default: ['main^{tree}', 'main'])
+
+      assert_empty kept
+      assert_empty asked
+    end
+  end
+end
+
 # The only code that runs gh, driven against the stub. What it asks is
 # asserted as closely as what it concludes: a sweep that queries a
 # branch it should never have reached is wrong even when every verdict
@@ -3471,6 +3690,100 @@ class GitflowFixtureForgeOracleTest < OracleTestCase
 
         assert_matches_oracle(Fixtures::Oracle.load(ORACLE), result)
         refute_git_complaints(result)
+      end
+    end
+  end
+end
+
+class BackupFixtureForgeOracleTest < OracleTestCase
+  def test_report_matches_the_oracle_with_the_forge_answering
+    with_backup_fixture('forge') do |repo|
+      with_forge(repo, records: Fixtures::PullRequests::BACKUP_RECORDS) do
+        result = sweep(repo)
+
+        assert_matches_oracle(Fixtures::Oracle.load(BACKUP_FORGE_ORACLE), result)
+        refute_git_complaints(result)
+      end
+    end
+  end
+end
+
+class BackupFixtureOracleTest < OracleTestCase
+  def test_report_matches_the_oracle_with_no_forge_available
+    with_backup_fixture('degraded') do |repo|
+      result = sweep(repo)
+
+      assert_matches_oracle(Fixtures::Oracle.load(BACKUP_ORACLE), result)
+      refute_git_complaints(result)
+    end
+  end
+end
+
+class BackupDeletionTest < OracleTestCase
+  LANDED = 'backup/w-squashed'
+
+  def test_delete_removes_a_landed_backup_and_says_what_it_was
+    with_backup_fixture('delete') do |repo|
+      was = repo.git('rev-parse', "refs/heads/#{LANDED}").strip
+      with_forge(repo, records: Fixtures::PullRequests::BACKUP_RECORDS) do
+        result = sweep(repo, '--delete')
+
+        refute_includes repo.local_refs, "refs/heads/#{LANDED}"
+        assert_match(/#{Regexp.escape(LANDED)}.*was #{was}/, result.stdout + result.stderr)
+      end
+    end
+  end
+
+  def test_delete_keeps_every_backup_the_rule_did_not_clear
+    with_backup_fixture('delete-keeps') do |repo|
+      with_forge(repo, records: Fixtures::PullRequests::BACKUP_RECORDS) do
+        sweep(repo, '--delete')
+
+        kept = Fixtures::Oracle.load(BACKUP_FORGE_ORACLE).select { |row| row.verdict == 'KEEP' }
+        kept.each { |row| assert_includes repo.local_refs, "refs/heads/#{row.branch}" }
+      end
+    end
+  end
+
+  # A clone of a fork: every pull request is cross-repository, and
+  # naming the project is what lets one count.
+  def test_a_named_repository_lets_a_forks_pull_request_clear_a_backup
+    with_backup_fixture('fork') do |repo|
+      with_forked_forge(repo, records: Fixtures::PullRequests::BACKUP_FORK_RECORDS) do
+        result = sweep(repo, '--repo', Fixtures::PullRequests::UPSTREAM)
+        rows = result.rows.to_h { |row| [row.branch, row.reason] }
+
+        assert_equal 'proof-b:backup-landed', rows['backup/ad-fork']
+        assert_equal 'proof-b:backup-landed', rows[LANDED]
+      end
+    end
+  end
+
+  # A head that names a ref is a commit this clone holds, with a tree of
+  # its own, so read as one it would report the backup as differing.
+  def test_a_head_that_is_not_an_object_name_is_no_head_at_all
+    with_backup_fixture('ref-shaped') do |repo|
+      with_stub_switches({}) do |dir|
+        data = Fixtures::PullRequests.data(repo, records: Fixtures::PullRequests::BACKUP_RECORDS)
+        data.fetch(Fixtures::PullRequests::CWD)
+            .find { |record| record['headRefName'] == 'z-differs' }['headRefOid'] = 'main'
+        ENV['STUB_GH_PRS'] = File.join(dir, 'pull-requests.json')
+        File.write(ENV.fetch('STUB_GH_PRS'), JSON.generate(data))
+
+        rows = sweep(repo).rows.to_h { |row| [row.branch, row.reason] }
+
+        assert_equal 'proof-b:backup-head-absent', rows['backup/z-differs']
+      end
+    end
+  end
+
+  def test_offline_keeps_a_backup_the_forge_would_clear
+    with_backup_fixture('offline') do |repo|
+      with_forge(repo, records: Fixtures::PullRequests::BACKUP_RECORDS) do
+        result = sweep(repo, '--offline', '--delete')
+
+        assert_includes repo.local_refs, "refs/heads/#{LANDED}"
+        assert_matches_oracle(Fixtures::Oracle.load(BACKUP_ORACLE), result)
       end
     end
   end

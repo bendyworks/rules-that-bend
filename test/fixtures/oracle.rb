@@ -43,6 +43,9 @@ module Fixtures
       proof-a:content-landed
       proof-a:tip-only
       proof-a:conflict
+      proof-b:backup-landed
+      proof-b:backup-differs
+      proof-b:backup-head-absent
       proof-b:pr-merged
       proof-b:pr-tip-differs
       proof-b:pr-closed

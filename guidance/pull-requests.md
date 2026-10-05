@@ -279,7 +279,7 @@ there as a stack, using the
   needs it, and otherwise propose it first. Resetting a branch to its
   remote instead (`git reset --hard <remote>/<branch>`) discards any
   unpushed commit, so check `git log <remote>/<branch>..<branch>` and
-  take a backup ref before one.
+  take a backup branch, `backup/<branch>`, before one.
   The same holds after GitHub's stack-wide rebase control, which
   rewrites every layer on the server without any merge. The local
   commits `git log <remote>/<branch>..<branch>` then lists are usually
@@ -295,7 +295,8 @@ there as a stack, using the
   a lower branch into a higher one.** The stack's linear rebase drops
   a merge commit inside a branch, and its conflict resolution has to
   be redone by hand where the conflict first appears. `rebase` is
-  local: take a backup ref of each branch first, confirm with
+  local: take a backup branch of each first, named `backup/<branch>`
+  (the commit-messages guidance has the naming rule), confirm with
   `git range-diff <parent-backup>..<backup> <parent>..<branch>` (the
   parent is the layer below, or the mainline for the bottom layer)
   that only the intended changes moved, then push with
