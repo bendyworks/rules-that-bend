@@ -273,6 +273,16 @@ files on disk, since a headless run is denied writes outside its
 working directory. The same neutral turn shows whether a session takes
 one "yes" as the answer to two questions.
 
+**A scripted approval needs something left to approve.** When the
+scripted answer before it already tells the session where to write, a
+weaker model writes in that turn, and the bare "Approved, go ahead."
+that follows reads as approval of the next action it can think of. In
+one story that was a commit: seven of seventeen arms on the smallest
+model committed during a step whose text forbade it, against one of
+seventeen before the answer named the file. Check after each turn
+whether the thing the next turn approves is already done, and skip that
+turn when it is.
+
 **Put a step's prohibition beside its own commands.** When one step
 points back at another for its rules, a weaker model copies commands
 from the section it was pointed at, including ones the pointing step
@@ -340,6 +350,16 @@ core available, and failed 28 of 40 with
 before the parent writes. When a test passes locally and fails on a
 shared runner with a broken pipe or a timeout, try the one-core
 container before reading the failure as a flake.
+
+**A control that passes does not clear the text.** A capable model
+often does the sensible thing where the text says the wrong thing, so
+an arm written to reproduce a bug can pass on the unfixed text. In one
+story a model cut a fresh branch where the text told it to build on a
+stale one, and the arm was green. The bug was real: running the text's
+own commands, in order, in a scratch repository reproduced it. When a
+finding names commands and a state, run those commands in that state
+before deciding the finding is wrong, and record which fixes rest on
+that run and not on an arm.
 
 ## Writing a new skill
 
