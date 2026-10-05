@@ -373,7 +373,9 @@ decision is written as the user, to someone outside the team:
   month I ...".
 - Follow the team's own writing rules for punctuation and tone. The
   client-messages guidance, where a team imports it, names the defaults
-  to keep out of this prose.
+  to keep out of this prose. Its rule that a question comes last is
+  about a message: here an ask or decision goes in the `intro`, where
+  the reader cannot miss it.
 
 ## "Preview only" note
 
