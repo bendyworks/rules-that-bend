@@ -73,7 +73,7 @@ So, in order:
 3. **Everything else the release touches**: display corrections, relabelings,
    secondary cleanups.
 
-Two things belong in the overview (`intro`), not only further down:
+Three things belong in the overview (`intro`), not only further down:
 
 - **What the fix does not do.** If the release stops a problem going forward
   but does not undo what already happened, say so in the overview, where they
@@ -82,6 +82,8 @@ Two things belong in the overview (`intro`), not only further down:
   implied the matter was closed, has been misled by the document.
 - **A concrete case of theirs**, when one exists. One of their own records,
   with its real figures, does more than any amount of explanation.
+- **An ask or decision**, when the document needs one from the recipient.
+  A question left at the end of the last example is easy to read past.
 
 `SKILL_DIR/examples/sample_manifest.json` follows this order.
 
@@ -362,7 +364,7 @@ Everything in `intro`, each `explanation`, `text` blocks, and any ask or
 decision is written as the user, to someone outside the team:
 
 - **First person singular.** The user is the person accountable for the
-  work: "I updated your receipts", "let me know and I'll proceed".
+  work: "I updated your receipts", "I recommend the second option".
 - **Future tense before the change reaches them.** A document sent before
   release describes what will happen, including what will not change: "your
   totals will stay the same", "the next invoice will show". Present tense
@@ -371,7 +373,11 @@ decision is written as the user, to someone outside the team:
 - **Nothing that goes stale in days.** Avoid "In early June I ..." while it is
   still early June; prefer wording that stays true, such as "Earlier this
   month I ...".
-- Follow the team's own writing rules for punctuation and tone.
+- Follow the team's own writing rules for punctuation and tone. The
+  client-messages guidance, where a team imports it, names the defaults
+  to keep out of this prose. Its rule that a question comes last is
+  about a message: in this document an ask goes in the `intro`, as
+  "Lead with the fix" above says.
 
 ## "Preview only" note
 
