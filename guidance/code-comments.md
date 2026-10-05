@@ -100,3 +100,27 @@ the future reader, not for insiders of the current moment.
   future reader cannot grep for it. If the coined name is genuinely
   better, rename the thing in code first, in its own commit, then use
   the new name everywhere.
+- **Say what happens, never that it happens "silently" or
+  "quietly".** The adverb stands in for the mechanism the reader
+  needs: "the import silently drops rows over 10 MB" becomes "the
+  import drops rows over 10 MB without raising or logging".
+- **Never use a hazard or topology metaphor as if it were the
+  project's vocabulary:** phantom, ghost, orphan, landmine, footgun,
+  clobber, band-aid; twin, surface, basis, seam, load-bearing, latent,
+  "by construction", and "shape" for a kind of thing ("the same shape
+  of bug"). Name the thing itself: "a second copy of the fee
+  calculation", "a file no record points at". "Shape" meaning format
+  stays: "messages follow one shape".
+- **Code does not learn, trust, believe, promise, argue, or
+  overclaim.** Give it the verb for what it does: reads, returns,
+  calls, raises, compares. "The old check trusted the cart to be
+  fresh" becomes "the old check compared the expiry with the cart's
+  creation time". The code a change replaces is not a villain, and
+  the code that replaces it is not diligent.
+
+  All three rules are about the writer's own word choice. A term the
+  code, its framework, or its domain already uses is real vocabulary
+  and stays (an orphan branch, a phantom read, `assets:clobber`, the
+  attack surface, a test seam, a model that learns, a client that
+  trusts a certificate, a `Promise`), as do identifiers (`--quiet`)
+  and quoted text.
