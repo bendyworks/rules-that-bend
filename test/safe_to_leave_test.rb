@@ -13,8 +13,10 @@
 
 require_relative 'cli_test_case'
 require_relative 'fixtures/leave_repo'
+require_relative 'fixtures/forge_stub'
 
 require 'fileutils'
+require 'json'
 require 'tmpdir'
 
 # Driven in-process for the reasons test/stale_branches_test.rb gives
@@ -299,6 +301,141 @@ class WorktreeDecisionTest < Minitest::Test
   end
 end
 
+class PullRequestDecisionTest < Minitest::Test
+  PREFIXES = ['abc-12-'].freeze
+
+  def pull_request(number, title, branch, closes: [])
+    { 'number' => number, 'title' => title, 'headRefName' => branch,
+      'closingIssuesReferences' => closes.map { |issue| { 'number' => issue } } }
+  end
+
+  def lines(pull_requests, issue: 12, prefixes: PREFIXES)
+    SafeToLeave::Checks.pull_requests(pull_requests, prefixes: prefixes, issue: issue)
+  end
+
+  def test_no_open_pull_requests_is_one_clean_line
+    assert_equal ['ok'], lines([]).map(&:status)
+  end
+
+  def test_an_open_pull_request_from_a_story_branch_counts_and_is_named
+    result = lines([pull_request(45, 'Steady the export test', 'abc-12-steady-export-test')])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, '#45'
+    assert_includes result.first.detail, 'Steady the export test'
+  end
+
+  def test_an_open_pull_request_that_closes_the_story_issue_counts
+    assert_equal ['AGAINST'], lines([pull_request(45, 'Another go', 'retry', closes: [12])]).map(&:status)
+  end
+
+  def test_an_open_pull_request_titled_with_the_story_key_counts
+    assert_equal ['AGAINST'], lines([pull_request(45, 'ABC-12 Steady the Export Test', 'retry')]).map(&:status)
+  end
+
+  def test_a_longer_key_that_starts_the_same_is_another_story
+    assert_equal ['ok'], lines([pull_request(45, 'ABC-123 Something Else', 'abc-123-something-else')]).map(&:status)
+  end
+
+  def test_an_open_pull_request_for_other_work_is_not_mentioned
+    result = lines([pull_request(45, 'Speed up the 12 slowest reports', 'faster-reports', closes: [99])])
+
+    assert_equal ['ok'], result.map(&:status)
+  end
+
+  # A bare number prefix, the form a project with no issue key uses,
+  # says nothing a title could be matched on.
+  def test_a_bare_number_prefix_matches_branches_and_never_titles
+    result = lines([pull_request(45, '12 Angry Reports', 'reports'), pull_request(46, 'Other', '12-fix-export')],
+                   prefixes: ['12-'])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, '#46'
+    refute_includes result.first.detail, '#45'
+  end
+end
+
+class IssueDecisionTest < Minitest::Test
+  PREFIXES = ['abc-12-'].freeze
+
+  def issue(number, title, body = '')
+    { 'number' => number, 'title' => title, 'body' => body }
+  end
+
+  def lines(issues, story: 12, expected: [])
+    SafeToLeave::Checks.issues(issues, issue: story, prefixes: PREFIXES, expected: expected)
+  end
+
+  def test_no_open_issue_naming_the_story_is_one_clean_line
+    assert_equal ['ok'], lines([issue(30, 'Unrelated', 'Nothing to do with it.')]).map(&:status)
+  end
+
+  def test_the_story_issue_still_open_counts
+    result = lines([issue(12, 'Fix the export')])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, '#12'
+    assert_includes result.first.detail, 'still open'
+  end
+
+  def test_an_open_issue_whose_body_names_the_story_by_number_counts
+    result = lines([issue(31, 'Export test fails one run in ten', 'Added in #12.')])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, '#31'
+  end
+
+  def test_an_open_issue_that_names_the_story_by_key_counts
+    assert_equal ['AGAINST'], lines([issue(31, 'Follow-up to ABC-12', '')]).map(&:status)
+  end
+
+  def test_an_issue_the_plan_mentions_is_listed_and_does_not_count
+    result = lines([issue(31, 'Export test fails one run in ten', 'Added in #12.')], expected: [31])
+
+    assert_equal ['listed'], result.map(&:status)
+    assert_includes result.first.detail, '#31'
+  end
+
+  def test_a_longer_number_that_starts_the_same_is_another_issue
+    assert_equal ['ok'], lines([issue(31, 'Other', 'See #123 and ABC-123.')]).map(&:status)
+  end
+
+  def test_the_same_number_in_another_repository_is_another_issue
+    assert_equal ['ok'], lines([issue(31, 'Other', 'See elsewhere/project#12.')]).map(&:status)
+  end
+
+  def test_an_issue_with_no_body_is_read_without_complaint
+    assert_equal ['ok'], lines([{ 'number' => 31, 'title' => 'Other', 'body' => nil }]).map(&:status)
+  end
+
+  def test_with_no_story_issue_named_none_are_looked_for
+    result = SafeToLeave::Checks.issues(nil, issue: nil, prefixes: PREFIXES, expected: [])
+
+    assert_equal ['listed'], result.map(&:status)
+    assert_match(/no --issue/, result.first.detail)
+  end
+end
+
+# An issue the plan mentions at all is one the developer already knows
+# about, whatever words surround the number. A Shipment paragraph names
+# its follow-ups in a sentence, not in a fixed phrase.
+class PlanMentionTest < Minitest::Test
+  def test_every_issue_number_the_plan_mentions_is_known
+    plan = <<~PLAN
+      - [x] **3.** Search for the same bug elsewhere (filed as #31)
+      - [x] **4.** Tidy the fixtures (deferred to #32)
+
+      Shipped via pull request #40. Follow-ups #33 and #34 were filed.
+    PLAN
+
+    assert_equal [31, 32, 40, 33, 34], SafeToLeave::Checks.plan_mentions(plan)
+  end
+
+  def test_a_number_in_another_repository_is_not_this_projects_issue
+    assert_empty SafeToLeave::Checks.plan_mentions('See elsewhere/project#31 and color #fff.')
+  end
+end
+
 # What both CLI suites share: the entry point, the refusal to report on
 # anything outside the temporary directory, and one way to run a report.
 class LeaveCliTestCase < CliTestCase
@@ -370,6 +507,15 @@ class LeaveArgumentTest < LeaveCliTestCase
 
       assert_equal 2, result.status
       assert_match(/--no-such-flag/, result.stderr)
+    end
+  end
+
+  def test_an_issue_that_is_not_a_number_is_a_usage_error
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--issue', 'ABC-12'])
+
+      assert_equal 2, result.status
+      assert_match(/--issue/, result.stderr)
     end
   end
 
@@ -582,6 +728,20 @@ class LeaveArgumentTest < LeaveCliTestCase
 end
 
 class LeaveReportTest < LeaveCliTestCase
+  # A stand-in answers for gh, so nothing here can reach a developer's
+  # own authenticated client.
+  def shimmed_commands
+    []
+  end
+
+  def served_commands
+    { 'gh' => Fixtures::ForgeStub.program }
+  end
+
+  def extra_scrubbed_env_keys
+    StubGh::ENV_KEYS + SafeToLeave::Host::REDIRECTING_ENV_KEYS
+  end
+
   def with_repo
     Dir.mktmpdir('safe-to-leave') do |dir|
       yield Fixtures::LeaveRepo.new(File.join(dir, 'project')).build
@@ -596,12 +756,40 @@ class LeaveReportTest < LeaveCliTestCase
     saved&.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
 
-  def report(repo, *extra)
-    report_on(repo, ['-C', repo.work, '--story-branch', STORY, *extra])
+  # The data files are written beside the repository, never inside it:
+  # an untracked file in the working tree is one of the things reported.
+  def serve(repo, pull_requests: [], issues: [], key: Fixtures::ForgeStub::CWD)
+    { 'STUB_GH_PRS' => pull_requests, 'STUB_GH_ISSUES' => issues }.each do |variable, records|
+      path = File.join(repo.root, "#{variable.downcase}.json")
+      File.write(path, JSON.generate(key => records))
+      ENV[variable] = path
+    end
   end
 
-  def report_on(repo, argv)
-    with_repo_env(repo) { run_report(argv) }
+  def report(repo, *extra, ambient: {})
+    report_on(repo, ['-C', repo.work, '--story-branch', STORY, *extra], ambient: ambient)
+  end
+
+  # `ambient` is set inside the fixture's environment, which unsets
+  # the git variables it neutralizes and would otherwise undo it.
+  def report_on(repo, argv, ambient: {})
+    serve(repo) unless ENV['STUB_GH_PRS']
+    with_repo_env(repo) do
+      ambient.each { |key, value| ENV[key] = value }
+      run_report(argv)
+    end
+  end
+
+  CLEAN = { 'working-tree' => ['ok'], 'in-progress' => ['ok'], 'unpushed' => ['ok'], 'stashes' => ['ok'],
+            'worktrees' => ['ok'], 'pull-requests' => ['ok'], 'issues' => ['listed'] }.freeze
+
+  def open_pull_request(number, title, branch, closes: [])
+    { 'number' => number, 'state' => 'OPEN', 'title' => title, 'headRefName' => branch,
+      'closingIssuesReferences' => closes.map { |issue| { 'number' => issue } } }
+  end
+
+  def open_issue(number, title, body = '')
+    { 'number' => number, 'state' => 'OPEN', 'title' => title, 'body' => body }
   end
 
   def test_a_clean_pushed_repository_has_nothing_against_leaving
@@ -609,8 +797,7 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo)
 
       assert_equal 0, result.status, result.stdout + result.stderr
-      assert_equal({ 'working-tree' => ['ok'], 'in-progress' => ['ok'], 'unpushed' => ['ok'], 'stashes' => ['ok'],
-                     'worktrees' => ['ok'] }, result.statuses)
+      assert_equal CLEAN, result.statuses
       assert_match(/nothing counts against leaving/, result.stdout.lines.last)
     end
   end
@@ -1141,7 +1328,7 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo, '--remote', 'café'.b)
 
       assert_equal 1, result.status, result.stdout + result.stderr
-      assert_equal %w[working-tree in-progress unpushed stashes worktrees], result.statuses.keys
+      assert_equal CLEAN.keys, result.statuses.keys
       assert_includes result.line_for('unpushed'), 'no such remote: café (configured: origin)'
     end
   end
@@ -1365,6 +1552,7 @@ class LeaveReportTest < LeaveCliTestCase
       repo.add_detached_worktree('another')
       FileUtils.remove_entry(repo.origin)
       trace = File.join(repo.root, 'trace.log')
+      serve(repo)
       with_repo_env(repo) do
         ENV['GIT_TRACE'] = trace
         run_report(['-C', repo.work, '--story-branch', STORY])
@@ -1455,12 +1643,7 @@ class LeaveReportTest < LeaveCliTestCase
     with_repo do |repo|
       repo.write('draft.md', 'unsent')
       Dir.mktmpdir('safe-to-leave-decoy') do |decoy|
-        result = with_repo_env(repo) do
-          ENV['GIT_DIR'] = File.join(decoy, '.git')
-          run_report(['-C', repo.work, '--story-branch', STORY])
-        ensure
-          ENV.delete('GIT_DIR')
-        end
+        result = report(repo, ambient: { 'GIT_DIR' => File.join(decoy, '.git') })
 
         assert_equal 1, result.status, result.stdout + result.stderr
         assert_includes result.line_for('working-tree'), 'draft.md'
@@ -1498,6 +1681,171 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo)
 
       assert_match(/2 lines count against leaving/, result.stdout.lines.last)
+    end
+  end
+
+  def test_an_open_pull_request_from_a_story_branch_counts_and_is_named
+    with_repo do |repo|
+      serve(repo, pull_requests: [open_pull_request(45, 'Steady the export test', 'abc-12-steady-export-test')])
+      result = report(repo, '--issue', '12')
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['pull-requests']
+      assert_includes result.line_for('pull-requests'), '#45'
+      assert_equal ['ok'], result.statuses['issues']
+    end
+  end
+
+  def test_the_story_issue_still_open_counts
+    with_repo do |repo|
+      serve(repo, issues: [open_issue(12, 'Fix the export')])
+      result = report(repo, '--issue', '12')
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['issues']
+    end
+  end
+
+  def test_an_issue_the_plan_mentions_is_listed_and_leaves_the_answer_alone
+    with_repo do |repo|
+      plan = File.join(repo.root, 'plan.md')
+      File.write(plan, "Shipped. A follow-up, #31, covers the flaky test.\n")
+      serve(repo, issues: [open_issue(31, 'Export test fails one run in ten', 'Added in #12.')])
+      result = report(repo, '--issue', '12', '--plan', plan)
+
+      assert_equal 0, result.status, result.stdout
+      assert_equal ['listed'], result.statuses['issues']
+    end
+  end
+
+  def test_the_same_issue_counts_when_no_plan_mentions_it
+    with_repo do |repo|
+      serve(repo, issues: [open_issue(31, 'Export test fails one run in ten', 'Added in #12.')])
+      result = report(repo, '--issue', '12')
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['issues']
+    end
+  end
+
+  def test_a_plan_that_cannot_be_read_is_an_error_not_a_verdict
+    with_repo do |repo|
+      result = report(repo, '--issue', '12', '--plan', File.join(repo.root, 'absent.md'))
+
+      assert_equal 2, result.status
+      assert_match(/absent\.md/, result.stderr)
+    end
+  end
+
+  def test_with_no_issue_named_issues_are_never_asked_for
+    with_repo do |repo|
+      report(repo)
+
+      assert_empty served_invocations.grep(/issue list/)
+      refute_empty served_invocations.grep(/pr list/)
+    end
+  end
+
+  # gh resolves the project from its working directory, so the question
+  # has to be asked from the repository reported on.
+  def test_the_code_host_is_asked_from_the_repository_reported_on
+    with_repo do |repo|
+      report(repo, '--issue', '12')
+
+      here = "@#{File.realpath(repo.work)}"
+
+      assert(served_invocations.all? { |call| call.end_with?(here) }, served_invocations.inspect)
+    end
+  end
+
+  def test_a_named_repo_is_the_one_asked
+    with_repo do |repo|
+      serve(repo, key: 'fixture/upstream',
+                  pull_requests: [open_pull_request(45, 'Steady the export test', 'abc-12-steady-export-test')])
+      result = report(repo, '--issue', '12', '--repo', 'fixture/upstream')
+
+      assert_equal ['AGAINST'], result.statuses['pull-requests']
+      assert(served_invocations.all? { |call| call.include?('--repo fixture/upstream') })
+    end
+  end
+
+  # An unanswered question is not a clean answer: each code-host line
+  # says it could not be checked, and the repository lines still report.
+  def test_a_code_host_that_fails_leaves_both_lines_unchecked
+    with_repo do |repo|
+      ENV['STUB_GH_FAIL'] = '1'
+      result = report(repo, '--issue', '12')
+
+      assert_equal 1, result.status
+      assert_equal ['UNCHECKED'], result.statuses['pull-requests']
+      assert_equal ['UNCHECKED'], result.statuses['issues']
+      assert_includes result.line_for('pull-requests'), 'error connecting'
+      assert_equal ['ok'], result.statuses['working-tree']
+    end
+  end
+
+  def test_an_answer_that_is_not_json_is_unchecked
+    with_repo do |repo|
+      ENV['STUB_GH_GARBAGE'] = '1'
+
+      assert_equal ['UNCHECKED'], report(repo, '--issue', '12').statuses['pull-requests']
+    end
+  end
+
+  def test_an_answer_of_the_wrong_shape_is_unchecked
+    with_repo do |repo|
+      %w[1 2].each do |shape|
+        ENV['STUB_GH_SHAPE'] = shape
+
+        assert_equal ['UNCHECKED'], report(repo, '--issue', '12').statuses['pull-requests'], "shape #{shape}"
+      end
+    end
+  end
+
+  def test_with_no_gh_installed_the_code_host_lines_are_unchecked
+    with_repo do |repo|
+      serve(repo)
+      Dir.mktmpdir('only-git') do |dir|
+        git = ENV.fetch('PATH').split(File::PATH_SEPARATOR).map { |entry| File.join(entry, 'git') }
+                 .find { |path| File.executable?(path) }
+        File.symlink(git, File.join(dir, 'git'))
+        saved = ENV.fetch('PATH')
+        ENV['PATH'] = dir
+        begin
+          result = report(repo, '--issue', '12')
+        ensure
+          ENV['PATH'] = saved
+        end
+
+        assert_equal 1, result.status
+        assert_equal ['UNCHECKED'], result.statuses['pull-requests']
+        assert_equal ['ok'], result.statuses['working-tree']
+      end
+    end
+  end
+
+  # A listing that fills its limit may have been cut short, and the
+  # pull request that matters may be the one cut.
+  def test_a_listing_that_fills_its_limit_is_unchecked
+    with_repo do |repo|
+      crowd = Array.new(SafeToLeave::Host::LIMIT) do |index|
+        open_pull_request(index + 100, 'Other work', "other-#{index}")
+      end
+      serve(repo, pull_requests: crowd)
+      result = report(repo, '--issue', '12')
+
+      assert_equal ['UNCHECKED'], result.statuses['pull-requests']
+      assert_includes result.line_for('pull-requests'), SafeToLeave::Host::LIMIT.to_s
+    end
+  end
+
+  # The stand-in refuses a call that arrives with GH_REPO set, the way a
+  # real gh would answer about another project.
+  def test_an_ambient_gh_repo_does_not_redirect_the_question
+    with_repo do |repo|
+      ENV['GH_REPO'] = 'someone/elsewhere'
+
+      assert_equal ['ok'], report(repo, '--issue', '12').statuses['pull-requests']
     end
   end
 end

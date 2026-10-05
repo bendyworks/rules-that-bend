@@ -2,7 +2,8 @@
 # frozen_string_literal: true
 
 # Stand-in for the GitHub CLI, serving canned pull-request data to the
-# sweep's forge tests. Installed onto PATH under the name `gh` by
+# sweep's forge tests, and canned pull-request and issue data to the
+# safe-to-leave tests. Installed onto PATH under the name `gh` by
 # CliTestCase's serving-stub seam, which also names the two logs it
 # reports through.
 #
@@ -53,8 +54,8 @@ module StubGh
   # it are graded against a forge that is quietly broken. The test base
   # derives its scrub list from this, and a guard test checks this list
   # against the source below.
-  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_FAIL STUB_GH_FAIL_AFTER STUB_GH_GARBAGE
-                STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
+  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_FAIL STUB_GH_FAIL_AFTER
+                STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
 
   # gh's own defaults, reproduced because a sweep that omits either
   # flag must see what it would really see.
@@ -80,8 +81,11 @@ module StubGh
     garble_as_configured
     mis_shape_as_configured
     command = argv.take(2).join(' ')
-    refuse("unserved command: #{command.empty? ? '(none)' : command}") unless command == 'pr list'
-    list_pull_requests(parse(argv.drop(2)))
+    case command
+    when 'pr list' then list_pull_requests(parse(argv.drop(2)))
+    when 'issue list' then list_issues(parse(argv.drop(2), refused: ISSUE_REFUSED_FLAGS, command: command))
+    else refuse("unserved command: #{command.empty? ? '(none)' : command}")
+    end
   end
 
   # Every invocation, whether it goes on to be served or refused. A
@@ -191,10 +195,15 @@ module StubGh
     '--json' => :json
   }.freeze
 
-  def parse(argv)
+  # Flags `gh issue list` does not take. The real client rejects them,
+  # so a caller that sent one would be answered by nothing.
+  ISSUE_REFUSED_FLAGS = %w[--head -H].freeze
+
+  def parse(argv, refused: [], command: nil)
     options = { state: DEFAULT_STATE, limit: DEFAULT_LIMIT }
     until argv.empty?
       flag = argv.shift
+      refuse("unserved flag for #{command}: #{flag}") if refused.include?(flag)
       key = VALUE_FLAGS[flag]
       refuse("unserved flag: #{flag}") if key.nil?
 
@@ -225,17 +234,27 @@ module StubGh
 
   def list_pull_requests(options)
     fields = requested_fields(options)
-    records = records_for(options[:repo])
+    records = records_for(options[:repo], 'STUB_GH_PRS')
     matched = records.select { |record| matches?(record, options) } + mismatched_records
     puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields) })
+  end
+
+  # Issues come from their own file, so a suite that serves pull
+  # requests alone still has an issue listing refused rather than
+  # answered empty.
+  def list_issues(options)
+    fields = requested_fields(options, 'issue list')
+    records = records_for(options[:repo], 'STUB_GH_ISSUES')
+    matched = records.select { |record| matches?(record, options) }
+    puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields, 'issue') })
   end
 
   # The sweep reads JSON, so a run without --json would hand it gh's
   # human table. Refused rather than served, because the sweep parsing
   # that table is a bug no verdict would reveal.
-  def requested_fields(options)
+  def requested_fields(options, command = 'pr list')
     raw = options[:json]
-    refuse('pr list without --json') if raw.nil?
+    refuse("#{command} without --json") if raw.nil?
 
     fields = raw.split(',').map(&:strip).reject(&:empty?)
     refuse("--json given no fields: #{raw.inspect}") if fields.empty?
@@ -256,10 +275,10 @@ module StubGh
   # asks the wrong repository -- a fork's own, rather than the upstream
   # its pull requests live in -- come back empty and read that as "no
   # pull request".
-  def records_for(repo)
-    path = ENV.fetch('STUB_GH_PRS', nil)
-    refuse('STUB_GH_PRS is unset; there is no data to serve') if path.nil?
-    refuse("STUB_GH_PRS names no such file: #{path}") unless File.exist?(path)
+  def records_for(repo, variable)
+    path = ENV.fetch(variable, nil)
+    refuse("#{variable} is unset; there is no data to serve") if path.nil?
+    refuse("#{variable} names no such file: #{path}") unless File.exist?(path)
 
     data = JSON.parse(File.read(path))
     key = repo || CWD_KEY
@@ -289,9 +308,9 @@ module StubGh
   # A field the record does not carry would reach the sweep as null,
   # and a null read as "not merged" or "not a fork" is a verdict
   # reached on a typo. gh refuses an unknown field name; so does this.
-  def project(record, fields)
+  def project(record, fields, kind = 'pull request')
     missing = fields.reject { |field| record.key?(field) }
-    refuse("unknown --json field(s) for pull request ##{record['number']}: #{missing.join(', ')}") if missing.any?
+    refuse("unknown --json field(s) for #{kind} ##{record['number']}: #{missing.join(', ')}") if missing.any?
 
     fields.to_h { |field| [field, record[field]] }
   end

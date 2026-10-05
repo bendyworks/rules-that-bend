@@ -7,11 +7,12 @@
 # It prints one or more lines per check and changes nothing: it reads
 # the working tree, whether a rebase, merge, cherry-pick, revert, or
 # bisect was left unfinished there, the commits the remote does not
-# have, the stashes, and the linked worktrees. The remote is asked, in
-# one request, which
-# branch is its default and where each of its branches is, and that is
-# the one use of the network. Each line of a check carries one of four
-# words:
+# have, the stashes, the linked worktrees, and, through the GitHub CLI,
+# the open pull requests and issues that belong to the story. The
+# remote is asked, in one request, which branch is its default and
+# where each of its branches is. That request and the GitHub CLI's are
+# the only uses of the network. Each line of a check carries one of
+# four words:
 #
 #   ok         the check ran and found nothing
 #   AGAINST    something counts against leaving, and is named
@@ -37,6 +38,7 @@
 #
 # Stdlib-only (no gems). Run with --help for usage.
 
+require 'json'
 require 'open3'
 require 'optparse'
 
@@ -48,11 +50,12 @@ module SafeToLeave
 
   USAGE = <<~TXT
     Usage: safe-to-leave [-C DIR] [--remote NAME] [--remote-timeout SECONDS]
-                         [--story-branch PREFIX]...
+                         [--story-branch PREFIX]... [--issue NUMBER]
+                         [--plan FILE] [--repo OWNER/NAME]
 
-    Reports what is left behind in a repository, in one or more lines
-    per check. Nothing is changed. Each line of a check starts with one
-    of:
+    Reports what a finished story has left behind in a repository and on
+    GitHub, in one or more lines per check. Nothing is changed. Each line
+    of a check starts with one of:
 
       ok         the check ran and found nothing
       AGAINST    something counts against leaving, and is named
@@ -75,7 +78,21 @@ module SafeToLeave
                       on any other branch are listed, and so is a clean
                       worktree on one. With no prefix given, nothing can
                       be attributed, and every branch is treated as the
-                      story's
+                      story's. An open pull request counts when its branch
+                      carries a prefix, and for a prefix shaped like
+                      "abc-123-" also when its title starts with ABC-123
+      --issue NUMBER  the story's GitHub issue. It counts if it is still
+                      open, and so does an open pull request that closes
+                      it or another open issue that names it. Without it
+                      no issues are looked for
+      --plan FILE     the story's plan file. An open issue whose number it
+                      mentions is one already known about: listed, not
+                      counted
+      --repo OWNER/NAME
+                      the GitHub project to ask (default: whichever one gh
+                      resolves from DIR). Name it in a clone of a fork,
+                      where pull requests live in the project they were
+                      opened against
       -h, --help      print this message
 
     These count whatever the prefix: uncommitted files in the working
@@ -273,6 +290,78 @@ module SafeToLeave
 
     def count_on_no_branch(commits)
       "#{count(commits, 'commit')} on no branch"
+    end
+
+    # A prefix shaped like abc-123- names an issue key, ABC-123, that a
+    # title or an issue body can be matched on. A bare number prefix
+    # (123-) names nothing a sentence could not also contain by chance.
+    KEYED_PREFIX = /\A([a-z][a-z0-9]*-\d+)-\z/i
+
+    def story_keys(prefixes)
+      prefixes.filter_map { |prefix| prefix[KEYED_PREFIX, 1] }
+    end
+
+    # (?!\d) on both, so ABC-12 does not claim ABC-123 and #12 does not
+    # claim #123.
+    def names_key?(text, keys)
+      keys.any? { |key| text.match?(/(?<![\w-])#{Regexp.escape(key)}(?!\d)/i) }
+    end
+
+    # The lookbehind keeps out owner/project#12, another repository's
+    # issue of the same number.
+    def names_issue?(text, issue)
+      text.match?(%r{(?<![\w/#-])##{issue}(?!\d)})
+    end
+
+    def pull_requests(pull_requests, prefixes:, issue:)
+      keys = story_keys(prefixes)
+      counted = pull_requests.select do |pull_request|
+        story_branch?(pull_request['headRefName'].to_s, prefixes) ||
+          closes?(pull_request, issue) ||
+          keys.any? { |key| pull_request['title'].to_s.match?(/\A#{Regexp.escape(key)}(?!\d)/i) }
+      end
+      return [Line.new('pull-requests', OK, 'none open for this story')] if counted.empty?
+
+      [Line.new('pull-requests', AGAINST, "open: #{counted.map { |record| titled(record) }.join(', ')}")]
+    end
+
+    def closes?(pull_request, issue)
+      return false if issue.nil?
+
+      Array(pull_request['closingIssuesReferences']).any? { |reference| reference['number'] == issue }
+    end
+
+    # `expected` holds the numbers the story's plan mentions.
+    def issues(issues, issue:, prefixes:, expected:)
+      return [Line.new('issues', LISTED, 'not looked for: no --issue given')] if issue.nil?
+
+      own, others = issues.partition { |record| record['number'] == issue }
+      keys = story_keys(prefixes)
+      naming = others.select do |record|
+        text = "#{record['title']}\n#{record['body']}"
+        names_issue?(text, issue) || names_key?(text, keys)
+      end
+      known, unknown = naming.partition { |record| expected.include?(record['number']) }
+      counted = own.map { |record| "#{titled(record)} is still open" } + unknown.map { |record| titled(record) }
+      lines = []
+      lines << Line.new('issues', AGAINST, counted.join(', ')) unless counted.empty?
+      unless known.empty?
+        named = known.map { |record| titled(record) }.join(', ')
+        lines << Line.new('issues', LISTED, "named in the plan, not counted: #{named}")
+      end
+      lines.empty? ? [Line.new('issues', OK, 'none open for this story')] : lines
+    end
+
+    # Every issue or pull request number the plan mentions. One the
+    # plan names is one the developer already knows about, whatever
+    # words surround it: a Shipment paragraph names its follow-ups in a
+    # sentence, not in a fixed phrase.
+    def plan_mentions(plan)
+      plan.scan(%r{(?<![\w/#-])#(\d+)(?!\w)}).flatten.map(&:to_i).uniq
+    end
+
+    def titled(record)
+      "##{record['number']} (#{record['title']})"
     end
 
     def count(number, noun)
@@ -613,14 +702,83 @@ module SafeToLeave
     end
   end
 
+  # Asks GitHub, through its CLI, for the open pull requests and issues.
+  # Every way of not getting an answer raises, so the report can say the
+  # line was not checked: an empty list is an answer, and nothing else
+  # may be read as one.
+  class Host
+    # Variables that make gh answer about another project, or colour
+    # its output so that it no longer parses, unset for its children.
+    REDIRECTING_ENV_KEYS = %w[GH_REPO CLICOLOR_FORCE GH_FORCE_TTY].freeze
+
+    CHILD_ENV = Git::CHILD_ENV.merge(REDIRECTING_ENV_KEYS.to_h { |key| [key, nil] })
+                              .merge('NO_COLOR' => '1')
+                              .freeze
+
+    # gh's own default is 30 and it truncates without saying so.
+    LIMIT = 1000
+
+    def initialize(dir:, repo: nil)
+      @dir = dir
+      @repo = repo
+    end
+
+    def open_pull_requests
+      list('pr', %w[number title headRefName closingIssuesReferences])
+    end
+
+    def open_issues
+      list('issue', %w[number title body])
+    end
+
+    private
+
+    def list(kind, fields)
+      command = ['gh', kind, 'list', '--state', 'open', '--limit', LIMIT.to_s, '--json', fields.join(',')]
+      command += ['--repo', @repo] if @repo
+      records = parse(kind, run(kind, command))
+      if records.length >= LIMIT
+        raise Error, "gh #{kind} list returned #{LIMIT} records, its limit, so the list may be cut short"
+      end
+
+      records
+    end
+
+    def run(kind, command)
+      stdout, stderr, status = Open3.capture3(CHILD_ENV, *command, chdir: @dir)
+      unless status.success?
+        said = stderr.strip.empty? ? 'it gave no reason' : stderr.strip
+        raise Error, "gh #{kind} list failed: #{said}"
+      end
+
+      stdout
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise Error, "could not run gh: #{e.message}"
+    end
+
+    def parse(kind, stdout)
+      records = JSON.parse(stdout)
+      unless records.is_a?(Array) && records.all?(Hash)
+        raise Error, "gh #{kind} list answered with something that is not a list of records"
+      end
+
+      records
+    rescue JSON::ParserError
+      raise Error, "gh #{kind} list answered with something that is not JSON"
+    end
+  end
+
   # Gathers the facts for each check and hands them to Checks.
   # A check whose facts cannot be gathered becomes an UNCHECKED line
   # carrying the reason, and the checks after it still run.
   class Report
-    def initialize(git:, here:, prefixes:)
+    def initialize(git:, host:, here:, prefixes:, issue: nil, expected: [])
       @git = git
+      @host = host
       @here = here
       @prefixes = prefixes
+      @issue = issue
+      @expected = expected
     end
 
     def lines
@@ -629,7 +787,11 @@ module SafeToLeave
         checked('in-progress') { Checks.in_progress(@git.operations_in_progress) },
         checked('unpushed') { unpushed },
         checked('stashes') { Checks.stashes(@git.stashes, @prefixes) },
-        checked('worktrees') { Checks.worktrees(@git.other_worktrees(@here), @prefixes) }
+        checked('worktrees') { Checks.worktrees(@git.other_worktrees(@here), @prefixes) },
+        checked('pull-requests') do
+          Checks.pull_requests(@host.open_pull_requests, prefixes: @prefixes, issue: @issue)
+        end,
+        checked('issues') { issues }
       ].flatten
     end
 
@@ -639,6 +801,11 @@ module SafeToLeave
       yield
     rescue Error => e
       [Line.new(check, UNCHECKED, e.message)]
+    end
+
+    def issues
+      open = @issue ? @host.open_issues : nil
+      Checks.issues(open, issue: @issue, prefixes: @prefixes, expected: @expected)
     end
 
     # How far ahead the default branch is can be unknown while the other
@@ -682,8 +849,10 @@ module SafeToLeave
       return puts(USAGE) if options[:help]
 
       git = Git.new(dir: options[:dir], remote: options[:remote], remote_timeout: options[:remote_timeout])
+      host = Host.new(dir: options[:dir], repo: options[:repo])
       here = git.toplevel
-      lines = Report.new(git: git, here: here, prefixes: options[:prefixes]).lines
+      lines = Report.new(git: git, host: host, here: here, prefixes: options[:prefixes], issue: options[:issue],
+                         expected: plan_mentions(options[:plan])).lines
       print_report(here, lines)
       exit 1 if lines.any?(&:against?)
     rescue Error => e
@@ -695,6 +864,14 @@ module SafeToLeave
     end
 
     private
+
+    def plan_mentions(plan)
+      return [] if plan.nil?
+
+      Checks.plan_mentions(SafeToLeave.utf8(File.binread(plan)))
+    rescue SystemCallError => e
+      raise Error, "could not read the plan file: #{e.message}"
+    end
 
     # A request for usage is answered even beside a stray argument.
     def parse(argv)
@@ -732,6 +909,9 @@ module SafeToLeave
           set_once(options, :remote_timeout, '--remote-timeout', seconds)
         end
         o.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
+        o.on('--issue NUMBER', /\A[1-9]\d*\z/) { |number| set_once(options, :issue, '--issue', Integer(number)) }
+        o.on('--plan FILE', VALUE_NOT_FLAG) { |file| set_once(options, :plan, '--plan', file) }
+        o.on('--repo OWNER/NAME', VALUE_NOT_FLAG) { |repo| set_once(options, :repo, '--repo', repo) }
         o.on('-h', '--help') { options[:help] = true }
         # OptionParser answers --version itself, by exiting 1. The
         # plugin this ships in has no version to give.
@@ -755,7 +935,7 @@ module SafeToLeave
       end
       against = lines.count(&:against?)
       if against.zero?
-        puts 'safe-to-leave: nothing counts against leaving (repository checks)'
+        puts 'safe-to-leave: nothing counts against leaving'
       else
         puts "safe-to-leave: #{against} #{against == 1 ? 'line counts' : 'lines count'} against leaving"
       end

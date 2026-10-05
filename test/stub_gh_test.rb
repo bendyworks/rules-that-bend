@@ -324,4 +324,49 @@ class StubGhTest < Minitest::Test
     assert_match(/CLI_STUB_LOG is unset/, err)
     assert_empty read_log(@refusals), 'nothing ran far enough to refuse'
   end
+
+  # Issues are served from their own data file, in the same shape and
+  # under the same refusals as pull requests.
+  STORY_ISSUE = { 'number' => 12, 'state' => 'OPEN', 'title' => 'Fix the export',
+                  'body' => 'The export drops rows.' }.freeze
+  CLOSED_ISSUE = { 'number' => 13, 'state' => 'CLOSED', 'title' => 'Done already',
+                   'body' => 'Follows #12.' }.freeze
+
+  def issue_env(extra = {})
+    path = File.join(@dir, 'issues.json')
+    File.write(path, JSON.generate('@cwd' => [STORY_ISSUE, CLOSED_ISSUE], REPO => []))
+    { 'STUB_GH_ISSUES' => path }.merge(extra)
+  end
+
+  def test_an_issue_listing_answers_with_the_open_issues_by_default
+    result = run_stub('issue', 'list', '--json', 'number,title,body', env: issue_env)
+
+    assert result.ok?, result.stderr
+    assert_equal [{ 'number' => 12, 'title' => 'Fix the export', 'body' => 'The export drops rows.' }],
+                 result.json
+  end
+
+  def test_an_issue_listing_honours_state_and_limit
+    result = run_stub('issue', 'list', '--json', 'number', '--state', 'all', '--limit', '1', env: issue_env)
+
+    assert_equal [{ 'number' => 12 }], result.json
+  end
+
+  def test_an_issue_listing_for_a_named_repo_is_answered_from_that_repos_data
+    result = run_stub('issue', 'list', '--repo', REPO, '--json', 'number', env: issue_env)
+
+    assert_empty result.json
+  end
+
+  def test_an_issue_listing_with_a_pull_request_flag_is_refused
+    result = refusal_case('issue', 'list', '--json', 'number', '--head', 'a-landed', env: issue_env)
+
+    assert_match(/unserved flag for issue list: --head/, result.refusals.join("\n"))
+  end
+
+  def test_an_issue_listing_with_no_issue_data_is_refused
+    result = refusal_case('issue', 'list', '--json', 'number')
+
+    assert_match(/STUB_GH_ISSUES is unset/, result.refusals.join("\n"))
+  end
 end
