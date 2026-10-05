@@ -17,6 +17,7 @@ require_relative 'fixtures/forge_stub'
 
 require 'fileutils'
 require 'json'
+require 'time'
 require 'tmpdir'
 
 # Driven in-process for the reasons test/stale_branches_test.rb gives
@@ -416,6 +417,95 @@ class IssueDecisionTest < Minitest::Test
   end
 end
 
+class CheckRunDecisionTest < Minitest::Test
+  def run_record(id, conclusions, placed: true, event: 'push', branch: 'main', status: 'completed')
+    SafeToLeave::Run.new(id, 'checks', branch, event, status, conclusions, placed)
+  end
+
+  def lines(runs)
+    SafeToLeave::Checks.check_runs(runs)
+  end
+
+  def test_with_no_merge_commit_named_none_are_looked_for
+    result = lines(nil)
+
+    assert_equal ['listed'], result.map(&:status)
+    assert_match(/no --merge-commit/, result.first.detail)
+  end
+
+  def test_no_runs_since_the_merge_is_clean
+    assert_equal ['ok'], lines([]).map(&:status)
+  end
+
+  def test_a_passing_run_on_a_commit_containing_the_merge_is_clean
+    assert_equal ['ok'], lines([run_record(500, ['success'])]).map(&:status)
+  end
+
+  def test_a_failed_run_on_a_commit_containing_the_merge_counts_and_is_named
+    result = lines([run_record(500, ['failure'])])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, '500'
+    assert_includes result.first.detail, 'checks'
+  end
+
+  # The run a listing shows as green, having failed first.
+  def test_a_run_that_failed_and_was_rerun_to_green_still_counts
+    result = lines([run_record(500, %w[failure success])])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_includes result.first.detail, 'attempt 1'
+  end
+
+  def test_a_cancelled_or_timed_out_run_counts
+    %w[cancelled timed_out startup_failure].each do |conclusion|
+      assert_equal ['AGAINST'], lines([run_record(500, [conclusion])]).map(&:status), conclusion
+    end
+  end
+
+  def test_a_skipped_run_does_not_count
+    assert_equal ['ok'], lines([run_record(500, ['skipped'])]).map(&:status)
+  end
+
+  def test_a_run_still_going_is_unchecked_and_named
+    result = lines([run_record(500, [nil], status: 'in_progress')])
+
+    assert_equal ['UNCHECKED'], result.map(&:status)
+    assert_includes result.first.detail, '500'
+  end
+
+  # A pull request's run tests that pull request's own changes on top
+  # of the merged code, so its failure may be nobody's but its author's.
+  # It is named for a reader to judge, and not counted.
+  def test_a_failed_pull_request_run_is_listed_and_does_not_count
+    result = lines([run_record(500, ['failure'], event: 'pull_request', branch: 'other-work')])
+
+    assert_equal ['listed'], result.map(&:status)
+    assert_includes result.first.detail, '500'
+    assert_includes result.first.detail, 'other-work'
+  end
+
+  def test_a_failed_push_run_on_a_commit_without_the_merge_is_listed
+    assert_equal ['listed'], lines([run_record(500, ['failure'], placed: false)]).map(&:status)
+  end
+
+  def test_a_failed_push_run_on_a_commit_this_clone_lacks_is_listed
+    assert_equal ['listed'], lines([run_record(500, ['failure'], placed: nil)]).map(&:status)
+  end
+
+  def test_passing_runs_elsewhere_are_not_mentioned
+    runs = [run_record(500, ['success'], event: 'pull_request'), run_record(501, ['success'], placed: false)]
+
+    assert_equal ['ok'], lines(runs).map(&:status)
+  end
+
+  def test_a_failure_that_counts_and_one_that_is_listed_are_separate_lines
+    runs = [run_record(500, ['failure']), run_record(501, ['failure'], event: 'pull_request')]
+
+    assert_equal %w[AGAINST listed], lines(runs).map(&:status)
+  end
+end
+
 # An issue the plan mentions at all is one the developer already knows
 # about, whatever words surround the number. A Shipment paragraph names
 # its follow-ups in a sentence, not in a fixed phrase.
@@ -758,16 +848,32 @@ class LeaveReportTest < LeaveCliTestCase
 
   # The data files are written beside the repository, never inside it:
   # an untracked file in the working tree is one of the things reported.
-  def serve(repo, pull_requests: [], issues: [], key: Fixtures::ForgeStub::CWD)
-    { 'STUB_GH_PRS' => pull_requests, 'STUB_GH_ISSUES' => issues }.each do |variable, records|
+  def serve(repo, pull_requests: [], issues: [], runs: [], attempts: {}, key: Fixtures::ForgeStub::CWD)
+    lists = { 'STUB_GH_PRS' => pull_requests, 'STUB_GH_ISSUES' => issues, 'STUB_GH_RUNS' => runs }
+    data = lists.transform_values { |records| { key => records } }.merge('STUB_GH_API' => attempts)
+    data.each do |variable, contents|
       path = File.join(repo.root, "#{variable.downcase}.json")
-      File.write(path, JSON.generate(key => records))
+      File.write(path, JSON.generate(contents))
       ENV[variable] = path
     end
   end
 
   def report(repo, *extra, ambient: {})
     report_on(repo, ['-C', repo.work, '--story-branch', STORY, *extra], ambient: ambient)
+  end
+
+  def workflow_run(id, sha, conclusion: 'success', attempt: 1, event: 'push', branch: 'main', status: 'completed')
+    { 'databaseId' => id, 'workflowName' => 'checks', 'status' => status, 'conclusion' => conclusion,
+      'headSha' => sha, 'headBranch' => branch, 'event' => event, 'attempt' => attempt,
+      'createdAt' => (Time.now.utc + 60).iso8601 }
+  end
+
+  def attempt_path(id, attempt, project = '{owner}/{repo}')
+    "repos/#{project}/actions/runs/#{id}/attempts/#{attempt}"
+  end
+
+  def report_since_merge(repo, *extra)
+    report(repo, '--merge-commit', repo.sha('origin/main'), *extra)
   end
 
   # `ambient` is set inside the fixture's environment, which unsets
@@ -781,7 +887,8 @@ class LeaveReportTest < LeaveCliTestCase
   end
 
   CLEAN = { 'working-tree' => ['ok'], 'in-progress' => ['ok'], 'unpushed' => ['ok'], 'stashes' => ['ok'],
-            'worktrees' => ['ok'], 'pull-requests' => ['ok'], 'issues' => ['listed'] }.freeze
+            'worktrees' => ['ok'], 'pull-requests' => ['ok'], 'issues' => ['listed'],
+            'check-runs' => ['listed'] }.freeze
 
   def open_pull_request(number, title, branch, closes: [])
     { 'number' => number, 'state' => 'OPEN', 'title' => title, 'headRefName' => branch,
@@ -1774,11 +1881,12 @@ class LeaveReportTest < LeaveCliTestCase
   def test_a_code_host_that_fails_leaves_both_lines_unchecked
     with_repo do |repo|
       ENV['STUB_GH_FAIL'] = '1'
-      result = report(repo, '--issue', '12')
+      result = report_since_merge(repo, '--issue', '12')
 
       assert_equal 1, result.status
       assert_equal ['UNCHECKED'], result.statuses['pull-requests']
       assert_equal ['UNCHECKED'], result.statuses['issues']
+      assert_equal ['UNCHECKED'], result.statuses['check-runs']
       assert_includes result.line_for('pull-requests'), 'error connecting'
       assert_equal ['ok'], result.statuses['working-tree']
     end
@@ -1846,6 +1954,131 @@ class LeaveReportTest < LeaveCliTestCase
       ENV['GH_REPO'] = 'someone/elsewhere'
 
       assert_equal ['ok'], report(repo, '--issue', '12').statuses['pull-requests']
+    end
+  end
+
+  def test_a_passing_run_on_the_merge_commit_is_clean
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, repo.sha)])
+      result = report_since_merge(repo)
+
+      assert_equal 0, result.status, result.stdout
+      assert_equal ['ok'], result.statuses['check-runs']
+    end
+  end
+
+  def test_a_failed_run_on_a_later_commit_of_the_default_branch_counts
+    with_repo do |repo|
+      merge = repo.sha
+      repo.commit_locally('later', 'A later change')
+      repo.push('main')
+      serve(repo, runs: [workflow_run(501, repo.sha, conclusion: 'failure'), workflow_run(500, merge)])
+      result = report(repo, '--merge-commit', merge)
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['check-runs']
+      assert_includes result.line_for('check-runs'), '501'
+    end
+  end
+
+  # `gh run list` shows a rerun run by its latest attempt, so the
+  # earlier ones have to be asked for one at a time.
+  def test_a_run_rerun_to_green_counts_for_the_attempt_that_failed
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, repo.sha, attempt: 2)],
+                  attempts: { attempt_path(500, 1) => { 'conclusion' => 'failure', 'status' => 'completed' } })
+      result = report_since_merge(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['check-runs']
+      assert_includes result.line_for('check-runs'), 'attempt 1'
+    end
+  end
+
+  def test_with_a_named_repo_an_earlier_attempt_is_asked_of_that_repo
+    with_repo do |repo|
+      serve(repo, key: 'fixture/upstream', runs: [workflow_run(500, repo.sha, attempt: 2)],
+                  attempts: { attempt_path(500, 1, 'fixture/upstream') => { 'conclusion' => 'success' } })
+      result = report_since_merge(repo, '--repo', 'fixture/upstream')
+
+      assert_equal ['ok'], result.statuses['check-runs']
+    end
+  end
+
+  def test_an_earlier_attempt_that_cannot_be_read_leaves_check_runs_unchecked
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, repo.sha, attempt: 2)],
+                  attempts: { attempt_path(500, 1) => { 'conclusion' => 'success' } })
+      # The pull request listing and the run listing are answered; the
+      # attempt lookup, the third call, is not.
+      ENV['STUB_GH_FAIL_AFTER'] = '2'
+      result = report_since_merge(repo)
+
+      assert_equal ['ok'], result.statuses['pull-requests']
+      assert_equal ['UNCHECKED'], result.statuses['check-runs']
+    end
+  end
+
+  def test_a_run_still_going_is_unchecked
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, repo.sha, conclusion: '', status: 'in_progress')])
+      result = report_since_merge(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['UNCHECKED'], result.statuses['check-runs']
+    end
+  end
+
+  def test_a_failed_pull_request_run_is_listed_and_leaves_the_answer_alone
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, '0' * 40, conclusion: 'failure', event: 'pull_request',
+                                                     branch: 'other-work')])
+      result = report_since_merge(repo)
+
+      assert_equal 0, result.status, result.stdout
+      assert_equal ['listed'], result.statuses['check-runs']
+      assert_includes result.line_for('check-runs'), 'other-work'
+    end
+  end
+
+  def test_a_failed_run_on_a_commit_from_before_the_merge_is_listed
+    with_repo do |repo|
+      before = repo.sha
+      repo.commit_locally('story', 'The story')
+      repo.push('main')
+      serve(repo, runs: [workflow_run(500, before, conclusion: 'failure', branch: 'old-branch')])
+      result = report_since_merge(repo)
+
+      assert_equal 0, result.status, result.stdout
+      assert_equal ['listed'], result.statuses['check-runs']
+    end
+  end
+
+  def test_runs_are_asked_for_from_the_merge_commits_own_time
+    with_repo do |repo|
+      report_since_merge(repo)
+      stamp = repo.git('show', '-s', '--format=%cI', 'origin/main').strip
+
+      assert_equal 1, served_invocations.grep(/run list .*--created >=#{Regexp.escape(stamp)}/).length,
+                   served_invocations.inspect
+    end
+  end
+
+  def test_a_merge_commit_this_clone_lacks_leaves_check_runs_unchecked
+    with_repo do |repo|
+      result = report(repo, '--merge-commit', 'f' * 40)
+
+      assert_equal 1, result.status
+      assert_equal ['UNCHECKED'], result.statuses['check-runs']
+      assert_empty served_invocations.grep(/run list/)
+    end
+  end
+
+  def test_with_no_merge_commit_named_runs_are_never_asked_for
+    with_repo do |repo|
+      report(repo)
+
+      assert_empty served_invocations.grep(/run list/)
     end
   end
 end

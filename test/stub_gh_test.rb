@@ -369,4 +369,73 @@ class StubGhTest < Minitest::Test
 
     assert_match(/STUB_GH_ISSUES is unset/, result.refusals.join("\n"))
   end
+
+  # Workflow runs, and the earlier attempts of one, which `run list`
+  # does not show: it reports a rerun run by its latest attempt alone.
+  EARLY_RUN = { 'databaseId' => 500, 'workflowName' => 'checks', 'status' => 'completed',
+                'conclusion' => 'success', 'attempt' => 1, 'createdAt' => '2027-03-01T10:00:00Z' }.freeze
+  LATE_RUN = { 'databaseId' => 501, 'workflowName' => 'checks', 'status' => 'completed',
+               'conclusion' => 'success', 'attempt' => 2, 'createdAt' => '2027-03-01T12:00:00Z' }.freeze
+  ATTEMPT_PATH = 'repos/{owner}/{repo}/actions/runs/501/attempts/1'
+
+  def run_env(extra = {})
+    runs = File.join(@dir, 'runs.json')
+    File.write(runs, JSON.generate('@cwd' => [LATE_RUN, EARLY_RUN]))
+    api = File.join(@dir, 'api.json')
+    File.write(api, JSON.generate(ATTEMPT_PATH => { 'conclusion' => 'failure', 'run_attempt' => 1 }))
+    { 'STUB_GH_RUNS' => runs, 'STUB_GH_API' => api }.merge(extra)
+  end
+
+  def test_a_run_listing_answers_with_every_run_when_no_time_is_given
+    result = run_stub('run', 'list', '--json', 'databaseId', env: run_env)
+
+    assert_equal [{ 'databaseId' => 501 }, { 'databaseId' => 500 }], result.json
+  end
+
+  def test_a_run_listing_created_since_a_time_leaves_out_the_earlier_runs
+    result = run_stub('run', 'list', '--json', 'databaseId,attempt', '--created', '>=2027-03-01T11:00:00Z',
+                      env: run_env)
+
+    assert_equal [{ 'databaseId' => 501, 'attempt' => 2 }], result.json
+  end
+
+  # An offset form names the same instant as its UTC form, and the real
+  # client accepts either.
+  def test_a_created_time_with_an_offset_is_compared_as_an_instant
+    result = run_stub('run', 'list', '--json', 'databaseId', '--created', '>=2027-03-01T06:00:00-05:00',
+                      env: run_env)
+
+    assert_equal [{ 'databaseId' => 501 }], result.json
+  end
+
+  def test_a_created_filter_in_a_form_this_stub_does_not_know_is_refused
+    result = refusal_case('run', 'list', '--json', 'databaseId', '--created', '2027-03-01', env: run_env)
+
+    assert_match(/unserved --created form/, result.refusals.join("\n"))
+  end
+
+  def test_a_run_listing_with_a_state_flag_is_refused
+    result = refusal_case('run', 'list', '--json', 'databaseId', '--state', 'open', env: run_env)
+
+    assert_match(/unserved flag for run list: --state/, result.refusals.join("\n"))
+  end
+
+  def test_an_api_path_the_data_describes_is_answered_with_its_object
+    result = run_stub('api', ATTEMPT_PATH, env: run_env)
+
+    assert result.ok?, result.stderr
+    assert_equal({ 'conclusion' => 'failure', 'run_attempt' => 1 }, result.json)
+  end
+
+  def test_an_api_path_the_data_does_not_describe_is_refused
+    result = refusal_case('api', 'repos/{owner}/{repo}/actions/runs/999/attempts/1', env: run_env)
+
+    assert_match(/no api data for/, result.refusals.join("\n"))
+  end
+
+  def test_an_api_call_with_a_flag_is_refused
+    result = refusal_case('api', ATTEMPT_PATH, '--method', 'DELETE', env: run_env)
+
+    assert_match(/unserved api arguments/, result.refusals.join("\n"))
+  end
 end

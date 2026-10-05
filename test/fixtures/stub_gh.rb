@@ -46,6 +46,7 @@
 # to keep it from reaching without evidence.
 
 require 'json'
+require 'time'
 
 module StubGh
   # Every variable this stub reads, named once. A suite that scrubs and
@@ -54,8 +55,8 @@ module StubGh
   # it are graded against a forge that is quietly broken. The test base
   # derives its scrub list from this, and a guard test checks this list
   # against the source below.
-  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_FAIL STUB_GH_FAIL_AFTER
-                STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
+  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_RUNS STUB_GH_API STUB_GH_FAIL
+                STUB_GH_FAIL_AFTER STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
 
   # gh's own defaults, reproduced because a sweep that omits either
   # flag must see what it would really see.
@@ -81,10 +82,15 @@ module StubGh
     garble_as_configured
     mis_shape_as_configured
     command = argv.take(2).join(' ')
+    rest = argv.drop(2)
     case command
-    when 'pr list' then list_pull_requests(parse(argv.drop(2)))
-    when 'issue list' then list_issues(parse(argv.drop(2), refused: ISSUE_REFUSED_FLAGS, command: command))
-    else refuse("unserved command: #{command.empty? ? '(none)' : command}")
+    when 'pr list' then list_pull_requests(parse(rest))
+    when 'issue list' then list_issues(parse(rest, refused: ISSUE_REFUSED_FLAGS, command: command))
+    when 'run list' then list_runs(parse(rest, refused: RUN_REFUSED_FLAGS, command: command))
+    else
+      return answer_api(argv.drop(1)) if argv.first == 'api'
+
+      refuse("unserved command: #{command.empty? ? '(none)' : command}")
     end
   end
 
@@ -192,12 +198,16 @@ module StubGh
     '--head' => :head, '-H' => :head,
     '--state' => :state,
     '--limit' => :limit,
-    '--json' => :json
+    '--json' => :json,
+    '--created' => :created
   }.freeze
 
   # Flags `gh issue list` does not take. The real client rejects them,
   # so a caller that sent one would be answered by nothing.
-  ISSUE_REFUSED_FLAGS = %w[--head -H].freeze
+  ISSUE_REFUSED_FLAGS = %w[--head -H --created].freeze
+
+  # `gh run list` filters on --status, and has no --state or --head.
+  RUN_REFUSED_FLAGS = %w[--head -H --state].freeze
 
   def parse(argv, refused: [], command: nil)
     options = { state: DEFAULT_STATE, limit: DEFAULT_LIMIT }
@@ -252,6 +262,45 @@ module StubGh
   # The sweep reads JSON, so a run without --json would hand it gh's
   # human table. Refused rather than served, because the sweep parsing
   # that table is a bug no verdict would reveal.
+  # Runs are served newest first, as the real client lists them, and
+  # are not filtered by state: a run has a status and a conclusion, and
+  # `run list` shows every one unless asked otherwise.
+  def list_runs(options)
+    fields = requested_fields(options, 'run list')
+    since = created_since(options[:created])
+    matched = records_for(options[:repo], 'STUB_GH_RUNS').select do |record|
+      since.nil? || Time.iso8601(record.fetch('createdAt')) >= since
+    end
+    puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields, 'run') })
+  end
+
+  # The one --created form the callers send. The real client takes
+  # GitHub's whole date-search syntax; serving a form this does not
+  # parse would be answering a question it did not understand.
+  def created_since(raw)
+    return nil if raw.nil?
+
+    stamp = raw[/\A>=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d))\z/, 1]
+    refuse("unserved --created form: #{raw.inspect}") if stamp.nil?
+
+    Time.iso8601(stamp)
+  end
+
+  # A GET of one path, answered with the object the data file holds for
+  # it. Any flag is refused: `gh api` can write, and nothing that drives
+  # this stub has a reason to.
+  def answer_api(argv)
+    refuse("unserved api arguments: #{argv.join(' ')}") unless argv.length == 1 && !argv.first.start_with?('-')
+
+    path = ENV.fetch('STUB_GH_API', nil)
+    refuse('STUB_GH_API is unset; there is no data to serve') if path.nil? || !File.exist?(path)
+
+    data = JSON.parse(File.read(path))
+    refuse("no api data for #{argv.first}; served paths are #{data.keys.join(', ')}") unless data.key?(argv.first)
+
+    puts JSON.generate(data.fetch(argv.first))
+  end
+
   def requested_fields(options, command = 'pr list')
     raw = options[:json]
     refuse("#{command} without --json") if raw.nil?

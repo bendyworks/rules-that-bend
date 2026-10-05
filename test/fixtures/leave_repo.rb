@@ -24,6 +24,10 @@ module Fixtures
       self
     end
 
+    def sha(revision = 'HEAD')
+      git('rev-parse', revision).strip
+    end
+
     def write(path, contents)
       File.write(File.join(work, path), "#{contents}\n")
     end
