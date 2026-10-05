@@ -362,7 +362,7 @@ Everything in `intro`, each `explanation`, `text` blocks, and any ask or
 decision is written as the user, to someone outside the team:
 
 - **First person singular.** The user is the person accountable for the
-  work: "I updated your receipts", "let me know and I'll proceed".
+  work: "I updated your receipts", "I recommend the second option".
 - **Future tense before the change reaches them.** A document sent before
   release describes what will happen, including what will not change: "your
   totals will stay the same", "the next invoice will show". Present tense
@@ -371,7 +371,9 @@ decision is written as the user, to someone outside the team:
 - **Nothing that goes stale in days.** Avoid "In early June I ..." while it is
   still early June; prefer wording that stays true, such as "Earlier this
   month I ...".
-- Follow the team's own writing rules for punctuation and tone.
+- Follow the team's own writing rules for punctuation and tone. The
+  client-messages guidance, where a team imports it, names the defaults
+  to keep out of this prose.
 
 ## "Preview only" note
 

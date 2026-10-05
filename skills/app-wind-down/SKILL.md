@@ -129,6 +129,7 @@ Safeguard before teardown, in this order:
   period, the worker-during-pg:copy hole, the production backup gap, the
   mail-silent-failure trap, and the cost-target contingencies.
 - Client emails in the operator's voice with real dollar figures, drafted
-  to `tmp/` for the human to send.
+  to `tmp/` for the human to send. The client-messages guidance, where a
+  team imports it, names the defaults to keep out of those drafts.
 - Rotate any credential that passed through a chat session once the
   emergency is over.
