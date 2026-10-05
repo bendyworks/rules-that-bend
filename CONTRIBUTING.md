@@ -313,6 +313,34 @@ its stream-json log and find the step where the rule should have
 applied, before changing a word. A model that never consults the rule at
 that step is a limit to record, not a wording to tune.
 
+**When a rule tells a session to hold something back, check that what
+the reader asked for is still there.** A grader built to catch a
+pattern scores its absence as a pass, and cannot see what left with it.
+In one guidance story a rule moved reassurance behind the explanation.
+The control answered a yes/no question in ten runs of ten; the
+treatment answered it in none of fifteen, and every grader passed those
+drafts, because no scenario listed the answer as a required fact and
+the rubric scored "Yes, it is working again" as the pattern. Give each
+scenario a list of facts a good output must still contain, the answer
+to any question asked among them, and compare their survival between
+control and treatment.
+
+**Fix the runs each pattern is counted over before the first run.** A
+pattern that only two of six scenarios can produce reads as 8 of 30
+over all six and 8 of 10 over the two, and a pass bar set as a share
+gives a different verdict on each. Write down, per pattern, which
+scenarios invite it, before any output exists. A pool changed after
+seeing results is reported as changed, with both figures.
+
+**Pin a container to one CPU to reproduce a race that fails only in
+CI.** A test that wrote to the pipe of a child process which exits
+without reading passed 30 runs of 30 in a Linux container with every
+core available, and failed 28 of 40 with
+`docker run --cpuset-cpus 0`: on one core the child runs, and exits,
+before the parent writes. When a test passes locally and fails on a
+shared runner with a broken pipe or a timeout, try the one-core
+container before reading the failure as a flake.
+
 ## Writing a new skill
 
 A skill is a folder under `skills/<name>/` with a `SKILL.md` and any
