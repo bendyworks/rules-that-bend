@@ -1,0 +1,396 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# safe-to-leave -- report what a finished story has left behind in a
+# repository, so that closing the session is a decision and not a
+# hope.
+#
+# It prints one or more lines per check and changes nothing: it reads
+# the working tree, the commits no remote has, the stashes, and the
+# linked worktrees. Each line carries one of four words:
+#
+#   ok         the check ran and found nothing
+#   AGAINST    something counts against leaving, and is named
+#   listed     something is there that belongs to other work; named,
+#              and not counted
+#   UNCHECKED  the check could not be made, with the reason. An
+#              unanswered question is not a clean answer, so this
+#              counts against leaving too
+#
+# The exit status is 0 when nothing counts against leaving, 1 when
+# something does, and 2 when the command could not report at all.
+#
+# What belongs to the story is decided by branch name: a branch, a
+# stash made on a branch, or a worktree on a branch whose name starts
+# with a --story-branch prefix is the story's. That is the one
+# attribution git can answer. Dates cannot do it: a stash records when
+# it was made, and nothing records when a story began.
+#
+# Stdlib-only (no gems). Run with --help for usage.
+
+require 'open3'
+require 'optparse'
+
+module SafeToLeave
+  Error = Class.new(StandardError)
+
+  DEFAULT_REMOTE = 'origin'
+
+  USAGE = <<~TXT
+    Usage: safe-to-leave [-C DIR] [--remote NAME] [--story-branch PREFIX]...
+
+    Reports what is left behind in a repository. Nothing is changed.
+
+      -C DIR          the repository to report on (default: the working
+                      directory)
+      --remote NAME   the remote unpushed commits are measured against
+                      (default: #{DEFAULT_REMOTE})
+      --story-branch PREFIX
+                      a branch-name prefix that marks the finished story's
+                      branches, such as abc-123- ; repeat it for a story
+                      with more than one. A stash or worktree on such a
+                      branch counts against leaving, and one on any other
+                      branch is listed. With no prefix given, nothing can
+                      be attributed, so every stash counts
+      -h, --help      print this message
+
+    Unpushed commits are measured against what the remote had as of your
+    last fetch, so fetch first.
+
+    Exit status: 0 nothing counts against leaving, 1 something does,
+    2 the report could not be made.
+  TXT
+
+  OK = 'ok'
+  AGAINST = 'AGAINST'
+  LISTED = 'listed'
+  UNCHECKED = 'UNCHECKED'
+
+  # One line of the report. More than one can carry the same check
+  # name: the stashes that count and the stashes that are only listed
+  # are separate lines, so that a reader scanning for AGAINST finds
+  # exactly the things that are.
+  Line = Struct.new(:check, :status, :detail) do
+    def against?
+      [AGAINST, UNCHECKED].include?(status)
+    end
+  end
+
+  Stash = Struct.new(:ref, :subject)
+
+  # `changes` is the number of uncommitted or untracked entries, or nil
+  # when the worktree could not be read.
+  Worktree = Struct.new(:path, :branch, :changes)
+
+  # The decisions, as functions of gathered facts. Nothing here runs a
+  # command.
+  module Checks
+    # The two subjects git writes for a stash: "WIP on <branch>: ..."
+    # for a bare `git stash`, "On <branch>: ..." for `stash push -m`. A
+    # refname cannot contain a colon, so the first one ends the name.
+    # With HEAD detached git writes "(no branch)" there, which names
+    # nothing.
+    STASH_BRANCH = /\A(?:WIP on|On) ([^:]+): /
+    NO_BRANCH = '(no branch)'
+
+    module_function
+
+    def story_branch?(name, prefixes)
+      prefixes.any? { |prefix| name.start_with?(prefix) }
+    end
+
+    def working_tree(entries)
+      return [Line.new('working-tree', OK, 'clean')] if entries.empty?
+
+      [Line.new('working-tree', AGAINST,
+                "#{count(entries.length, 'uncommitted or untracked file')}: #{entries.join(', ')}")]
+    end
+
+    def stash_branch(subject)
+      name = subject[STASH_BRANCH, 1]
+      name == NO_BRANCH ? nil : name
+    end
+
+    # A stash that names no branch counts: it may be the story's, and
+    # nothing says otherwise.
+    def stashes(stashes, prefixes)
+      return [Line.new('stashes', OK, 'none')] if stashes.empty?
+
+      counted, others = stashes.partition do |stash|
+        branch = stash_branch(stash.subject)
+        branch.nil? || prefixes.empty? || story_branch?(branch, prefixes)
+      end
+      describe = ->(list) { list.map { |stash| "#{stash.ref} (#{stash.subject})" }.join(', ') }
+      [
+        (Line.new('stashes', AGAINST, describe.call(counted)) unless counted.empty?),
+        (Line.new('stashes', LISTED, "from other work, not counted: #{describe.call(others)}") unless others.empty?)
+      ].compact
+    end
+
+    # `branches` maps each local branch other than the default to the
+    # number of its commits no branch on the remote has.
+    def unpushed(default:, default_ahead:, branches:, prefixes:)
+      ahead = branches.select { |_name, commits| commits.positive? }
+      story, others = ahead.partition { |name, _commits| story_branch?(name, prefixes) }
+      counted = story.map { |name, commits| "#{name} (#{count(commits, 'commit')})" }
+      counted.unshift("#{default} is #{count(default_ahead, 'commit')} ahead of the remote") if default_ahead.positive?
+      lines = []
+      lines << Line.new('unpushed', AGAINST, counted.join(', ')) unless counted.empty?
+      unless others.empty?
+        named = others.map { |name, commits| "#{name} (#{count(commits, 'commit')})" }
+        lines << Line.new('unpushed', LISTED, "other branches, not counted: #{named.join(', ')}")
+      end
+      lines.empty? ? [Line.new('unpushed', OK, 'every commit that counts is on the remote')] : lines
+    end
+
+    # `worktrees` holds every worktree other than the one reported on.
+    def worktrees(worktrees, prefixes)
+      return [Line.new('worktrees', OK, 'no other worktree')] if worktrees.empty?
+
+      unread, read = worktrees.partition { |worktree| worktree.changes.nil? }
+      counted, clean = read.partition do |worktree|
+        worktree.changes.positive? || (worktree.branch && story_branch?(worktree.branch, prefixes))
+      end
+      [
+        (Line.new('worktrees', UNCHECKED, "could not be read: #{unread.map(&:path).join(', ')}") unless unread.empty?),
+        (Line.new('worktrees', AGAINST, describe_worktrees(counted)) unless counted.empty?),
+        (Line.new('worktrees', LISTED, "clean, on other work: #{clean.map(&:path).join(', ')}") unless clean.empty?)
+      ].compact
+    end
+
+    def describe_worktrees(worktrees)
+      worktrees.map do |worktree|
+        on = worktree.branch ? "on #{worktree.branch}" : 'detached'
+        changes = worktree.changes.positive? ? ", #{count(worktree.changes, 'uncommitted or untracked file')}" : ''
+        "#{worktree.path} (#{on}#{changes})"
+      end.join(', ')
+    end
+
+    def count(number, noun)
+      "#{number} #{noun}#{'s' unless number == 1}"
+    end
+  end
+
+  # The only code that shells out.
+  class Git
+    # Git environment variables that name a repository, unset for every
+    # child. `git -C DIR` does not override an inherited GIT_DIR, so
+    # without this a report run with one set describes a repository the
+    # caller never named. LC_ALL keeps git's messages, which are quoted
+    # in UNCHECKED lines, in one language.
+    CHILD_ENV = %w[
+      GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+    ].to_h { |key| [key, nil] }
+                .merge('GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => nil,
+                       'SSH_ASKPASS' => nil, 'LC_ALL' => 'C')
+                .freeze
+
+    # A porcelain status entry that carries a second path: the entry is
+    # followed by the path it was renamed or copied from.
+    TWO_PATH_STATUS = /\A[RC]|\A.[RC]/
+
+    attr_reader :dir
+
+    def initialize(dir:, remote: DEFAULT_REMOTE)
+      @dir = dir
+      @remote = remote
+    end
+
+    def capture(*args)
+      Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
+    rescue Errno::ENOENT, Errno::EACCES, Errno::ENOTDIR => e
+      raise Error, "could not run git: #{e.message}"
+    end
+
+    def output(*args)
+      stdout, stderr, status = capture(*args)
+      raise Error, "git #{args.first} failed: #{stderr.strip}" unless status.success?
+
+      stdout
+    end
+
+    def toplevel
+      stdout, _stderr, status = capture('rev-parse', '--show-toplevel')
+      raise Error, "#{@dir} is not a git repository" unless status.success? && !stdout.strip.empty?
+
+      stdout.chomp
+    end
+
+    # -z, so a path with a space or a non-ASCII letter arrives as
+    # itself, where the default form quotes and escapes it.
+    def status_entries
+      tokens = output('status', '--porcelain=v1', '-z').split("\0")
+      entries = []
+      until tokens.empty?
+        token = tokens.shift
+        tokens.shift if token.match?(TWO_PATH_STATUS)
+        entries << token[3..]
+      end
+      entries
+    end
+
+    # Asked of the remote. refs/remotes/<remote>/HEAD is a local record
+    # written at clone time, and names the old branch after a default
+    # branch is renamed.
+    def default_branch
+      line = output('ls-remote', '--symref', @remote, 'HEAD')
+             .lines(chomp: true).find { |candidate| candidate.start_with?('ref: refs/heads/') }
+      raise Error, "#{@remote} names no default branch" if line.nil?
+
+      line.split("\t").first.delete_prefix('ref: refs/heads/')
+    end
+
+    def ref?(name)
+      capture('show-ref', '--verify', '--quiet', name).last.success?
+    end
+
+    def commits(*revisions)
+      Integer(output('rev-list', '--count', *revisions).strip)
+    end
+
+    # Full refnames in, short names out: a tag sharing a branch's name
+    # makes the short form ambiguous to rev-list.
+    def local_branches
+      output('for-each-ref', '--format=%(refname)', 'refs/heads/')
+        .lines(chomp: true).map { |ref| ref.delete_prefix('refs/heads/') }
+    end
+
+    def default_ahead(default)
+      tracking = "refs/remotes/#{@remote}/#{default}"
+      raise Error, "#{tracking} is absent; fetch #{@remote} first" unless ref?(tracking)
+      return 0 unless ref?("refs/heads/#{default}")
+
+      commits("#{tracking}..refs/heads/#{default}")
+    end
+
+    def unpushed_on(branch)
+      commits("refs/heads/#{branch}", '--not', "--remotes=#{@remote}")
+    end
+
+    def stashes
+      output('stash', 'list', '--format=%gd%x00%gs').lines(chomp: true).map do |line|
+        Stash.new(*line.split("\0", 2))
+      end
+    end
+
+    # Every worktree but the one at `here`, each with its branch and
+    # how many entries its own status shows.
+    def other_worktrees(here)
+      worktree_records.reject { |record| same_directory?(record[:path], here) }.map do |record|
+        Worktree.new(record[:path], record[:branch], changes_in(record[:path]))
+      end
+    end
+
+    private
+
+    def worktree_records
+      output('worktree', 'list', '--porcelain').split("\n\n").filter_map do |block|
+        fields = block.lines(chomp: true)
+        path = fields.find { |field| field.start_with?('worktree ') }&.delete_prefix('worktree ')
+        next if path.nil? || fields.include?('bare')
+
+        branch = fields.find { |field| field.start_with?('branch ') }
+        { path: path, branch: branch&.delete_prefix('branch refs/heads/') }
+      end
+    end
+
+    def same_directory?(path, other)
+      File.exist?(path) && File.exist?(other) && File.realpath(path) == File.realpath(other)
+    end
+
+    def changes_in(path)
+      return nil unless File.directory?(path)
+
+      Git.new(dir: path, remote: @remote).status_entries.length
+    rescue Error
+      nil
+    end
+  end
+
+  # Gathers the facts for each check and hands them to the decisions.
+  # A check whose facts cannot be gathered becomes an UNCHECKED line
+  # carrying the reason, and the checks after it still run.
+  class Report
+    def initialize(git:, prefixes:)
+      @git = git
+      @prefixes = prefixes
+    end
+
+    def lines
+      here = @git.toplevel
+      [
+        checked('working-tree') { Checks.working_tree(@git.status_entries) },
+        checked('unpushed') { unpushed },
+        checked('stashes') { Checks.stashes(@git.stashes, @prefixes) },
+        checked('worktrees') { Checks.worktrees(@git.other_worktrees(here), @prefixes) }
+      ].flatten
+    end
+
+    private
+
+    def checked(check)
+      yield
+    rescue Error => e
+      [Line.new(check, UNCHECKED, e.message)]
+    end
+
+    def unpushed
+      default = @git.default_branch
+      branches = (@git.local_branches - [default]).to_h { |branch| [branch, @git.unpushed_on(branch)] }
+      Checks.unpushed(default: default, default_ahead: @git.default_ahead(default),
+                      branches: branches, prefixes: @prefixes)
+    end
+  end
+
+  module CLI
+    # A value-taking flag swallows a following flag as its value, so
+    # each one refuses a value with a leading dash.
+    VALUE_NOT_FLAG = /\A[^-].*\z/m
+
+    module_function
+
+    def run(argv)
+      options = parse(argv)
+      git = Git.new(dir: options[:dir], remote: options[:remote])
+      lines = Report.new(git: git, prefixes: options[:prefixes]).lines
+      print_report(git.toplevel, lines)
+      exit 1 if lines.any?(&:against?)
+    rescue Error, OptionParser::ParseError => e
+      warn "safe-to-leave: #{e.message}"
+      exit 2
+    end
+
+    # permute rather than parse, which stops at the first positional
+    # when POSIXLY_CORRECT is set.
+    def parse(argv)
+      options = { dir: Dir.pwd, remote: DEFAULT_REMOTE, prefixes: [] }
+      parser = OptionParser.new do |on|
+        on.on('-C DIR', VALUE_NOT_FLAG) { |dir| options[:dir] = dir }
+        on.on('--remote NAME', VALUE_NOT_FLAG) { |name| options[:remote] = name }
+        on.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
+        on.on('-h', '--help') do
+          puts USAGE
+          exit 0
+        end
+      end
+      stray = parser.permute(argv)
+      raise Error, "unexpected argument: #{stray.join(' ')}\n#{USAGE}" unless stray.empty?
+
+      options
+    end
+
+    def print_report(toplevel, lines)
+      puts "safe-to-leave: #{toplevel}"
+      lines.each { |line| puts format('  %-10<status>s%<check>s: %<detail>s', line.to_h) }
+      against = lines.count(&:against?)
+      if against.zero?
+        puts 'safe-to-leave: nothing counts against leaving (repository checks)'
+      else
+        puts "safe-to-leave: #{against} #{against == 1 ? 'line counts' : 'lines count'} against leaving"
+      end
+    end
+  end
+end
+
+SafeToLeave::CLI.run(ARGV) if $PROGRAM_NAME == __FILE__
