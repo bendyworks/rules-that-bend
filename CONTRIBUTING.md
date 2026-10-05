@@ -119,11 +119,12 @@ session without the flag is a real one with your own settings: it runs
 your hooks and loads your plugins, though with no tools and no MCP
 servers, and each session makes one small model request. It starts no
 session at all on a build older than 2.1.101.
-"Cannot tell" comes with its reason. The two you are likeliest to see:
-an arm failed, and if it is the one with the flag, your sign-in may
-come from your user settings, which is the second case under "Park the
-file" below; or nothing user-level loaded either way, because you have
-no such files or another session has your `CLAUDE.md` parked.
+"Cannot tell" comes with its reason. The three you are likeliest to
+see: an arm failed, and if it is the one with the flag, your sign-in may
+come from your user settings, which is the first case under "When the
+flag will not do" below; nothing user-level loaded either way, because
+you have no such files; or your `CLAUDE.md` sits in a park lock, which
+"Never move your user-level files aside" below explains.
 
 The flag drops everything else in your user settings too, so an arm
 gets none of your permission rules, hooks, or model choice. That
@@ -145,53 +146,76 @@ stale skill copy off disk. Where that matters, add
 run is an arm citing a rule only your own files carry, or skill wording
 that matches main rather than your branch.
 
-**Park the file when the flag will not do.** Two cases: the check above
-reports that a user-level file loaded with the flag, or your arms need
-your user settings to run at all (a sign-in that comes from an
-`apiKeyHelper` or an `env` block there, say). Pointing
-`CLAUDE_CONFIG_DIR` or `HOME` elsewhere is no substitute; it leaves the
-run logged out. Wrap the whole batch in `scripts/park-claude-md.sh`:
+**When the flag will not do.** Two cases. Both are settled on the
+arm's own command line, so nothing outside the arm changes.
+
+*Your arms need something from your user settings to run at all*, such
+as a sign-in that comes from an `apiKeyHelper` there. Put that one
+setting in a file of its own and pass it beside the flag:
 
 ```bash
-scripts/park-claude-md.sh -- ./run-arms.sh
+claude --setting-sources project --settings ~/dry-run/sign-in.json ...
 ```
 
-In the first case keep passing the flag as well. In the second the
-arms run without it, so everything the flag keeps out loads again,
-except the parked `CLAUDE.md` and whatever you move: your other
-personal skills, plugins, and MCP servers stay loaded. The script
-parks only the user-level `CLAUDE.md`. Files under `~/.claude/rules/`
-load the same way and are not parked, so move any that could reach an
-arm yourself. Do the same for synced copies of a skill you changed:
-move the affected `~/.claude/skills/<name>` directories out of
-`~/.claude/skills` entirely (a scratch directory works; a rename in
-place does not -- discovery keys off SKILL.md frontmatter, not the
-directory name), run the test, then move them back.
+Seen on Claude Code 2.1.289, an arm run this way consulted the file's
+`apiKeyHelper`, applied its `env` block, and ran its hooks, while the
+flag still kept the user-level files out. Claude Code keeps only the
+last `--settings` it is given, so a guard hook you restate goes in the
+same file. Variables from an `env` block need no file at all: export
+them in the shell that runs the batch. The file names a command that
+fetches a key and never holds the key itself. Keep it outside this
+repo, as the path above is. Hand the isolation check the same file, so
+its arm with the flag can sign in; that arm is a real session, so the
+file's `apiKeyHelper` and hooks run there too:
 
-The script moves the file aside, runs the command, and moves it back on
-exit, Ctrl-C, `kill`, or a closed terminal. Every checkout of this repo
-on your machine shares one config directory, so the script holds a lock
-while the file is parked and refuses to start while another session
-holds it. Arms that the batch starts in parallel can each wrap
-themselves in the script too; they share the batch's park. The batch
-must `wait` for its arms before it exits, since the file goes back when
-the wrapped command ends. Run headless, with no controlling terminal as
-in a Claude Code session, the script stops any arm still running then,
-with a warning; from a terminal, and for an arm that starts its own
-session, it cannot find them. Any Claude Code session you start while
-the file is parked runs without it, and if one of them saves a new
-CLAUDE.md meanwhile, the script keeps both copies and prints how to
-merge them. After a crash or `kill -9`, `scripts/park-claude-md.sh
---status` shows what is parked and `--recover` puts it back.
+```bash
+ARM_SETTINGS=~/dry-run/sign-in.json scripts/check-arm-isolation.sh
+```
 
-**A refused park means the batch never ran.** A batch started in the
-background while another checkout's dry runs hold the lock exits at
-once with no arm run, which reads like an empty result rather than a
-refusal. Check `scripts/park-claude-md.sh --status` before starting
-one. When it names a session that is still running, wait for that
-session rather than taking the lock: loop on `--status` until it
-reports the file is not parked, then start the batch. `--recover` is
-only for a holder that is no longer running.
+*The check reports that a user-level file loaded with the flag.* Run no
+batch that relies on the flag on that build. Install a build the check
+passes on (`claude install <version>`), run the check again, and open
+an issue here with the output of the failing run. The check's output
+names files and directories on your machine and can quote an error
+from `claude` or `ruby`, and this repo is public, so read it before you
+post it.
+
+Until a build passes, an arm can run on a config directory of its own,
+which has no user-level files in it to load. Pointing
+`CLAUDE_CONFIG_DIR` at an empty directory leaves a run logged out, so
+the arm also needs a sign-in token in its environment. Make one with
+`claude setup-token`, keep it in your system's secret store, and read
+it from there on the command line (on macOS, `security
+find-generic-password -s <item> -w`):
+
+```bash
+CLAUDE_CONFIG_DIR="$(mktemp -d)" \
+  CLAUDE_CODE_OAUTH_TOKEN="$(<command that prints the token>)" \
+  claude --model sonnet -p "..." --allowedTools "..."
+```
+
+Seen on Claude Code 2.1.289: with an empty config directory and no
+token, a headless run answered "Not logged in"; with the token it ran,
+and loaded the project's `CLAUDE.md` and no user-level file. The token
+is a credential for your account: never write it to a file, a script,
+or a settings file, and never paste it into a session. Claude Code
+writes session state into the directory, so delete it when the batch
+ends. `scripts/check-arm-isolation.sh` does not check this route; it
+tests the flag.
+
+**Never move your user-level files aside for a batch.** Every Claude
+Code session on your machine reads the one user-level `CLAUDE.md`. A
+session started in any project while that file is moved away runs
+without your rules, and nothing tells it or you: it behaves plausibly
+and no command fails. Older checkouts of this repo, and harnesses
+written against them, carry `scripts/park-claude-md.sh`, which moved
+the file into a `CLAUDE.md.park-lock` directory beside it for the
+length of a batch. Do not run it. `scripts/check-arm-isolation.sh`
+looks for that directory before it starts a session, and again once
+its sessions finish. When it finds one, it says which checkout and
+process took it, where the directory records one, and what to do next:
+the commands that put the file back, or, when a `CLAUDE.md` is also in
+place, to compare the two first.
 
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
