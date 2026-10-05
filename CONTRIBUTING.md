@@ -119,11 +119,12 @@ session without the flag is a real one with your own settings: it runs
 your hooks and loads your plugins, though with no tools and no MCP
 servers, and each session makes one small model request. It starts no
 session at all on a build older than 2.1.101.
-"Cannot tell" comes with its reason. The two you are likeliest to see:
-an arm failed, and if it is the one with the flag, your sign-in may
+"Cannot tell" comes with its reason. The three you are likeliest to
+see: an arm failed, and if it is the one with the flag, your sign-in may
 come from your user settings, which is the first case under "When the
-flag will not do" below; or nothing user-level loaded either way,
-because you have no such files.
+flag will not do" below; nothing user-level loaded either way, because
+you have no such files; or your `CLAUDE.md` sits in a park lock, which
+"Never move your user-level files aside" below explains.
 
 The flag drops everything else in your user settings too, so an arm
 gets none of your permission rules, hooks, or model choice. That
@@ -209,7 +210,12 @@ without your rules, and nothing tells it or you: it behaves plausibly
 and no command fails. Older checkouts of this repo, and harnesses
 written against them, carry `scripts/park-claude-md.sh`, which moved
 the file into a `CLAUDE.md.park-lock` directory beside it for the
-length of a batch. Do not run it.
+length of a batch. Do not run it. `scripts/check-arm-isolation.sh`
+looks for that directory before it starts a session, and again once
+its sessions finish. When it finds one, it says which checkout and
+process took it, where the directory records one, and what to do next:
+the commands that put the file back, or, when a `CLAUDE.md` is also in
+place, to compare the two first.
 
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
