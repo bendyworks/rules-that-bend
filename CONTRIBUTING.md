@@ -177,8 +177,30 @@ passes on (`claude install <version>`), run the check again, and open
 an issue here with the output of the failing run. The check's output
 names files and directories on your machine and can quote an error
 from `claude` or `ruby`, and this repo is public, so read it before you
-post it. Pointing `CLAUDE_CONFIG_DIR` or `HOME` elsewhere is no
-substitute; it leaves the run logged out.
+post it.
+
+Until a build passes, an arm can run on a config directory of its own,
+which has no user-level files in it to load. Pointing
+`CLAUDE_CONFIG_DIR` at an empty directory leaves a run logged out, so
+the arm also needs a sign-in token in its environment. Make one with
+`claude setup-token`, keep it in your system's secret store, and read
+it from there on the command line (on macOS, `security
+find-generic-password -s <item> -w`):
+
+```bash
+CLAUDE_CONFIG_DIR="$(mktemp -d)" \
+  CLAUDE_CODE_OAUTH_TOKEN="$(<command that prints the token>)" \
+  claude --model sonnet -p "..." --allowedTools "..."
+```
+
+Seen on Claude Code 2.1.289: with an empty config directory and no
+token, a headless run answered "Not logged in"; with the token it ran,
+and loaded the project's `CLAUDE.md` and no user-level file. The token
+is a credential for your account: never write it to a file, a script,
+or a settings file, and never paste it into a session. Claude Code
+writes session state into the directory, so delete it when the batch
+ends. `scripts/check-arm-isolation.sh` does not check this route; it
+tests the flag.
 
 **Never move your user-level files aside for a batch.** Every Claude
 Code session on your machine reads the one user-level `CLAUDE.md`. A
