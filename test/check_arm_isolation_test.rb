@@ -71,13 +71,21 @@ class CheckArmIsolationTest < Minitest::Test
                   'file_path' => path, 'memory_type' => type, 'load_reason' => 'session_start' }
       hooks.map do |hook|
         io = IO.popen(['sh', '-c', hook['command']], 'w')
-        io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
-        io.flush
+        begin
+          io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
+          io.flush
+        rescue Errno::EPIPE
+          nil # a hook may exit without reading its input
+        end
         io
       end
     end
     sleep 0.05
-    pipes.each(&:close)
+    pipes.each do |io|
+      io.close
+    rescue Errno::EPIPE
+      nil
+    end
     stderr = ENV["STUB_#{arm}_STDERR"] || ENV['STUB_STDERR']
     warn stderr if stderr
     exit Integer(ENV["STUB_#{arm}_EXIT"] || ENV.fetch('STUB_EXIT', '0'))
