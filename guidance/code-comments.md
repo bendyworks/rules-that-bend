@@ -14,9 +14,10 @@ right now" or assume the reader knows what task or bug prompted it.
 This means:
 
 - No "we found this during ABC-123 QA" or "after PR #456..."
-  references in code comments. That context belongs in commit messages
-  and PR descriptions, where it has a permanent home and decays
-  gracefully alongside the work.
+  references in code comments. That context belongs in the PR
+  description, where it decays gracefully alongside the work; the
+  commit message carries the motivation, not how the problem was
+  found (see the commit-messages guidance).
 - No "this test exists because of the recent bug where..." preambles.
   Test names and descriptions should describe the behavior under test
   in timeless terms.

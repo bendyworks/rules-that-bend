@@ -124,6 +124,12 @@ descriptions are just two words.
   decays badly when separated from its PR. The footer's `Refs:` names
   the one issue this commit serves; cross-references to any other
   issue stay at the PR level.
+- **How the problem was found belongs in the PR description too**
+  (or the tracker issue, where a project has no pull requests).
+  Never name the review pass, tool, bot, or review round that caught
+  it ("flagged by the automated review", "found in the second review
+  pass"), and never thank one. A lint rule or check the commit is
+  about is its subject, and is named.
 - For word choice throughout the message, follow the Plain language
   rules in the code-comments guidance.
 
