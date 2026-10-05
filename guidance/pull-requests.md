@@ -95,11 +95,12 @@ remember what a bare number was. Never invent a title the lookup did
 not return; name the item in lowercase prose instead. The Plain
 language section of the code-comments guidance carries the full rule,
 including the forms tooling parses, such as the closing keyword above.
+Follow that section for word choice in the title and body too.
 
 ## A PR owns the bugs it introduces
 
 A PR is responsible for fixing bugs and consequences it introduces,
-including interaction bugs surfaced when its change meets existing
+including interaction bugs that appear when its change meets existing
 code. Doing so is **not** scope creep -- it is the PR finishing the
 job it started. This applies whether the bug is found pre-merge (in
 code review or QA) or shortly after merge (during staging walkthroughs

@@ -31,8 +31,8 @@ descriptions are just two words.
   (see Reverts below).
 - `scope` is optional: a short app-area noun in parentheses, e.g.
   `feat(marketplace):`. Keep scope names consistent within a project;
-  drifting spellings (`marketplace` one week, `mktpl` the next) quietly
-  erode the pattern's parseability.
+  drifting spellings (`marketplace` one week, `mktpl` the next) erode
+  the pattern's parseability.
 - The prefix is the recommended default, not a hard requirement; a
   plain Title Case title is still acceptable. Be honest about the
   tradeoff, though: the structure's payoffs -- changelog generation,
@@ -225,8 +225,8 @@ Refs: #123
   body and write the why-prose around it. conventional-changelog's
   revert detection (the conventionalcommits preset) needs both that
   sentence and an unscoped `revert:` start to the first line -- a
-  scope like `revert(marketplace):` silently turns detection off,
-  so keep revert headers unscoped where that tooling matters.
+  scope like `revert(marketplace):` turns detection off with no
+  error, so keep revert headers unscoped where that tooling matters.
 - Revert commit-by-commit by default: `git revert A B C` produces
   one commit per SHA, each with its own generated sentence. A
   single commit carrying several `Reverts:` lines is the exception
@@ -249,8 +249,8 @@ Refs: #123
   Descriptions).
 - If you cannot name a cost or risk of leaving the code as it was, the
   change may not deserve a commit at all. Preparatory commits are the
-  exception: a seam or an extraction is justified by the change it
-  enables, not by the status quo.
+  exception: an extraction or a new extension point is justified by
+  the change it enables, not by the status quo.
 - Generated messages are exempt from this shape: merge commits and
   bot commits keep their generators' formats, which are themselves
   conventions other tooling and readers rely on (`git log

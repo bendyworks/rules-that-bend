@@ -17,7 +17,7 @@ Consequences:
   reference production record IDs as breadcrumbs.
 - **Bug reproductions**: a production-reported bug cannot be
   reproduced on staging by looking up the same record IDs. Either
-  describe the bug in shape ("an order with a refunded line item
+  describe the bug as a scenario ("an order with a refunded line item
   whose invoice has no payment attached") so a matching record can be
   found or created on staging, or reproduce locally with a controlled
   test setup.
@@ -27,7 +27,7 @@ Consequences:
   record exists in both.
 - **Reviewer and QA hand-offs** (PR descriptions, chat messages,
   smoke-test checklists) must not name production records the reader
-  is expected to find on staging. Frame them in scenario shape.
+  is expected to find on staging. Frame them as scenarios.
 
 The recurring trap: after debugging a production issue with specific
 production IDs in hand, those IDs drift into staging-bound
