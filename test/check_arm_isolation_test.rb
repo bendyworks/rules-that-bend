@@ -143,7 +143,9 @@ class CheckArmIsolationTest < Minitest::Test
     assert_equal 1, status.exitstatus, out + err
     assert_includes err, USER_FILE
     assert_match(/does not isolate an arm on 9\.9\.9/, err)
-    assert_match(/park-claude-md\.sh as well/, err)
+    assert_match(/run no batch that relies on the flag/, err)
+    assert_includes err, 'CONTRIBUTING.md'
+    refute_match(/park/, err)
     assert_empty out
   end
 
@@ -192,7 +194,7 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 2, status.exitstatus, out + err
     assert_match(/cannot tell: no user-level instruction file loaded/, err)
-    assert_match(/park-claude-md\.sh --status/, err)
+    refute_match(/park/, err)
     assert_empty out
   end
 
@@ -209,7 +211,7 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 2, status.exitstatus, out + err
     assert_match(/arm without the flag did not report/, err)
-    refute_match(/parked/, err)
+    refute_match(/no user-level instruction file/, err)
   end
 
   # --- an arm that fails ---
@@ -525,12 +527,5 @@ class CheckArmIsolationTest < Minitest::Test
     assert_equal 2, status.exitstatus, out + err
     assert_match(/usage/, err)
     assert_no_arm_ran
-  end
-
-  def test_names_the_park_script_beside_itself_from_any_directory
-    _out, err, status = Dir.chdir(@tmp) { check(plain: [['Project', PROJECT_FILE]]) }
-
-    assert_equal 2, status.exitstatus, err
-    assert_includes err, "#{File.dirname(SCRIPT)}/park-claude-md.sh --status"
   end
 end

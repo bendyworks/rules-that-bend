@@ -26,14 +26,14 @@
 #
 # Exit status:
 #   0  the flag isolates: user-level files loaded without it, none with
-#   1  a user-level file loaded with the flag; park as well, with
-#      scripts/park-claude-md.sh
+#   1  a user-level file loaded with the flag, so an arm run with it on
+#      this build reads your own rules; CONTRIBUTING.md says what to do
 #   2  cannot tell, and the message says why: among other reasons, claude
 #      is older than 2.1.101, an arm failed, or nothing user-level loaded
 #      even without the flag
 #
 # The arm without the flag is what makes a pass mean something: with the
-# user-level CLAUDE.md parked or absent, an arm loads none either way.
+# user-level files absent, an arm loads none either way.
 # A rules file scoped with `paths:` loads only when a session reads a
 # matching file, so it is not seen here; it comes from the same
 # user-level source as the files that are.
@@ -43,9 +43,6 @@
 set -uo pipefail
 
 CLAUDE="${CLAUDE_BIN:-claude}"
-# Named beside this script, so the advice below is right from any
-# directory.
-PARK="$(dirname "$0")/park-claude-md.sh"
 
 say() { echo "check-arm-isolation: $*"; }
 cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
@@ -144,8 +141,9 @@ arm() {
     > /dev/null 2> "$scratch/$name.err" < /dev/null
 }
 
-# The two arms run side by side, so a CLAUDE.md parked or restored
-# partway through is far likelier to be there for both or for neither.
+# The two arms run side by side, so a user-level file that appears or
+# goes partway through is far likelier to be there for both or for
+# neither.
 # bash's own report of an arm killed by a signal is silenced; the status
 # says as much.
 arm plain &
@@ -199,7 +197,7 @@ if [ -n "$leaked" ]; then
   {
     say "--setting-sources project does not isolate an arm on $version. These user-level files loaded with it:"
     printf '%s\n' "$leaked" | tilde | sed 's/^/  /'
-    say "keep the flag and wrap the batch in $PARK as well; see CONTRIBUTING.md."
+    say "run no batch that relies on the flag on this build; see \"When the flag will not do\" in CONTRIBUTING.md."
   } >&2
   exit 1
 fi
@@ -215,7 +213,7 @@ if [ -z "$(loaded Project plain)" ]; then
 fi
 
 if [ -z "$plain_files" ]; then
-  cannot_tell "no user-level instruction file loaded even without the flag. Either this machine has none, so there is nothing to keep out, or CLAUDE.md is parked right now: check $PARK --status."
+  cannot_tell "no user-level instruction file loaded even without the flag. This machine has none for the flag to keep out, so the check has nothing to tell by."
 fi
 
 say "--setting-sources project isolates an arm on $version: $(printf '%s\n' "$plain_files" | wc -l | tr -d ' ') user-level instruction file(s) loaded without the flag, none with it."
