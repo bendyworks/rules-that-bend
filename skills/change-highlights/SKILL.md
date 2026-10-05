@@ -73,7 +73,7 @@ So, in order:
 3. **Everything else the release touches**: display corrections, relabelings,
    secondary cleanups.
 
-Two things belong in the overview (`intro`), not only further down:
+Three things belong in the overview (`intro`), not only further down:
 
 - **What the fix does not do.** If the release stops a problem going forward
   but does not undo what already happened, say so in the overview, where they
@@ -82,6 +82,8 @@ Two things belong in the overview (`intro`), not only further down:
   implied the matter was closed, has been misled by the document.
 - **A concrete case of theirs**, when one exists. One of their own records,
   with its real figures, does more than any amount of explanation.
+- **An ask or decision**, when the document needs one from the recipient.
+  A question left at the end of the last example is easy to read past.
 
 `SKILL_DIR/examples/sample_manifest.json` follows this order.
 
@@ -374,8 +376,8 @@ decision is written as the user, to someone outside the team:
 - Follow the team's own writing rules for punctuation and tone. The
   client-messages guidance, where a team imports it, names the defaults
   to keep out of this prose. Its rule that a question comes last is
-  about a message: here an ask or decision goes in the `intro`, where
-  the reader cannot miss it.
+  about a message: in this document an ask goes in the `intro`, as
+  "Lead with the fix" above says.
 
 ## "Preview only" note
 
