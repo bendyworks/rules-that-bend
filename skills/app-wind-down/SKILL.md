@@ -99,7 +99,9 @@ dynos -- they sleep; Basic and Standard stay warm).
   real delivered email. Then compute the new run-rate from live plan data.
 - **Report honestly to the client**: contingencies (what stayed paid and
   why), the single-dyno restart blip, exactly when prepaid hours run out,
-  and before/after numbers in a plain-text aligned table.
+  and before/after numbers in a plain-text aligned table. The
+  client-messages guidance, where a team imports it, names the defaults
+  to keep out of that report.
 
 ## Phase 2: reversible shutdown (~$0 hibernation, explicit trigger only)
 
@@ -129,7 +131,6 @@ Safeguard before teardown, in this order:
   period, the worker-during-pg:copy hole, the production backup gap, the
   mail-silent-failure trap, and the cost-target contingencies.
 - Client emails in the operator's voice with real dollar figures, drafted
-  to `tmp/` for the human to send. The client-messages guidance, where a
-  team imports it, names the defaults to keep out of those drafts.
+  to `tmp/` for the human to send.
 - Rotate any credential that passed through a chat session once the
   emergency is over.
