@@ -33,7 +33,7 @@ as relationship keys.
 
 **Move a query into a named scope on the model when it is built from
 join keys or SQL rather than domain words, even when it has one
-caller.** The shapes that trigger it, anywhere outside the queried
+caller.** The forms that trigger it, anywhere outside the queried
 model's class: a subquery on join keys
 (`where(id: other.select(:some_id))`), a join used to filter (`joins`
 or `left_joins` with a condition on the joined table), an `or` of

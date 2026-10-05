@@ -32,8 +32,8 @@ don't have to ask twice.
   one logical assertion don't need it.
 - In Capybara specs, assert CSS class membership against
   `element[:class].split`, never the raw string. Substring matching
-  ('unpaid-fee' contains 'paid-fee') makes negation assertions silently
-  pass wrong.
+  ('unpaid-fee' contains 'paid-fee') lets an assertion for one class
+  match another.
 
 ## Doubles and stubs
 

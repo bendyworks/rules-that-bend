@@ -65,13 +65,14 @@ developer what leaked and where, before any other action on the pull
 request, issue, or branch that holds it -- even when the request in
 hand is unrelated.** Marking a draft ready notifies more readers, and a
 squash merge copies the title and body into a commit message, so
-neither goes ahead. Never quietly edit the text away: an ordinary edit
-leaves the earlier text in the edit history, which anyone who can read
-the repository can open. This takes precedence over the pull-requests
-guidance's rule for revising a draft's title or body. Keep the leaked
-text out of whatever the fix itself publishes (a commit subject, a
-replacement comment). The developer decides the remedy, and on GitHub
-it differs by what was written:
+neither goes ahead. Make no edit to the text that holds it, not even
+the one asked for, until the developer has chosen a remedy: an
+ordinary edit leaves the earlier text in the edit history, which
+anyone who can read the repository can open. This takes precedence
+over the pull-requests guidance's rule for revising a draft's title or
+body. Keep the leaked text out of whatever the fix itself publishes (a
+commit subject, a replacement comment). On GitHub the remedy differs
+by what was written:
 
 - **A comment:** delete it and post a clean one, or edit it and then
   delete each earlier revision from its edit history.

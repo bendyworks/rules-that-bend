@@ -31,8 +31,8 @@ descriptions are just two words.
   (see Reverts below).
 - `scope` is optional: a short app-area noun in parentheses, e.g.
   `feat(marketplace):`. Keep scope names consistent within a project;
-  drifting spellings (`marketplace` one week, `mktpl` the next) quietly
-  erode the pattern's parseability.
+  drifting spellings (`marketplace` one week, `mktpl` the next) erode
+  the pattern's parseability.
 - The prefix is the recommended default, not a hard requirement; a
   plain Title Case title is still acceptable. Be honest about the
   tradeoff, though: the structure's payoffs -- changelog generation,
@@ -53,16 +53,31 @@ descriptions are just two words.
   type's job.
   - Strong: `feat(marketplace): Limit Public Search to Intended Fields`
   - Weak: `feat(marketplace): Add ransackable_attributes allowlists`
+
+  **The test for a leading verb: it names what a user or operator
+  gets, not what was done to the code.** `Tighten`, `Lock`, `Harden`,
+  `Cover`, and `Guard` fail it the way `Add` and `Update` do: each
+  says the code was changed and not what anyone gets. The outcome
+  verbs above pass it. `Pin` stays for a spec that pins existing
+  output, where the pinned output is the outcome. A change with no
+  such outcome (a test, a build or dependency change, a pure
+  refactor) takes a noun phrase naming what it covers or changes:
+  `test(refunds): Second Partial Refund Over the Total`, or the
+  `refactor` example below.
+- Don't build the description on a slogan form: "One <Noun> for ..."
+  (`One Home for the Tax Rate`) or a contrast (`Derived, Not
+  Stored`). Name the outcome:
+  `fix(pricing): Invoice Charges the Cart's Tax Rate`.
 - Don't repeat the type as the description's leading verb.
   - Redundant: `fix(reports): Fix Broken CSV Export`
   - Better: `fix(reports): Broken CSV Export for Embedded Commas`
 
   The same logic makes `refactor` legitimate as a type even though it
-  is a poor description verb: `refactor(billing): One Fee Calculation
-  Path` says what the cleanup achieved; the prefix already says it was
-  a refactor. `revert` works the same way: the type says a commit was
-  undone, freeing the description to name what the tree is back to
-  (see Reverts).
+  is a poor description verb: `refactor(billing): Shared Late Fee
+  Calculation` says what the cleanup achieved; the prefix already
+  says it was a refactor. `revert` works the same way: the type says
+  a commit was undone, freeing the description to name what the tree
+  is back to (see Reverts).
 - Don't stack library jargon or internal nouns in the description. If
   a technical term is genuinely needed, it goes in the body; the
   description stays plain.
@@ -89,10 +104,14 @@ descriptions are just two words.
   `git log`.
 - Keep the body focused on the permanent record: motivation,
   mechanism, tradeoffs. The strongest motivation names the concrete
-  cost or risk of leaving the code as it was: "X and Y now mean the
-  same thing" states a fact, while "keeping both invites drift" names
-  the cost that justifies the commit. For a change that adds
-  something new, the user-visible outcome is motivation enough.
+  cost or risk of leaving the code as it was: "the email and the
+  statement now share one fee calculation" states a fact, while
+  "before this change, the email quoted a higher late fee than the
+  statement charged" names the cost that justifies the commit. A risk
+  is named as what the code requires or allows: "a change to the late
+  fee had to be made in both the email and the statement". For a
+  change that adds something new, the user-visible outcome is
+  motivation enough.
 - The commit is the reader's "after": behavior it contains takes
   present tense ("the report now pages at 100 rows"), and the
   behavior it replaces carries a label ("before this change, it
@@ -105,8 +124,51 @@ descriptions are just two words.
   decays badly when separated from its PR. The footer's `Refs:` names
   the one issue this commit serves; cross-references to any other
   issue stay at the PR level.
+- **How the problem was found belongs in the PR description too**
+  (or the tracker issue, where a project has no pull requests).
+  Never name the review pass, tool, bot, or review round that caught
+  it ("flagged by the automated review", "found in the second review
+  pass"), and never thank one. A lint rule or check the commit is
+  about is its subject, and is named.
 - For word choice throughout the message, follow the Plain language
   rules in the code-comments guidance.
+
+### Defaults to avoid
+
+A body can follow every rule above and still read as machine-written:
+the same few rhetorical moves turn up in commit after commit, and a
+reader who recognizes them starts skimming.
+
+- **At most one ", so" join per paragraph, and at most one dash used
+  as punctuation (" -- " or an em dash) per body.** A chain of them
+  walks each paragraph to its worst consequence ("..., so the total
+  was wrong, so a customer could be overcharged"). Say the
+  consequence once in the message, where it is the point, and end the
+  other paragraphs on what the code does.
+- **Use a contrast only for a distinction the reader needs.** "The
+  header uses the office date, not the UTC date" says which of two
+  real options the code takes. "Proven rather than assumed" and
+  "checked, not guessed" set the change against something no one
+  proposed.
+- **Never close on a guarantee without its mechanism.** "So the two
+  can no longer disagree" gives a reader nothing to check. "Both now
+  call `LateFee.cents`" does, and needs no guarantee after it.
+- **No verdict sentence and no maxim.** A sentence of two to five
+  words that judges the one before it ("It did not.", "That is
+  wrong.") and a general saying as a paragraph's last line ("A
+  receipt that needs explaining is not a receipt.") add emphasis and
+  no information.
+- **No irony about what the code was for:** "the one case the guard
+  exists to catch", "the document a receipt exists to match". Say
+  what the code did.
+- **No imagined people or events:** "a future maintainer", "a
+  well-meaning cleanup", a "would have" sentence about a case that
+  did not happen, "Left alone, ...". Describe what the code does and
+  what happened. A risk named the way Bodies describes is not an
+  imagined event.
+- **Don't make "nothing" or "nobody" the subject.** "Nothing enforced
+  that" becomes what was missing: "neither caller checked the
+  amount".
 
 ## Footers
 
@@ -163,8 +225,8 @@ Refs: #123
   body and write the why-prose around it. conventional-changelog's
   revert detection (the conventionalcommits preset) needs both that
   sentence and an unscoped `revert:` start to the first line -- a
-  scope like `revert(marketplace):` silently turns detection off,
-  so keep revert headers unscoped where that tooling matters.
+  scope like `revert(marketplace):` turns detection off with no
+  error, so keep revert headers unscoped where that tooling matters.
 - Revert commit-by-commit by default: `git revert A B C` produces
   one commit per SHA, each with its own generated sentence. A
   single commit carrying several `Reverts:` lines is the exception
@@ -181,11 +243,14 @@ Refs: #123
 
 - Prefer more, smaller, targeted commits over fewer, larger ones; each
   commit represents one logical change. A commit that seems to need
-  two types is the same smell wearing a prefix: split it.
-- If you cannot name a cost of leaving the code as it was, the change
-  may not deserve a commit at all. Preparatory commits are the
-  exception: a seam or an extraction is justified by the change it
-  enables, not by the status quo.
+  two types is two changes: split it. So is one whose body wants a
+  counted opener ("Two smaller corrections.") or a paragraph that
+  starts "Also", unless the change cannot be split (see
+  Descriptions).
+- If you cannot name a cost or risk of leaving the code as it was, the
+  change may not deserve a commit at all. Preparatory commits are the
+  exception: an extraction or a new extension point is justified by
+  the change it enables, not by the status quo.
 - Generated messages are exempt from this shape: merge commits and
   bot commits keep their generators' formats, which are themselves
   conventions other tooling and readers rely on (`git log
