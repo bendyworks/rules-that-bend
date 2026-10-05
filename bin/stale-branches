@@ -440,10 +440,10 @@ module StaleBranches
   def pull_request_verdict(records, tip:, default:, trust_forks: false)
     return ['KEEP', 'proof-b:no-pr'] if records.empty?
 
-    merged = records.select { |record| state?(record, 'MERGED') }
+    merged = merged_records(records)
     return ['KEEP', 'proof-b:pr-closed'] if merged.empty?
 
-    same_repo = trust_forks ? merged : merged.select { |record| record['isCrossRepository'] == false }
+    same_repo = from_this_repository(merged, trust_forks: trust_forks)
     return ['KEEP', 'proof-b:pr-from-fork'] if same_repo.empty?
 
     on_default = same_repo.select { |record| record['baseRefName'] == default }
@@ -451,6 +451,14 @@ module StaleBranches
 
     landed_here = on_default.any? { |record| record['headRefOid'] == tip }
     landed_here ? ['DELETE', 'proof-b:pr-merged'] : ['KEEP', 'proof-b:pr-tip-differs']
+  end
+
+  def merged_records(records)
+    records.select { |record| state?(record, 'MERGED') }
+  end
+
+  def from_this_repository(merged, trust_forks:)
+    trust_forks ? merged : merged.select { |record| record['isCrossRepository'] == false }
   end
 
   # Compared without regard to case. gh spells these in capitals today,
