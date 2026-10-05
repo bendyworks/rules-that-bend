@@ -67,8 +67,8 @@ no "happy to go whichever way", no reassurance.
 **End where the information ends.** No "Let me know if you have any
 questions", "happy to help", "no rush", or "I'll keep you posted". A
 commitment with a date is information and stays: "I'll deploy the
-notes fix on March 14." The writing-about-change guidance covers
-tense for a message about a change, shipped or not.
+notes fix on March 14, 2027." The writing-about-change guidance
+covers tense for a message about a change, shipped or not.
 
 ## Words to cut
 
