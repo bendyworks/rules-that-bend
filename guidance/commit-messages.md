@@ -89,10 +89,14 @@ descriptions are just two words.
   `git log`.
 - Keep the body focused on the permanent record: motivation,
   mechanism, tradeoffs. The strongest motivation names the concrete
-  cost or risk of leaving the code as it was: "X and Y now mean the
-  same thing" states a fact, while "keeping both invites drift" names
-  the cost that justifies the commit. For a change that adds
-  something new, the user-visible outcome is motivation enough.
+  cost or risk of leaving the code as it was: "the email and the
+  statement now share one fee calculation" states a fact, while
+  "before this change, the email quoted a higher late fee than the
+  statement charged" names the cost that justifies the commit. A risk
+  is named as what the code requires or allows: "a change to the late
+  fee had to be made in both the email and the statement". For a
+  change that adds something new, the user-visible outcome is
+  motivation enough.
 - The commit is the reader's "after": behavior it contains takes
   present tense ("the report now pages at 100 rows"), and the
   behavior it replaces carries a label ("before this change, it
@@ -107,6 +111,43 @@ descriptions are just two words.
   issue stay at the PR level.
 - For word choice throughout the message, follow the Plain language
   rules in the code-comments guidance.
+
+### Defaults to avoid
+
+A body can follow every rule above and still read as machine-written:
+the same few rhetorical moves turn up in commit after commit, and a
+reader who recognizes them starts skimming.
+
+- **At most one ", so" join per paragraph, and at most one dash used
+  as punctuation (" -- " or an em dash) per body.** A chain of them
+  walks each paragraph to its worst consequence ("..., so the total
+  was wrong, so a customer could be overcharged"). Say the
+  consequence once in the message, where it is the point, and end the
+  other paragraphs on what the code does.
+- **Use a contrast only for a distinction the reader needs.** "The
+  header uses the office date, not the UTC date" says which of two
+  real options the code takes. "Proven rather than assumed" and
+  "checked, not guessed" set the change against something no one
+  proposed.
+- **Never close on a guarantee without its mechanism.** "So the two
+  can no longer disagree" gives a reader nothing to check. "Both now
+  call `LateFee.cents`" does, and needs no guarantee after it.
+- **No verdict sentence and no maxim.** A sentence of two to five
+  words that judges the one before it ("It did not.", "That is
+  wrong.") and a general saying as a paragraph's last line ("A
+  receipt that needs explaining is not a receipt.") add emphasis and
+  no information.
+- **No irony about what the code was for:** "the one case the guard
+  exists to catch", "the document a receipt exists to match". Say
+  what the code did.
+- **No imagined people or events:** "a future maintainer", "a
+  well-meaning cleanup", a "would have" sentence about a case that
+  did not happen, "Left alone, ...". Describe what the code does and
+  what happened. A risk named the way Bodies describes is not an
+  imagined event.
+- **Don't make "nothing" or "nobody" the subject.** "Nothing enforced
+  that" becomes what was missing: "neither caller checked the
+  amount".
 
 ## Footers
 
@@ -182,8 +223,8 @@ Refs: #123
 - Prefer more, smaller, targeted commits over fewer, larger ones; each
   commit represents one logical change. A commit that seems to need
   two types is the same smell wearing a prefix: split it.
-- If you cannot name a cost of leaving the code as it was, the change
-  may not deserve a commit at all. Preparatory commits are the
+- If you cannot name a cost or risk of leaving the code as it was, the
+  change may not deserve a commit at all. Preparatory commits are the
   exception: a seam or an extraction is justified by the change it
   enables, not by the status quo.
 - Generated messages are exempt from this shape: merge commits and
