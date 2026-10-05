@@ -178,10 +178,19 @@ loaded() {
     sed -n -E 's/.*"file_path": *"(([^"\\]|\\.)*)".*/\1/p'
 }
 
+# The home directory without a trailing slash, which would keep it from
+# matching the front of any path not built from $HOME itself.
+home_dir() {
+  local home="${HOME:-}"
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
+  printf '%s' "$home"
+}
+
 # Copies stdin with a leading home directory written as ~, so a report
 # pasted into an issue carries no home-directory path.
 tilde() {
-  local line home="${HOME:-}"
+  local line home
+  home="$(home_dir)"
   while IFS= read -r line; do
     if [ -n "$home" ]; then
       case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac

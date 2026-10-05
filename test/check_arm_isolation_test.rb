@@ -189,6 +189,15 @@ class CheckArmIsolationTest < Minitest::Test
     refute_includes err, "#{@tmp}/.claude"
   end
 
+  def test_writes_a_leaked_file_with_a_tilde_when_home_ends_in_a_slash
+    _out, err, status = check(HOME: "#{@tmp}/",
+                              flagged: [['User', "#{@tmp}/.claude/CLAUDE.md"], ['Project', PROJECT_FILE]])
+
+    assert_equal 1, status.exitstatus, err
+    assert_includes err, '  ~/.claude/CLAUDE.md'
+    refute_includes err, "#{@tmp}/.claude"
+  end
+
   def test_cannot_tell_when_no_user_level_file_loads_even_without_the_flag
     out, err, status = check(plain: [['Project', PROJECT_FILE]])
 
