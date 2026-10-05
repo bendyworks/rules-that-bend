@@ -35,6 +35,11 @@ voice; those are each developer's own.
 explanation asks the reader to take a verdict on trust, and reads as
 managing them.
 
+**The answer to a question the reader asked is content and comes
+first, reassuring or not.** Asked "Is the export working?", start with
+"Yes, it's working again." and then say what happened. What waits for
+the cause is the verdict nobody asked for.
+
 **The fault is the placement, never the content: a message still says
 what the problem did not touch and whether the reader has anything to
 do.** "No invoice went out with the wrong total" and "you don't need
