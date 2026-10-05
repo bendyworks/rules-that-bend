@@ -62,7 +62,7 @@ no "happy to go whichever way", no reassurance.
 **End where the information ends.** No "Let me know if you have any
 questions", "happy to help", "no rush", or "I'll keep you posted". A
 commitment with a date is information and stays: "The notes fix will
-be deployed on Thursday."
+be deployed on March 14."
 
 ## Words to cut
 
