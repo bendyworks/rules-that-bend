@@ -53,16 +53,31 @@ descriptions are just two words.
   type's job.
   - Strong: `feat(marketplace): Limit Public Search to Intended Fields`
   - Weak: `feat(marketplace): Add ransackable_attributes allowlists`
+
+  **The test for a leading verb: it names what a user or operator
+  gets, not what was done to the code.** `Tighten`, `Lock`, `Harden`,
+  `Cover`, and `Guard` fail it the way `Add` and `Update` do: each
+  says the code was changed and not what anyone gets. The outcome
+  verbs above pass it. `Pin` stays for a spec that pins existing
+  output, where the pinned output is the outcome. A change with no
+  such outcome (a test, a build or dependency change, a pure
+  refactor) takes a noun phrase naming what it covers or changes:
+  `test(refunds): Second Partial Refund Over the Total`, or the
+  `refactor` example below.
+- Don't build the description on a slogan form: "One <Noun> for ..."
+  (`One Home for the Tax Rate`) or a contrast (`Derived, Not
+  Stored`). Name the outcome:
+  `fix(pricing): Invoice Charges the Cart's Tax Rate`.
 - Don't repeat the type as the description's leading verb.
   - Redundant: `fix(reports): Fix Broken CSV Export`
   - Better: `fix(reports): Broken CSV Export for Embedded Commas`
 
   The same logic makes `refactor` legitimate as a type even though it
-  is a poor description verb: `refactor(billing): One Fee Calculation
-  Path` says what the cleanup achieved; the prefix already says it was
-  a refactor. `revert` works the same way: the type says a commit was
-  undone, freeing the description to name what the tree is back to
-  (see Reverts).
+  is a poor description verb: `refactor(billing): Shared Late Fee
+  Calculation` says what the cleanup achieved; the prefix already
+  says it was a refactor. `revert` works the same way: the type says
+  a commit was undone, freeing the description to name what the tree
+  is back to (see Reverts).
 - Don't stack library jargon or internal nouns in the description. If
   a technical term is genuinely needed, it goes in the body; the
   description stays plain.
