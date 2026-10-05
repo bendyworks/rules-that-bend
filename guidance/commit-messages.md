@@ -243,7 +243,10 @@ Refs: #123
 
 - Prefer more, smaller, targeted commits over fewer, larger ones; each
   commit represents one logical change. A commit that seems to need
-  two types is the same smell wearing a prefix: split it.
+  two types is two changes: split it. So is one whose body wants a
+  counted opener ("Two smaller corrections.") or a paragraph that
+  starts "Also", unless the change cannot be split (see
+  Descriptions).
 - If you cannot name a cost or risk of leaving the code as it was, the
   change may not deserve a commit at all. Preparatory commits are the
   exception: a seam or an extraction is justified by the change it
