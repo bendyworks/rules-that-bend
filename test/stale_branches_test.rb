@@ -28,6 +28,7 @@
 # close.
 
 require_relative 'cli_test_case'
+require_relative 'fixtures/backup_repo'
 require_relative 'fixtures/branch_repo'
 require_relative 'fixtures/gitflow_repo'
 require_relative 'fixtures/forge_stub'
@@ -51,6 +52,7 @@ FLAT_FORGE_ORACLE = File.expand_path('fixtures/expected.txt', __dir__)
 FLAT_DEGRADED_ORACLE = File.expand_path('fixtures/expected-degraded.txt', __dir__)
 GITFLOW_ORACLE = File.expand_path('fixtures/gitflow-expected-degraded.txt', __dir__)
 GITFLOW_FORGE_ORACLE = File.expand_path('fixtures/gitflow-expected.txt', __dir__)
+BACKUP_ORACLE = File.expand_path('fixtures/backup-expected-degraded.txt', __dir__)
 
 class OracleTableTest < Minitest::Test
   FLAT = FLAT_DEGRADED_ORACLE
@@ -59,7 +61,7 @@ class OracleTableTest < Minitest::Test
   GITFLOW_FORGE = GITFLOW_FORGE_ORACLE
 
   # Every table, for the guarantees that hold of all of them.
-  ALL = [FLAT_FORGE, FLAT, GITFLOW_FORGE, GITFLOW].freeze
+  ALL = [FLAT_FORGE, FLAT, GITFLOW_FORGE, GITFLOW, BACKUP_ORACLE].freeze
 
   def test_the_flat_table_lists_exactly_the_branches_its_fixture_builds
     assert_tables_agree(Fixtures::BranchRepo, FLAT, 'flat')
@@ -78,6 +80,10 @@ class OracleTableTest < Minitest::Test
 
   def test_the_gitflow_forge_table_lists_exactly_the_branches_its_fixture_builds
     assert_tables_agree(Fixtures::GitflowRepo, GITFLOW_FORGE, 'gitflow')
+  end
+
+  def test_the_backup_table_lists_exactly_the_branches_its_fixture_builds
+    assert_tables_agree(Fixtures::BackupRepo, BACKUP_ORACLE, 'backup')
   end
 
   # Both tables must demand a deletion from EVERY stage that can reach
@@ -262,6 +268,10 @@ class FixtureShapeTest < Minitest::Test
     assert_forge_reasons_match(Fixtures::GitflowRepo, GITFLOW_FORGE_ORACLE,
                                Fixtures::GitflowRepo::DEFAULT_BRANCH,
                                Fixtures::PullRequests::GITFLOW_RECORDS, 'gitflow')
+  end
+
+  def test_the_backup_tables_evidence_reasons_are_what_git_reports
+    assert_evidence_matches(Fixtures::BackupRepo, BACKUP_ORACLE, 'main', 'backup')
   end
 
   def test_the_flat_tables_evidence_reasons_are_what_git_reports
@@ -1470,6 +1480,12 @@ class OracleTestCase < CliTestCase
   def with_gitflow_fixture(label)
     Dir.mktmpdir("stale-branches-gitflow-#{label}") do |dir|
       yield Fixtures::GitflowRepo.new(File.join(dir, 'gf')).build
+    end
+  end
+
+  def with_backup_fixture(label)
+    Dir.mktmpdir("stale-branches-backup-#{label}") do |dir|
+      yield Fixtures::BackupRepo.new(File.join(dir, 'backup')).build
     end
   end
 
@@ -3472,6 +3488,17 @@ class GitflowFixtureForgeOracleTest < OracleTestCase
         assert_matches_oracle(Fixtures::Oracle.load(ORACLE), result)
         refute_git_complaints(result)
       end
+    end
+  end
+end
+
+class BackupFixtureOracleTest < OracleTestCase
+  def test_report_matches_the_oracle_with_no_forge_available
+    with_backup_fixture('degraded') do |repo|
+      result = sweep(repo)
+
+      assert_matches_oracle(Fixtures::Oracle.load(BACKUP_ORACLE), result)
+      refute_git_complaints(result)
     end
   end
 end
