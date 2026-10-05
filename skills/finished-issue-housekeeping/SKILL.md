@@ -49,6 +49,14 @@ If any of these is "no" -- **stop**, and return the finish-tail tasks to `pendin
 
 If a plan file exists for this story (the plan-issue skill places them under `.claude/plans/<slug>.md`; ad-hoc plans may live elsewhere -- ask the user if unsure):
 
+**When git tracks the plan file, classify here but write nothing to it until Step 3 has checked out and pulled the default branch.** Find out before reading further:
+
+```bash
+git ls-files --error-unmatch <plan file>   # exit 0: git tracks it, so no edit to it until Step 3's checkout and pull are done
+```
+
+An edit made first leaves a modified tracked file that `git checkout <default>` refuses to switch over, and the merged copy on the default branch is the one to finalize. So on such a project: classify every item and ask what needs asking (the STOP below still ends the pass before anything is written), run Step 3's fetch, checkout, and pull, then come back and make this step's edits and its reconcile before Step 3b. Where Step 3 cannot check the default branch out here (its other-worktree case), make the edits after its fetch, on the detached checkout: Step 9b carries them onto a branch cut from the remote's default branch. Step 9b commits the result. A plan file git ignores or does not track is edited here, in the order written.
+
 **Do not blindly flip `- [ ]` to `- [x]`.** Each unchecked item must be classified before you touch it. Read every `- [ ]` line, then sort each one into one of these buckets:
 
 - **Actually done.** The conversation history, git log, PRs, or production state make it obvious the work landed. Flip to `- [x]`.
