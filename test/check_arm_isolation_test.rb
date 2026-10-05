@@ -27,12 +27,13 @@ class CheckArmIsolationTest < Minitest::Test
   PROJECT_FILE = '/work/project/CLAUDE.md'
 
   # Stands in for claude. It reports each load named in STUB_PLAIN (an
-  # arm without the flag) or STUB_FLAGGED through the hook command the
-  # script passed in --settings, with every hook open at once and the
-  # payload shaped as Claude Code shapes it. A Project load is reported
+  # arm without the flag) or STUB_FLAGGED through every InstructionsLoaded
+  # hook in the settings the script passed with --settings, as JSON or as
+  # the path of a file, with every hook open at once and the payload
+  # shaped as Claude Code shapes it. A Project load is reported
   # only when the working directory holds a CLAUDE.md to load. It
-  # records its arguments, working directory, and process ID for the
-  # test to read. Knobs, each also taking an arm-specific form
+  # records its arguments, settings, working directory, and process ID
+  # for the test to read. Knobs, each also taking an arm-specific form
   # (STUB_PLAIN_EXIT, STUB_FLAGGED_STDERR): STUB_EXIT and STUB_STDERR.
   # STUB_VERSION and STUB_VERSION_EXIT set what --version says, and
   # STUB_NEW_ONLY_IN names the one directory it reports a new build
@@ -47,26 +48,31 @@ class CheckArmIsolationTest < Minitest::Test
       puts old_outside ? '2.0.50 (Claude Code)' : ENV.fetch('STUB_VERSION', '9.9.9 (Claude Code)')
       exit Integer(ENV.fetch('STUB_VERSION_EXIT', '0'))
     end
+    given = ARGV[ARGV.index('--settings') + 1]
+    settings = JSON.parse(given.start_with?('{') ? given : File.read(given))
+    mode = given.start_with?('{') ? nil : File.stat(given).mode & 0o777
     File.open(ENV.fetch('STUB_CALLS'), 'a') do |log|
-      log.puts JSON.generate('argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid,
+      log.puts JSON.generate('argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid, 'settings' => settings,
+                             'settings_mode' => mode,
                              'project_file' => File.exist?('CLAUDE.md'),
                              'auto_memory_off' => ENV['CLAUDE_CODE_DISABLE_AUTO_MEMORY'])
     end
     sleep Integer(ENV['STUB_SLEEP']) if ENV['STUB_SLEEP']
     flagged = ARGV.each_cons(2).any? { |pair| pair == ['--setting-sources', 'project'] }
     arm = flagged ? 'FLAGGED' : 'PLAIN'
-    settings = JSON.parse(ARGV[ARGV.index('--settings') + 1])
-    hook = settings.dig('hooks', 'InstructionsLoaded', 0, 'hooks', 0, 'command')
+    hooks = settings.dig('hooks', 'InstructionsLoaded').flat_map { |entry| entry['hooks'] }
     loads = JSON.parse(ENV.fetch("STUB_#{arm}"))
     loads = loads.reject { |type, _| type == 'Project' } unless File.exist?('CLAUDE.md')
-    pipes = loads.map do |type, path|
+    pipes = loads.flat_map do |type, path|
       payload = { 'session_id' => 'stub', 'transcript_path' => '/stub/transcript.jsonl',
                   'cwd' => Dir.pwd, 'hook_event_name' => 'InstructionsLoaded',
                   'file_path' => path, 'memory_type' => type, 'load_reason' => 'session_start' }
-      io = IO.popen(['sh', '-c', hook], 'w')
-      io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
-      io.flush
-      io
+      hooks.map do |hook|
+        io = IO.popen(['sh', '-c', hook['command']], 'w')
+        io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
+        io.flush
+        io
+      end
     end
     sleep 0.05
     pipes.each(&:close)
@@ -526,6 +532,198 @@ class CheckArmIsolationTest < Minitest::Test
     assert_empty scratch_leftovers
   ensure
     arms&.each { |pid| Process.kill('KILL', pid) if alive?(pid) }
+  end
+
+  # --- a settings file for the arm with the flag ---
+
+  def arm_settings(content = { 'apiKeyHelper' => '/opt/sign-in.sh' }, name: 'sign-in.json')
+    path = File.join(@tmp, name)
+    File.write(path, content.is_a?(String) ? content : JSON.generate(content))
+    path
+  end
+
+  def test_hands_the_flagged_arm_the_settings_file_it_is_given
+    out, err, status = check(ARM_SETTINGS: arm_settings)
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal '/opt/sign-in.sh', flagged_call['settings']['apiKeyHelper']
+  end
+
+  def test_the_arm_without_the_flag_runs_on_user_settings_alone
+    out, err, status = check(ARM_SETTINGS: arm_settings)
+
+    assert_equal 0, status.exitstatus, out + err
+    refute plain_call['settings'].key?('apiKeyHelper')
+  end
+
+  def test_passes_each_arm_one_settings_value_since_a_second_replaces_the_first
+    out, err, status = check(ARM_SETTINGS: arm_settings)
+
+    assert_equal 0, status.exitstatus, out + err
+    calls.each { |call| assert_equal 1, call['argv'].count('--settings') }
+  end
+
+  # A process's arguments show in ps to every user on the machine.
+  def test_keeps_what_the_settings_file_holds_off_the_arms_command_line
+    out, err, status = check(ARM_SETTINGS: arm_settings({ 'env' => { 'TOKEN' => 'not-for-ps' } }))
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal 'not-for-ps', flagged_call['settings'].dig('env', 'TOKEN')
+    calls.each { |call| refute_includes call['argv'].join(' '), 'not-for-ps' }
+  end
+
+  def test_writes_the_flagged_arms_settings_where_only_this_user_can_read_them
+    out, err, status = check(ARM_SETTINGS: arm_settings)
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal 0o600, flagged_call['settings_mode']
+  end
+
+  # A version manager picks a ruby by the directory it is run from.
+  def test_runs_ruby_from_the_directory_the_check_was_started_in
+    shims = File.join(@tmp, 'shims')
+    started = File.join(@tmp, 'started-here')
+    [shims, started].each { |dir| Dir.mkdir(dir) }
+    File.write(File.join(shims, 'ruby'), <<~SH)
+      #!/bin/sh
+      case " $* " in *" -rjson "*) pwd > "#{@tmp}/ruby-ran-in" ;; esac
+      exec "#{RbConfig.ruby}" "$@"
+    SH
+    File.chmod(0o755, File.join(shims, 'ruby'))
+
+    out, err, status = Dir.chdir(started) do
+      check(ARM_SETTINGS: arm_settings, PATH: "#{shims}:#{@tmp}:#{ENV.fetch('PATH')}")
+    end
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal started, File.read(File.join(@tmp, 'ruby-ran-in')).strip
+  end
+
+  def test_reads_a_settings_file_with_a_space_in_its_name
+    out, err, status = check(ARM_SETTINGS: arm_settings(name: 'sign in.json'))
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal '/opt/sign-in.sh', flagged_call['settings']['apiKeyHelper']
+  end
+
+  def test_still_reports_a_leak_from_an_arm_given_a_settings_file
+    _out, err, status = check(ARM_SETTINGS: arm_settings, flagged: [['User', USER_FILE], ['Project', PROJECT_FILE]])
+
+    assert_equal 1, status.exitstatus, err
+    assert_includes err, USER_FILE
+  end
+
+  def test_keeps_the_hooks_a_settings_file_already_has
+    own = { 'type' => 'command', 'command' => 'true' }
+    file = arm_settings({ 'hooks' => { 'InstructionsLoaded' => [{ 'hooks' => [own] }],
+                                       'SessionStart' => [{ 'hooks' => [own] }] } })
+
+    out, err, status = check(ARM_SETTINGS: file)
+    hooks = flagged_call['settings']['hooks']
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal 2, hooks['InstructionsLoaded'].size
+    assert_includes hooks['InstructionsLoaded'], { 'hooks' => [own] }
+    assert_equal [{ 'hooks' => [own] }], hooks['SessionStart']
+  end
+
+  def test_reads_a_settings_file_named_relative_to_where_the_check_was_run
+    arm_settings
+
+    out, err, status = Dir.chdir(@tmp) { check(ARM_SETTINGS: 'sign-in.json') }
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal '/opt/sign-in.sh', flagged_call['settings']['apiKeyHelper']
+  end
+
+  def test_starts_no_session_when_the_settings_file_is_missing
+    out, err, status = check(ARM_SETTINGS: File.join(@tmp, 'no-such.json'))
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(%r{cannot tell: could not read the ARM_SETTINGS file ~/no-such\.json}, err)
+    refute_includes err, @tmp
+    assert_no_arm_ran
+  end
+
+  def test_starts_no_session_when_the_settings_file_is_a_directory
+    out, err, status = check(ARM_SETTINGS: @tmp)
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: could not read the ARM_SETTINGS file/, err)
+    assert_no_arm_ran
+  end
+
+  def test_starts_no_session_when_the_settings_file_is_not_a_json_object
+    ['{"apiKeyHelper": ', '["apiKeyHelper"]', '{"hooks": []}', '{"hooks": null}',
+     "{\"apiKeyHelper\": \"\xFF\"}".b].each do |content|
+      out, err, status = check(ARM_SETTINGS: arm_settings(content))
+      shape = content.inspect
+
+      assert_equal 2, status.exitstatus, "#{shape}: #{out}#{err}"
+      assert_match(%r{cannot tell: the ARM_SETTINGS file ~/sign-in\.json cannot be used}, err, shape)
+      refute_includes err, @tmp, shape
+      refute_match(/\.rb:\d+|from -e/, err, shape)
+      refute File.exist?(@calls), "an arm ran with #{shape}"
+      assert_empty scratch_leftovers, shape
+    end
+  end
+
+  # The guard runs before anything else is looked up, so a PATH with
+  # nothing on it reaches it.
+  def test_starts_no_session_when_a_settings_file_is_given_and_ruby_is_missing
+    empty = File.join(@tmp, 'empty')
+    Dir.mkdir(empty)
+
+    out, err, status = Open3.capture3(check_env(ARM_SETTINGS: arm_settings, PATH: empty), '/bin/bash', SCRIPT)
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/ARM_SETTINGS needs ruby/, err)
+    assert_no_arm_ran
+    assert_empty scratch_leftovers
+  end
+
+  # A version manager's shim can be on PATH and still refuse to run.
+  def test_tells_a_ruby_that_will_not_run_from_a_settings_file_that_is_wrong
+    shims = File.join(@tmp, 'shims')
+    Dir.mkdir(shims)
+    File.write(File.join(shims, 'ruby'), <<~SH)
+      #!/bin/sh
+      case " $* " in *" -rjson "*) echo "shim: no version is set" >&2; exit 126 ;; esac
+      exec "#{RbConfig.ruby}" "$@"
+    SH
+    File.chmod(0o755, File.join(shims, 'ruby'))
+
+    out, err, status = check(ARM_SETTINGS: arm_settings, PATH: "#{shims}:#{@tmp}:#{ENV.fetch('PATH')}")
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: ruby could not merge the ARM_SETTINGS file/, err)
+    assert_includes err, '  shim: no version is set'
+    refute_match(/cannot be used/, err)
+    assert_no_arm_ran
+    assert_empty scratch_leftovers
+  end
+
+  def test_points_at_arm_settings_when_the_flagged_arm_alone_fails_without_it
+    _out, err, status = check(STUB_FLAGGED_EXIT: '5', STUB_FLAGGED_STDERR: 'Not logged in')
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/set ARM_SETTINGS/, err)
+  end
+
+  def test_does_not_point_at_arm_settings_when_one_was_given
+    _out, err, status = check(ARM_SETTINGS: arm_settings, STUB_FLAGGED_EXIT: '5')
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/arm with the flag exited 5/, err)
+    refute_match(/set ARM_SETTINGS/, err)
+  end
+
+  def test_does_not_point_at_arm_settings_when_the_arm_without_the_flag_failed
+    _out, err, status = check(STUB_PLAIN_EXIT: '4')
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/arm without the flag exited 4/, err)
+    refute_match(/set ARM_SETTINGS/, err)
   end
 
   # --- usage and messages ---

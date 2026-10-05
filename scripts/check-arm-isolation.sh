@@ -7,8 +7,14 @@
 # Usage:
 #   scripts/check-arm-isolation.sh
 #
-#   CLAUDE_BIN  the claude to check (default: claude on PATH)
-#   TMPDIR      where the scratch directory goes (default: /tmp)
+#   CLAUDE_BIN    the claude to check (default: claude on PATH)
+#   TMPDIR        where the scratch directory goes (default: /tmp)
+#   ARM_SETTINGS  a settings file the arm with the flag also gets, for a
+#                 sign-in that comes from your user settings (an
+#                 `apiKeyHelper`), which the flag leaves out. Give it
+#                 the file your batch passes its arms with --settings.
+#                 That arm is a real session on those settings, so
+#                 the file's `apiKeyHelper` and hooks run. Needs ruby.
 #
 # It starts two one-word sessions from a scratch directory, one with the
 # flag and one without, and has Claude Code itself report each
@@ -43,6 +49,7 @@
 set -uo pipefail
 
 CLAUDE="${CLAUDE_BIN:-claude}"
+origin="$PWD"
 
 say() { echo "check-arm-isolation: $*"; }
 cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
@@ -59,6 +66,44 @@ case "$resolved" in
   */*) CLAUDE="$PWD/$resolved" ;;
   *) cannot_tell "$CLAUDE is a shell function or builtin here, not a file. Set CLAUDE_BIN to the path of claude." ;;
 esac
+
+# The home directory without a trailing slash, which would keep it from
+# matching the front of any path not built from $HOME itself.
+home_dir() {
+  local home="${HOME:-}"
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
+  printf '%s' "$home"
+}
+
+# Copies stdin with a leading home directory written as ~, so a report
+# pasted into an issue carries no home-directory path.
+tilde() {
+  local line home
+  home="$(home_dir)"
+  while IFS= read -r line; do
+    if [ -n "$home" ]; then
+      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
+# Copies the error output saved in file $1, indented, or says there was
+# none.
+indented() {
+  if [ -s "$1" ]; then sed 's/^/  /' "$1"; else echo "  (no error output)"; fi
+}
+
+# Checked before anything is created, and made absolute because the
+# arms run from the scratch directory.
+arm_settings="${ARM_SETTINGS:-}"
+if [ -n "$arm_settings" ]; then
+  { [ -f "$arm_settings" ] && [ -r "$arm_settings" ]; } ||
+    cannot_tell "could not read the ARM_SETTINGS file $(printf '%s\n' "$arm_settings" | tilde), so no session was started."
+  case "$arm_settings" in /*) ;; *) arm_settings="$PWD/$arm_settings" ;; esac
+  command -v ruby >/dev/null ||
+    cannot_tell "ARM_SETTINGS needs ruby, to merge the file with the hook this check passes its arms, and ruby is not on PATH. No session was started."
+fi
 
 # The arms are stopped before the scratch directory goes, so a check
 # that is interrupted leaves no session running. Each process ID is
@@ -126,18 +171,63 @@ fi
 # is also what a hook that never fired looks like.
 echo "# check-arm-isolation scratch project" > CLAUDE.md || cannot_tell "could not write $scratch/arm/CLAUDE.md."
 
-# Runs one arm named $1 with any further arguments added, logging each
-# instruction file it loads to $scratch/$1.log, one JSON object a line.
-# awk 1 copies the hook's input and ends it with a newline, in one write
-# for a payload this small, so two hooks running at once cannot share a
-# line. exec makes the background job claude itself, so its process ID
-# is the one to stop.
+# Settings that log each instruction file the arm named $1 loads to
+# $scratch/$1.log, one JSON object a line. awk 1 copies the hook's input
+# and ends it with a newline, in one write for a payload this small, so
+# two hooks running at once cannot share a line.
+logging_settings() {
+  printf '%s' "{\"hooks\":{\"InstructionsLoaded\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"awk 1 >> '$scratch/$1.log'\"}]}]}}"
+}
+
+plain_settings="$(logging_settings plain)"
+flagged_settings="$(logging_settings flagged)"
+# Claude Code keeps only the last --settings it is given, so the file
+# cannot ride beside the logging hook as a second one. The hook is added
+# to the file's own settings and the arm gets the two as one file, in
+# the scratch directory, which only this user can read: a process's
+# arguments show in ps to everyone, and the file may hold what should
+# not, so it is written for this user alone. ruby runs from the
+# directory the check was started in, where a version manager picks the
+# ruby the user expects, and exits 3 for a file that is wrong, so a ruby
+# that will not run is told apart. A JSON error is never shown: its
+# message can quote the file.
+if [ -n "$arm_settings" ]; then
+  merged="$scratch/flagged-settings.json"
+  (umask 077 && { cd "$origin" 2>/dev/null || true; } && ruby -rjson -e '
+    logging = JSON.parse(ARGV[1]).dig("hooks", "InstructionsLoaded")
+    begin
+      given = JSON.parse(File.read(ARGV[0]))
+      hooks = given.is_a?(Hash) ? given.fetch("hooks", {}) : nil
+      loads = hooks.is_a?(Hash) ? hooks.fetch("InstructionsLoaded", []) : nil
+      exit 3 unless loads.is_a?(Array)
+      merged = JSON.generate(given.merge("hooks" => hooks.merge("InstructionsLoaded" => logging + loads)))
+    rescue JSON::JSONError, EncodingError, SystemCallError
+      exit 3
+    end
+    File.write(ARGV[2], merged)
+    ' "$arm_settings" "$flagged_settings" "$merged") 2> "$scratch/merge.err"
+  merge_status=$?
+  case "$merge_status" in
+    0) flagged_settings="$merged" ;;
+    3) cannot_tell "the ARM_SETTINGS file $(printf '%s\n' "$arm_settings" | tilde) cannot be used, so no session was started. It must be a JSON object, and its hooks, when it has any, an object whose InstructionsLoaded is a list." ;;
+    *)
+      {
+        say "cannot tell: ruby could not merge the ARM_SETTINGS file with the hook this check passes its arms (it exited $merge_status), so no session was started:"
+        indented "$scratch/merge.err"
+      } >&2
+      exit 2
+      ;;
+  esac
+fi
+
+# Runs one arm named $1 on the settings in $2, JSON or a file's path,
+# with any further arguments added. exec makes the background job
+# claude itself, so its process ID is the one to stop.
 arm() {
-  local name="$1" hook
-  shift
-  hook="{\"hooks\":{\"InstructionsLoaded\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"awk 1 >> '$scratch/$name.log'\"}]}]}}"
+  local name="$1" settings="$2"
+  shift 2
   CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 exec "$CLAUDE" -p "Reply with the single word ready." \
-    --model haiku --tools "" --strict-mcp-config --no-session-persistence --settings "$hook" "$@" \
+    --model haiku --tools "" --strict-mcp-config --no-session-persistence --settings "$settings" "$@" \
     > /dev/null 2> "$scratch/$name.err" < /dev/null
 }
 
@@ -146,9 +236,9 @@ arm() {
 # neither.
 # bash's own report of an arm killed by a signal is silenced; the status
 # says as much.
-arm plain &
+arm plain "$plain_settings" &
 plain_pid=$!
-arm flagged --setting-sources project &
+arm flagged "$flagged_settings" --setting-sources project &
 flagged_pid=$!
 wait "$plain_pid" 2>/dev/null
 plain_status=$?
@@ -162,11 +252,14 @@ flagged_pid=
 arm_failed() {
   {
     say "cannot tell: the arm $1 exited $2:"
-    if [ -s "$scratch/$3.err" ]; then sed 's/^/  /' "$scratch/$3.err"; else echo "  (no error output)"; fi
+    indented "$scratch/$3.err"
   } >&2
   exit 2
 }
 [ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
+if [ "$flagged_status" -ne 0 ] && [ -z "$arm_settings" ]; then
+  say "the arm with the flag failed and the one without it did not. If your sign-in comes from your user settings, which the flag leaves out, put it in a settings file and set ARM_SETTINGS to that file." >&2
+fi
 [ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
 
 # The paths of the files of kind $1 (User or Project) in arm $2's log,
@@ -176,27 +269,6 @@ loaded() {
   [ -f "$scratch/$2.log" ] || return 0
   grep -E "\"memory_type\": ?\"$1\"" "$scratch/$2.log" |
     sed -n -E 's/.*"file_path": *"(([^"\\]|\\.)*)".*/\1/p'
-}
-
-# The home directory without a trailing slash, which would keep it from
-# matching the front of any path not built from $HOME itself.
-home_dir() {
-  local home="${HOME:-}"
-  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
-  printf '%s' "$home"
-}
-
-# Copies stdin with a leading home directory written as ~, so a report
-# pasted into an issue carries no home-directory path.
-tilde() {
-  local line home
-  home="$(home_dir)"
-  while IFS= read -r line; do
-    if [ -n "$home" ]; then
-      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
-    fi
-    printf '%s\n' "$line"
-  done
 }
 
 plain_files="$(loaded User plain)"
