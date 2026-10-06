@@ -171,6 +171,15 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert_took_the_lock(run_lock(:checkout, '--wait', '--', 'echo', 'ran'), 'echo ran')
   end
 
+  # bash's own exec takes options, so a command whose name begins with
+  # a dash must not reach it as one.
+  def test_runs_a_command_whose_name_begins_with_a_dash
+    stand_in('--wait', 'echo ran')
+    assert_took_the_lock(run_lock(:checkout, '--', '--wait'), '--wait')
+    stand_in('-l', 'echo ran')
+    assert_took_the_lock(run_lock(:checkout, '-l'), '-l')
+  end
+
   def test_records_a_command_holding_a_newline_on_one_line
     assert_took_the_lock(run_lock(:checkout, 'sh', '-c', "echo ran\n:"), 'sh -c echo ran :')
     assert_equal 3, File.readlines(holder_file).size

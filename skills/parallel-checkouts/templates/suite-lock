@@ -249,4 +249,4 @@ until try_take; do
   sleep 1
 done
 
-exec "$@"
+exec -- "$@"
