@@ -156,9 +156,21 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   end
 
   def test_asks_for_a_command_when_given_none
-    _out, err, status = run_lock(:checkout)
-    assert_equal 64, status.exitstatus
-    assert_includes err, 'Usage: bin/suite-lock'
+    [[], ['--wait'], ['--'], ['--wait', '--']].each do |args|
+      _out, err, status = run_lock(:checkout, *args)
+      assert_equal 64, status.exitstatus, args.inspect
+      assert_includes err, 'Usage: bin/suite-lock'
+    end
+  end
+
+  def test_a_double_dash_ends_the_options
+    assert_took_the_lock(run_lock(:checkout, '--', 'echo', 'ran'), 'echo ran')
+    assert_took_the_lock(run_lock(:checkout, '--wait', '--', 'echo', 'ran'), 'echo ran')
+  end
+
+  def test_records_a_command_holding_a_newline_on_one_line
+    assert_took_the_lock(run_lock(:checkout, 'sh', '-c', "echo ran\n:"), 'sh -c echo ran :')
+    assert_equal 3, File.readlines(holder_file).size
   end
 
   def test_the_recorded_holder_is_the_command_itself_with_its_start_time_and_command_line
@@ -177,7 +189,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def test_every_readable_layout_of_one_checkout_shares_the_lock
     hold(:outside)
-    %i[checkout subdirectory nested crlf].each do |name|
+    %i[checkout subdirectory nested crlf relative absolute_common crlf_common].each do |name|
       assert_refused(run_lock(name, *mark_ran), 'sleep 30')
     end
   end
@@ -212,6 +224,24 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     File.utime(Time.now - 300, Time.now - 300, "#{lock_dir}.takeover")
     assert_refused(run_lock(:checkout, '--wait', *mark_ran),
                    "#{lock_dir}.takeover", 'remove it')
+  end
+
+  def test_a_takeover_another_run_has_just_begun_is_refused_and_left_alone
+    write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+    FileUtils.mkdir_p("#{lock_dir}.takeover")
+    assert_refused(run_lock(:checkout, *mark_ran), 'being taken')
+    assert File.directory?("#{lock_dir}.takeover")
+  end
+
+  def test_wait_takes_the_lock_once_another_runs_takeover_is_over
+    write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+    FileUtils.mkdir_p("#{lock_dir}.takeover")
+    finishing = Thread.new do
+      sleep 1.5
+      Dir.rmdir("#{lock_dir}.takeover")
+    end
+    assert_took_the_lock(run_lock(:checkout, '--wait', 'echo', 'ran'), 'echo ran')
+    finishing.join
   end
 
   # Eight runs start together against a holder that is gone. Whichever

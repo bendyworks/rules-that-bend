@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require 'open3'
+require 'pathname'
 
 module Fixtures
   # The directory layouts a parallel-checkouts template can be run from,
@@ -19,6 +20,12 @@ module Fixtures
   #                 Code puts its own
   #   outside       a linked worktree elsewhere on disk
   #   crlf          a linked worktree whose .git file has CRLF endings
+  #   relative      a linked worktree whose .git file names its git
+  #                 directory by a relative path
+  #   absolute_common  a linked worktree whose commondir file holds an
+  #                 absolute path, where git writes a relative one
+  #   crlf_common   a linked worktree whose commondir file has CRLF
+  #                 endings
   #   missing       a linked worktree whose git directory is gone
   #   unreachable   a nested worktree whose .git file names a path that
   #                 does not exist, while the checkout around it still
@@ -65,6 +72,9 @@ module Fixtures
         worktree(:nested, checkout, File.join(checkout, '.claude', 'worktrees', 'nested')),
         worktree(:outside, checkout, File.join(scratch, 'outside')),
         crlf(worktree(:crlf, checkout, File.join(scratch, 'crlf'))),
+        relative(worktree(:relative, checkout, File.join(scratch, 'relative'))),
+        absolute_common(worktree(:absolute_common, checkout, File.join(scratch, 'absolute_common'))),
+        crlf_common(worktree(:crlf_common, checkout, File.join(scratch, 'crlf_common'))),
         missing(worktree(:missing, checkout, File.join(scratch, 'missing'))),
         unreachable(worktree(:unreachable, checkout, File.join(checkout, '.claude', 'worktrees', 'unreachable')))
       ]
@@ -84,6 +94,22 @@ module Fixtures
 
     def crlf(layout)
       File.binwrite(File.join(layout.path, '.git'), "gitdir: #{layout.git_dir}\r\n")
+      layout
+    end
+
+    def relative(layout)
+      from_worktree = Pathname.new(layout.git_dir).relative_path_from(Pathname.new(layout.path))
+      File.write(File.join(layout.path, '.git'), "gitdir: #{from_worktree}\n")
+      layout
+    end
+
+    def absolute_common(layout)
+      File.write(File.join(layout.git_dir, 'commondir'), "#{layout.common_dir}\n")
+      layout
+    end
+
+    def crlf_common(layout)
+      File.binwrite(File.join(layout.git_dir, 'commondir'), "../..\r\n")
       layout
     end
 

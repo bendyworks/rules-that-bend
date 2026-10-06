@@ -49,13 +49,14 @@ class GitDirectoryLayoutsTest < Minitest::Test
     refute File.exist?(File.join(ambient, '.git', 'worktrees'))
   end
 
-  def test_it_builds_every_layout_once
-    assert_equal %i[checkout subdirectory nested outside crlf missing unreachable], @layouts.keys
+  def test_it_builds_the_layouts_in_order
+    assert_equal %i[checkout subdirectory nested outside crlf relative absolute_common crlf_common missing unreachable],
+                 @layouts.keys
     @layouts.each_value { |layout| assert File.directory?(layout.path), layout.name.to_s }
   end
 
   def test_git_agrees_with_every_layout_it_can_still_read
-    %i[checkout subdirectory nested outside].each do |name|
+    %i[checkout subdirectory nested outside relative absolute_common].each do |name|
       layout = @layouts.fetch(name)
       assert_equal layout.git_dir, rev_parse(layout.path, '--git-dir'), "#{name} git directory"
       assert_equal layout.common_dir, rev_parse(layout.path, '--git-common-dir'), "#{name} common directory"
@@ -64,7 +65,7 @@ class GitDirectoryLayoutsTest < Minitest::Test
 
   def test_only_the_checkout_and_its_subdirectory_are_not_linked_worktrees
     linked = @layouts.select { |_name, layout| layout.linked }.keys
-    assert_equal %i[nested outside crlf missing unreachable], linked
+    assert_equal %i[nested outside crlf relative absolute_common crlf_common missing unreachable], linked
   end
 
   def test_the_crlf_layout_differs_from_a_readable_worktree_only_in_line_endings
@@ -73,6 +74,21 @@ class GitDirectoryLayoutsTest < Minitest::Test
     assert dot_git.end_with?("\r\n"), dot_git.inspect
     assert_equal "gitdir: #{crlf.git_dir}", dot_git.strip
     assert File.directory?(crlf.git_dir)
+  end
+
+  def test_the_relative_layout_names_its_git_directory_by_a_relative_path
+    relative = @layouts.fetch(:relative)
+    named = File.read(File.join(relative.path, '.git'))[/\Agitdir: (.+)$/, 1]
+    refute named.start_with?('/'), named
+    assert_equal relative.git_dir, File.realpath(named, relative.path)
+  end
+
+  def test_the_commondir_layouts_change_only_the_commondir_file
+    absolute = @layouts.fetch(:absolute_common)
+    assert_equal "#{absolute.common_dir}\n", File.read(File.join(absolute.git_dir, 'commondir'))
+    crlf = @layouts.fetch(:crlf_common)
+    assert_equal "../..\r\n", File.binread(File.join(crlf.git_dir, 'commondir'))
+    assert_equal crlf.common_dir, File.realpath('../..', crlf.git_dir)
   end
 
   def test_the_missing_layout_points_at_a_git_directory_that_is_gone
