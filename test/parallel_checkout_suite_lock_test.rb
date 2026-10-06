@@ -304,8 +304,8 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
       File.chmod(0o000, closed)
       File.utime(Time.now - 300, Time.now - 300, lock_dir)
       begin
-        assert_refused(run_lock(:checkout, *mark_ran), 'cannot be read', lock_dir)
-        assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot be read')
+        assert_refused(run_lock(:checkout, *mark_ran), 'cannot read who holds it', lock_dir)
+        assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot read who holds it')
       ensure
         File.chmod(mode, closed)
       end
@@ -521,8 +521,47 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     let_go('takeover')
 
     assert_equal REFUSED, wait_within(second, 10)&.exitstatus
-    assert_includes File.read(errors), 'cannot be read'
+    assert_includes File.read(errors), 'cannot read who holds it'
     refute File.exist?(ran_log)
+  end
+
+  # Each run that gets the lock ends at once, so the lock changes hands
+  # many times while the others look at it. A run that reads a lock in
+  # the middle of being replaced must wait like the rest: every one
+  # ends with the lock and status 0.
+  def test_every_waiting_run_gets_the_lock_while_it_changes_hands
+    2.times do |round|
+      pids = Array.new(40) do
+        Process.spawn(env, script(:checkout), '--wait', 'true', chdir: @scratch, unsetenv_others: true,
+                                                                err: File.join(@scratch, 'waiting.err'))
+      end
+      @holders.concat(pids)
+      statuses = pids.map { |pid| wait_within(pid, 120)&.exitstatus }
+      assert_equal [0], statuses.uniq, "round #{round}: #{File.read(File.join(@scratch, 'waiting.err'))}"
+      assert_empty File.read(File.join(@scratch, 'waiting.err')), "round #{round}"
+    end
+  end
+
+  # A file where the lock directory belongs is as stale as a directory
+  # left behind, and is replaced the same way.
+  def test_a_file_left_where_the_lock_belongs_is_taken_over
+    FileUtils.touch(lock_dir)
+    File.utime(Time.now - 300, Time.now - 300, lock_dir)
+    assert_took_the_lock(run_lock(:checkout, '--wait', 'echo', 'ran', within: 10), 'echo ran')
+  end
+
+  def test_stops_where_the_git_directory_cannot_be_written_to
+    skip 'root can write everywhere' if Process.uid.zero?
+    common = @layouts.fetch(:checkout).common_dir
+    File.chmod(0o555, common)
+    begin
+      _out, err, status = run_lock(:checkout, '--wait', *mark_ran, within: 10)
+      assert_equal 73, status.exitstatus, err
+      assert_includes err, 'cannot be written to'
+      refute File.exist?(ran_log)
+    ensure
+      File.chmod(0o755, common)
+    end
   end
 
   # Eight runs start together against a holder that is gone. Whichever
