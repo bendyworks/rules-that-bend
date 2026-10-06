@@ -376,7 +376,8 @@ decline.
 **No other tracker write happens without the user asking:** other
 labels, Projects-board moves, issue comments, and body edits outside
 `gh-issue-sync` wait for the user, and use labels the repository
-already has.
+already has. A priority label follows its own rule (see Priority
+label).
 
 GitHub marks the issue at pickup, while Linear and Shortcut move in
 record Step 5, because two sessions can collide while planning too and
@@ -398,6 +399,162 @@ flag placed before the matched one, including a body or title
 rewrite, so each auto-approves more than the move it names. A team
 that wants only the exact moves leaves them prompted, or checks the
 full command in a hook.
+
+## Priority label (GitHub Issues only)
+
+**On a GitHub-tracked project that has priority labels, a draft issue
+shows one proposed priority label with a one-line reason under its
+title, and nothing is filed until the user confirms a label or says to
+leave the issue unjudged. On a project that has none, say nothing
+about priority.** In the issues list, an issue filed with no priority
+looks the same as one judged unimportant, and the session drafting it
+holds the facts the next triage pass would otherwise reread the issue
+to find.
+
+Whether the project has priority labels is settled at every site that
+drafts an issue or picks one up -- Step 1's `gh issue create`, a
+spun-off or follow-up issue, and pickup (create Step 2) -- from the
+checked-in files and the repository, never from conversation. **Read
+the labels with a limit:**
+
+```bash
+gh label list --limit 200 --json name,description
+```
+
+Without `--limit`, `gh label list` returns 30 labels, oldest first,
+and a priority scale added later is not among them. A read that
+returns exactly 200 may have been cut short the same way: raise the
+limit and read again. Then take the first of these that fits:
+
+- **The project declines them** in its checked-in CLAUDE.md (or a
+  rules file every session loads), in wording like:
+
+  > This project does not use priority labels on its GitHub issues.
+
+  The declaration states only that fact; this section owns what
+  follows from it: never propose a priority and never apply a priority
+  label unasked, even when the repository has some. Everywhere this
+  skill says "has priority labels", a declining project has none.
+  Recognize the decline by meaning, but hold a floor: it must say that
+  the project does not use priority labels on its GitHub issues. Prose
+  about priorities in general ("we don't fuss about priority here") is
+  not a decline, and neither is anything said in conversation.
+- **Otherwise, the project states its set** in the same checked-in
+  files: which labels are its priority levels, and which one means
+  nobody has judged the issue yet (`P0` to `P3` and `unsorted`, say).
+  Use that set, after checking each stated label against the label
+  read. A stated label the repository does not have is never proposed,
+  and the reply names it, on a project left with no scale too. With
+  fewer than two stated levels left, the project has none, and the
+  name test below is not tried: the project has said its labels are
+  others.
+- **Otherwise, the name test:** the repository's labels whose names
+  start with `priority` followed by the same separator (`:`, `/`, `-`,
+  or a space; spaces around a `:`, `/`, or `-` do not matter), in any
+  case -- `priority: high` and `priority: low`, or `Priority/P1` and
+  `Priority/P2`. Among them, a label whose value is `untriaged`,
+  `triage`, or `needs triage` is the not-yet-judged label, in any case
+  and with its words joined by a space, a hyphen, or an underscore
+  (`needs-triage`); the rest are the levels. **Two or more levels make
+  a scale, and fewer make none.** Where two labels both read as not
+  yet judged, ask which one the project uses, the first time one is
+  needed; the other is then neither that nor a level.
+- **Otherwise, the project has none.** Say nothing about priority in
+  the draft or the reply, beyond naming a stated label the repository
+  lacks, and never offer to create priority labels. The in-progress
+  label is offered once because it is one label with one meaning; a
+  priority scale is a design decision the project has not made.
+  **Never propose a lone `priority: high`, or a label the name test
+  does not match (`P1`, `urgent`, `sev-2`), as a priority, and never
+  apply one unasked, whatever the user says about such labels in
+  conversation, until CLAUDE.md states the set.** Only when the user
+  calls them the project's priorities, say once that sessions will use
+  the set when CLAUDE.md states it.
+
+**A label of the project's set that the user names in the request for
+an issue is already confirmed for that issue, and so is a request to
+leave it unjudged.** The draft's priority line carries that label and
+no reason (or says the issue will be filed unjudged), with no proposal
+of the session's own, and the issue can be filed in the same turn. A
+label named for one issue confirms nothing for the next. Words that
+name no label of the set ("high priority" where the levels are `P0` to
+`P3`) are not a confirmation: the label the session would choose for
+them is a proposal, shown and waited on. Apart from that, any label
+the user asks for by name is applied as asked, on a project with
+priority labels or without; when the repository does not have it, say
+so and ask before filing.
+
+**Propose exactly one level, with its reason, and wait for the
+answer.** Choose the level from the labels' own descriptions, or from
+their names where a description is empty, so the project's meanings
+decide; this skill carries no scale of its own. Where neither says
+which end of the scale is the higher (`priority: 1`, `priority: 2`,
+no descriptions), ask before proposing, and file nothing in that turn.
+Show the proposal on its own line under the draft's title:
+
+```
+Priority: priority: medium -- customers hand-edit the file before every import
+```
+
+- **One level, never two candidates.** When two levels fit, pick one
+  and let the reason say what would move it to the other.
+- **Never propose the not-yet-judged label.** It records that nobody
+  has made the judgment the session is making.
+- **Never run `gh issue create` in the turn that drafts the issue.**
+  End the reply with the draft and its priority line, and stop there.
+  A level applied before the user has seen it is a judgment made for
+  them. Approving a draft that shows the line confirms the label; file
+  with exactly that label (`--label "<label>"`). A different level in
+  the answer replaces it. A later turn that applies the user's answer
+  to a draft already shown, a different level or an edited body
+  included, files. The one exception to the hold is the request the
+  paragraph above calls already confirmed.
+- **The user does not want to judge it now:** file with the
+  not-yet-judged label. Where the project has levels and no such
+  label, file with no priority label and say so.
+- **An issue carries exactly one priority label.** Changing it is one
+  command that removes the old label and adds the new one:
+  `gh issue edit NNN --remove-label "<old>" --add-label "<new>"`.
+- **When `gh issue create` fails on a label, no issue was filed.** Say
+  what failed, read the labels again, and ask: the scale may have
+  changed since the user answered. Never file under a different label
+  unasked.
+
+**At pickup, propose a level for an open issue that carries none.**
+On a project that has priority labels, what create Step 2's first
+read shows decides:
+
+- **The not-yet-judged label and no level, or no priority label at
+  all:** propose one level with its reason in the Step 2 reply, beside
+  the other findings. The label write waits for the user's answer,
+  unlike the in-progress label: that one records a fact the session
+  knows, and this one a judgment that is the user's. On a yes, the
+  one command above replaces the not-yet-judged label with the level,
+  or `--add-label` alone adds the level to an issue that had no
+  priority label. On a "not now", an issue with no priority label gets
+  the project's not-yet-judged label, when the project has such a
+  label, and nothing else is written.
+- **One level:** the issue keeps it, and there is no proposal.
+- **A level and the not-yet-judged label:** the issue has been judged.
+  Offer to remove the not-yet-judged label.
+- **Two levels:** ask which of them stands, and remove the others,
+  the not-yet-judged label among them.
+
+**Raise nothing about priority (no proposal, offer, or question)** on
+an issue this session filed, since the user answered at the draft; on
+a closed issue, though a reopened one is treated like any open issue;
+on an already-claimed issue until the claim question is settled during
+create; or on an issue in another repository, where the In-progress
+label section already says to make no write and ask. Record Step 5
+never raises priority.
+
+**This section covers issues in this checkout's repository.** Its
+labels and its checked-in files are the ones read.
+
+The label read runs without a permission prompt where the team's
+settings allow `Bash(gh label list *)`, as the In-progress label
+section lists. Every priority write follows an answer the user has
+just given, so most teams leave those prompted.
 
 ---
 
@@ -447,12 +604,30 @@ the maintenance project vs. the requested-additional-work project) and
 let the user pick; do not silently default. This applies to spun-off /
 follow-up issues too.
 
-When creating a GitHub issue (`gh issue create`), there is no required
-project or team field; labels and milestone fill that interview slot.
-Offer the repo's existing labels and milestones rather than inventing
-new ones, and skip cleanly when the repo uses neither. `in progress` is
-not offered here: Step 2 applies it once the issue exists (see
-In-progress label).
+**The first command toward a new GitHub issue is the label read,
+`gh label list --limit 200 --json name,description`, never
+`gh issue create`.** It settles whether the project has priority
+labels (see Priority label).
+
+**When the project has priority labels, never run `gh issue create`
+in the turn that drafts the issue: end that reply with the draft and
+stop.** The draft is the title, one `Priority: <label> -- <reason>`
+line, and the body. File it in a later turn, once the user has
+answered, with the label they confirmed. The one exception is a
+request that already names a label of the project's set, or says to
+leave the issue unjudged, which is confirmed already (see Priority
+label). This applies to spun-off and follow-up issues too. Where the
+project has no priority labels, the draft says nothing about priority.
+
+When creating a GitHub issue, there is no required project or team
+field; labels and milestone fill that interview slot. Offer the repo's
+existing labels and milestones rather than inventing new ones, and
+skip cleanly when the repo uses neither. Leave out of that list every
+label the project states as a priority label and every label whose
+name starts with `priority` and a separator, on a declining project
+too: a priority appears only on the draft's `Priority:` line.
+`in progress` is not offered here: Step 2 applies it once the issue
+exists (see In-progress label).
 
 If the existing issue title is overly long or sentence-shaped, propose
 a rename now so the plan filename and branch can share the base name.
@@ -491,9 +666,17 @@ key here, where that section says to ask first.
   gh label list --search "in progress" --json name  # a hit counts only if its name is exactly "in progress"
   gh issue edit NNN --add-label "in progress"       # only when it exists and the checked-in rules do not decline it
   # No such label and no decline in the checked-in rules: ask in this step's reply whether to create it.
+  gh label list --limit 200 --json name,description # does the project have priority labels? (see Priority label)
   ```
-  **Closed in that first read:** run no pickup command; ask whether to
-  reopen it or plan a follow-up.
+  **Not yet judged in that first read** -- the issue carries the
+  project's not-yet-judged label and no level, or no priority label,
+  on a project that has them, and this session did not file it:
+  propose exactly one
+  level with a one-line reason in this step's reply, and change the
+  label only when the user answers (see Priority label).
+
+  **Closed in that first read:** run no pickup command and raise
+  nothing about priority; ask whether to reopen it or plan a follow-up.
 
   **Already claimed in that first read** -- a label named `in progress`
   in any case, or an assignee other than the login above (any assignee
@@ -502,7 +685,8 @@ key here, where that section says to ask first.
   assignee) and the checked-out branch belongs to this issue (its name
   starts with the issue's `NNN-` or `prj-NNN-` slug prefix), this is
   the user's own continuing work; pick it up and carry on. Otherwise
-  stop, say who or what holds the issue, and ask whether to continue.
+  stop, say who or what holds the issue, and ask whether to continue;
+  anything about priority waits until that is answered.
   Checking and then labeling is not atomic, and parallel sessions run
   as the same user and can share one plans directory, so this question
   is the tie-breaker.
@@ -1109,7 +1293,8 @@ another repository's issue -- write nothing unless the user has since
 said to take the issue, and ask a claim question still unanswered
 again here, before Step 6 starts. A session that skipped create, or
 cannot tell what its create step did (after a compaction, say), first
-reads the issue and applies create Step 2's rules.
+reads the issue and applies create Step 2's Closed and Already-claimed
+rules. This step never proposes a priority: that belongs to create.
 
 ```bash
 gh issue view NNN --json state,labels,assignees   # only when create Step 2 did not run here, or it is unclear
