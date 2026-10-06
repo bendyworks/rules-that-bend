@@ -124,9 +124,9 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def start_time(pid) = `TZ=UTC LC_ALL=C ps -o lstart= -p #{pid}`.strip
 
-  def write_holder(pid:, start:)
+  def write_holder(pid:, start:, command: 'rake')
     FileUtils.mkdir_p(lock_dir)
-    File.write(holder_file, "#{pid}\n#{start}\nrake\n")
+    File.write(holder_file, "#{pid}\n#{start}\n#{command}\n")
   end
 
   def dead_pid
@@ -197,6 +197,16 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def test_refuses_a_second_run_at_once_naming_the_holder
     pid = hold(:checkout)
     assert_refused(run_lock(:checkout, *mark_ran, within: 5), "process #{pid}", start_time(pid), 'sleep 30')
+  end
+
+  # The holder file is text any process can have written, and a refusal
+  # prints it to a terminal.
+  def test_a_refusal_prints_no_control_characters_from_the_holder_file
+    write_holder(pid: Process.pid, start: start_time(Process.pid), command: "rake\e[2Jspec\a")
+    _out, err, status = run_lock(:checkout, *mark_ran)
+    assert_equal REFUSED, status.exitstatus, err
+    assert_includes err, 'running: rake[2Jspec.'
+    refute_match(/[\e\a]/, err)
   end
 
   # ps prints a start time in the caller's time zone, so two runs that

@@ -229,6 +229,10 @@ try_take() {
 refuse() {
   case "$held_reason" in
     live)
+      # The holder file is printed to a terminal, so nothing in it may
+      # move the cursor or clear the screen.
+      holder_start="${holder_start//[[:cntrl:]]/}"
+      holder_command="${holder_command//[[:cntrl:]]/}"
       echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start UTC, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
       ;;
     abandoned)
