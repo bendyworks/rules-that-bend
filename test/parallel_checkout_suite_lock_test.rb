@@ -241,23 +241,38 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert_refused(run_lock(:checkout, *mark_ran, vars: { 'TZ' => 'Asia/Tokyo' }), "process #{pid}")
   end
 
-  # Without a `gitdir:` line the directory holding the .git file would
-  # be taken for the git directory, and a directory named suite-lock in
-  # the working tree for a lock left behind.
+  # Without a `gitdir:` line, or with one naming a directory that is
+  # not a git directory, the lock would go wherever the line pointed,
+  # and a directory named suite-lock there be taken for a lock left
+  # behind. Each case puts an old one where such a lock would be.
   def test_a_git_file_that_names_no_git_directory_is_not_followed
-    ['', "gitdir:\n", "gitdir:   \n", "../checkout/.git\n", "gitdir: .\n", "gitdir: bin\n"].each do |content|
-      project = File.join(@scratch, 'archive')
-      copy = install_in(project)
-      FileUtils.mkdir_p(File.join(project, 'suite-lock'))
-      FileUtils.touch(File.join(project, 'suite-lock', 'kept'))
-      File.utime(Time.now - 300, Time.now - 300, File.join(project, 'suite-lock'))
-      File.write(File.join(project, '.git'), content)
-      _out, err, status = run_script(copy, *mark_ran)
-      assert_equal 78, status.exitstatus, "#{content.inspect}: #{err}"
-      assert File.exist?(File.join(project, 'suite-lock', 'kept')), content.inspect
-      refute File.exist?(ran_log), content.inspect
-      FileUtils.rm_rf(project)
+    { '' => '.', "gitdir:\n" => '.', "gitdir:   \n" => '.', "../checkout/.git\n" => '.', "gitdir: .\n" => '.',
+      "gitdir: docs\n" => 'docs' }.each do |content, lock_parent|
+      %w[HEAD head refs].each do |decoy|
+        project = File.join(@scratch, 'archive')
+        copy = install_in(project)
+        kept = File.join(project, lock_parent, 'suite-lock', 'kept')
+        FileUtils.mkdir_p(File.dirname(kept))
+        FileUtils.touch(kept)
+        File.utime(Time.now - 300, Time.now - 300, File.dirname(kept))
+        File.write(File.join(project, lock_parent, decoy), "ref: refs/heads/main\n")
+        File.write(File.join(project, '.git'), content)
+        _out, err, status = run_script(copy, *mark_ran)
+        assert_equal 78, status.exitstatus, "#{content.inspect} beside a file named #{decoy}: #{err}"
+        assert File.exist?(kept), content.inspect
+        refute File.exist?(ran_log), content.inspect
+        FileUtils.rm_rf(project)
+      end
     end
+  end
+
+  # git still reads a HEAD that is a symbolic link to a branch, and the
+  # link stops resolving once the branch's file is packed away.
+  def test_takes_the_lock_where_head_is_a_symbolic_link_that_does_not_resolve
+    head = File.join(@layouts.fetch(:checkout).common_dir, 'HEAD')
+    File.delete(head)
+    File.symlink('refs/heads/packed-away', head)
+    assert_took_the_lock(run_lock(:nested, 'echo', 'ran'), 'echo ran')
   end
 
   # A file its owner cannot read is no file to follow. Root reads
