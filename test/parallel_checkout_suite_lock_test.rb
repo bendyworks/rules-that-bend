@@ -228,7 +228,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     write_holder(pid: Process.pid, start: start_time(Process.pid), command: "rake\e[2Jspec\a")
     _out, err, status = run_lock(:checkout, *mark_ran)
     assert_equal REFUSED, status.exitstatus, err
-    assert_includes err, 'running: rake[2Jspec.'
+    assert_includes err, 'running: rake [2Jspec .'
     refute_match(/[\e\a]/, err)
   end
 
