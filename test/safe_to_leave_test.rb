@@ -829,6 +829,19 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # HEAD can name a ref that is no branch. A commit made there is on no
+  # branch either, and `git symbolic-ref` still answers.
+  def test_a_commit_on_a_head_that_names_no_branch_counts
+    with_repo do |repo|
+      repo.git('symbolic-ref', 'HEAD', 'refs/elsewhere/notes')
+      repo.commit_locally('notes', 'Add notes')
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['unpushed'], result.stdout
+      assert_includes result.line_for('unpushed'), 'HEAD is detached with 1 commit on no branch'
+    end
+  end
+
   def test_a_detached_head_at_a_pushed_commit_does_not_count
     with_repo do |repo|
       repo.detach_head

@@ -422,11 +422,13 @@ module SafeToLeave
       Integer(output('rev-list', '--count', '--stdin', stdin: revisions.join("\n")).strip)
     end
 
-    # `symbolic-ref -q` exits 1 for a detached HEAD and higher for a
-    # failure.
+    # Whether HEAD is on no branch. `symbolic-ref -q` exits 1 for a
+    # detached HEAD and higher for a failure. It also answers for a HEAD
+    # that names a ref outside refs/heads/, whose commits are on no
+    # branch either.
     def detached?
-      _stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
-      return false if status.success?
+      stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
+      return !stdout.start_with?('refs/heads/') if status.success?
       raise Error, "git symbolic-ref failed: #{complaint(stderr)}" unless status.exitstatus == 1
 
       true
