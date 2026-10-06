@@ -470,6 +470,45 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     refute File.exist?(ran_log)
   end
 
+  # A run is paused on its way into a takeover of a dead holder's lock.
+  # Another run takes that lock over and holds it, and the paused run
+  # goes on: it must look at the lock again before removing anything.
+  def test_a_takeover_looks_again_at_a_lock_taken_over_while_it_waited
+    write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+    paused = path_with('paused-bin', 'mkdir' => "case \"$1\" in *.takeover) #{pause_at('takeover')};; esac\n" \
+                                                'exec /bin/mkdir "$@"')
+    second = Process.spawn(env.merge('PATH' => paused), script(:checkout), *mark_ran,
+                           chdir: @scratch, unsetenv_others: true, err: File::NULL)
+    @holders << second
+    assert reached?('takeover'), 'the second run never began a takeover'
+    holder = hold(:checkout)
+    let_go('takeover')
+
+    assert_equal REFUSED, wait_within(second, 10)&.exitstatus
+    assert_equal holder.to_s, File.read(holder_file).lines.first.strip
+    refute File.exist?(ran_log)
+  end
+
+  # The same, where the lock taken over meanwhile is another user's.
+  def test_a_takeover_that_finds_another_users_lock_says_so
+    skip 'root can read every file' if Process.uid.zero?
+    write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+    paused = path_with('paused-bin', 'mkdir' => "case \"$1\" in *.takeover) #{pause_at('takeover')};; esac\n" \
+                                                'exec /bin/mkdir "$@"')
+    errors = File.join(@scratch, 'second.err')
+    second = Process.spawn(env.merge('PATH' => paused), script(:checkout), *mark_ran,
+                           chdir: @scratch, unsetenv_others: true, err: errors)
+    @holders << second
+    assert reached?('takeover'), 'the second run never began a takeover'
+    hold(:checkout)
+    File.chmod(0o000, holder_file)
+    let_go('takeover')
+
+    assert_equal REFUSED, wait_within(second, 10)&.exitstatus
+    assert_includes File.read(errors), 'cannot be read'
+    refute File.exist?(ran_log)
+  end
+
   # Eight runs start together against a holder that is gone. Whichever
   # gets the lock keeps it until the other seven have been refused, so
   # a second line in the log means two held it at once.
