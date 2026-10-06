@@ -161,11 +161,19 @@ hold_or_quit() {
   exit 78
 }
 
+# Sets holder_unreadable for a holder file this user cannot read. The
+# file is its owner's alone to read, so that is another user's lock,
+# and nothing here can tell whether its run is still going.
 read_holder() {
   holder_pid=""
   holder_start=""
   holder_command=""
+  holder_unreadable=""
   [ -f "$lock/holder" ] || return 1
+  if [ ! -r "$lock/holder" ]; then
+    holder_unreadable=1
+    return 0
+  fi
   {
     IFS= read -r holder_pid
     IFS= read -r holder_start
@@ -192,15 +200,16 @@ older_than_a_minute() {
 # writing the file.
 lock_is_stale() {
   if read_holder; then
-    ! holder_alive
+    [ -z "$holder_unreadable" ] && ! holder_alive
   else
     older_than_a_minute "$lock"
   fi
 }
 
 # Take the lock, or say in held_reason why not: `live` (read_holder has
-# set the holder), `pending` (another run is taking it right now), or
-# `abandoned` (a takeover directory was left behind).
+# set the holder), `pending` (another run is taking it right now),
+# `unreadable` (the holder file is another user's), or `abandoned` (a
+# takeover directory was left behind).
 try_take() {
   if mkdir "$lock" 2>/dev/null; then
     hold_or_quit
@@ -210,6 +219,7 @@ try_take() {
   if ! lock_is_stale; then
     held_reason=live
     [ -n "$holder_pid" ] || held_reason=pending
+    [ -z "$holder_unreadable" ] || held_reason=unreadable
     return 1
   fi
 
@@ -242,7 +252,10 @@ try_take() {
   [ "$taken" -eq 0 ] && return 0
 
   held_reason=pending
-  read_holder && holder_alive && held_reason=live
+  if read_holder; then
+    holder_alive && held_reason=live
+    [ -z "$holder_unreadable" ] || held_reason=unreadable
+  fi
   return 1
 }
 
@@ -254,6 +267,9 @@ refuse() {
       holder_start="${holder_start//[[:cntrl:]]/}"
       holder_command="${holder_command//[[:cntrl:]]/}"
       echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start UTC, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
+      ;;
+    unreadable)
+      echo "${0##*/}: this checkout's suite lock is held, and its holder file ($lock/holder) cannot be read by this user, so there is no telling whether that run is still going. If it is not, whoever owns $lock can remove it -- see docs/parallel-checkouts.md" >&2
       ;;
     abandoned)
       echo "${0##*/}: $takeover was left behind by a run that was killed while taking the suite lock, over a minute ago. If no full run is starting in this checkout, remove it (rmdir) and run this again -- see docs/parallel-checkouts.md" >&2
@@ -267,7 +283,7 @@ refuse() {
 
 held_reason=""
 until try_take; do
-  if [ -z "$wait_for_lock" ] || [ "$held_reason" = abandoned ]; then
+  if [ -z "$wait_for_lock" ] || [ "$held_reason" = abandoned ] || [ "$held_reason" = unreadable ]; then
     refuse
   fi
   sleep 1

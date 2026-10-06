@@ -261,6 +261,17 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     end
   end
 
+  # The holder file is its owner's alone to read, so another user's run
+  # finds one it cannot read whenever the lock is held.
+  def test_a_holder_file_that_cannot_be_read_is_a_held_lock
+    skip 'root can read every file' if Process.uid.zero?
+    hold(:checkout)
+    File.chmod(0o000, holder_file)
+    assert_refused(run_lock(:checkout, *mark_ran), 'cannot be read', holder_file)
+    File.utime(Time.now - 300, Time.now - 300, lock_dir)
+    assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot be read')
+  end
+
   def stand_in(name, body)
     File.write(File.join(@fakebin, name), "#!/bin/sh\n#{body}\n")
     File.chmod(0o755, File.join(@fakebin, name))
