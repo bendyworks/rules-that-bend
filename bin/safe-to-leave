@@ -241,11 +241,14 @@ module SafeToLeave
     # The prompt settings keep `ls-remote` from waiting on a terminal
     # for credentials. GIT_OPTIONAL_LOCKS stops `git status` from
     # rewriting the index it reads, here and in every other worktree.
-    # LC_ALL keeps git's messages, which are quoted in UNCHECKED lines,
-    # in one language.
+    # GIT_NO_REPLACE_OBJECTS has git read each commit as itself: a
+    # replace ref can stand a local commit in for one the remote has,
+    # and the commits behind it would then count as pushed. LC_ALL keeps
+    # git's messages, which are quoted in UNCHECKED lines, in one
+    # language.
     CHILD_ENV = LOCATION_ENV_KEYS.to_h { |key| [key, nil] }.merge(
       'GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => nil, 'SSH_ASKPASS' => nil,
-      'GIT_OPTIONAL_LOCKS' => '0', 'LC_ALL' => 'C'
+      'GIT_OPTIONAL_LOCKS' => '0', 'GIT_NO_REPLACE_OBJECTS' => '1', 'LC_ALL' => 'C'
     ).freeze
 
     # A porcelain status entry that carries a second path: the entry is

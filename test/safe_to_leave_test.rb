@@ -781,6 +781,24 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A replace ref makes git read one commit as another. Here the commit
+  # the remote has is read as a child of the story branch's tip, which
+  # puts the story's commit among those the remote has.
+  def test_a_replace_ref_does_not_make_local_commits_read_as_pushed
+    with_repo do |repo|
+      pushed = repo.git('rev-parse', 'refs/remotes/origin/main').strip
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      child = repo.git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'A child of the tip').strip
+      repo.git('replace', pushed, child)
+      repo.checkout('main')
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['unpushed'], result.stdout
+      assert_includes result.line_for('unpushed'), 'abc-12-fix-export (1 commit)'
+    end
+  end
+
   # A branch pushed to a second remote is still absent from the remote
   # the report measures against, and --remote chooses which one that is.
   def test_unpushed_is_measured_against_the_named_remote_alone
