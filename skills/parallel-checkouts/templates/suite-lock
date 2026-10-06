@@ -40,7 +40,8 @@
 #
 # Exit status: the command's own; 64 with no command; 75 when refused; 78
 # when the git directory cannot be found or this run cannot be recorded
-# as the holder.
+# as the holder; 128 plus the signal's number when interrupted, hung up
+# on, or terminated while taking over a lock.
 set -u
 
 wait_for_lock=""
@@ -208,7 +209,9 @@ try_take() {
     return 1
   fi
   trap 'rmdir "$takeover" 2>/dev/null' EXIT
-  trap 'exit 130' INT TERM HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
 
   # The lock directory exists from the check below until the removal, so
   # no run can take it in between; one that takes it after the removal
