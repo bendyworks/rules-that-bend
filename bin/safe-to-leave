@@ -51,7 +51,8 @@ module SafeToLeave
                       with more than one. A stash or worktree on such a
                       branch counts against leaving, and one on any other
                       branch is listed. With no prefix given, nothing can
-                      be attributed, so every stash counts
+                      be attributed, and every branch is treated as the
+                      story's
       -h, --help      print this message
 
     Unpushed commits are measured against what the remote had as of your
@@ -105,20 +106,11 @@ module SafeToLeave
 
     module_function
 
-    def story_branch?(name, prefixes)
-      prefixes.any? { |prefix| name.start_with?(prefix) }
-    end
-
     def working_tree(entries)
       return [Line.new('working-tree', OK, 'clean')] if entries.empty?
 
       [Line.new('working-tree', AGAINST,
                 "#{count(entries.length, 'uncommitted or untracked file')}: #{entries.join(', ')}")]
-    end
-
-    def stash_branch(subject)
-      name = subject[STASH_BRANCH, 1]
-      name == NO_BRANCH ? nil : name
     end
 
     # A stash that names no branch counts: it may be the story's, and
@@ -128,13 +120,24 @@ module SafeToLeave
 
       counted, others = stashes.partition do |stash|
         branch = stash_branch(stash.subject)
-        branch.nil? || prefixes.empty? || story_branch?(branch, prefixes)
+        branch.nil? || story_branch?(branch, prefixes)
       end
       describe = ->(list) { list.map { |stash| "#{stash.ref} (#{stash.subject})" }.join(', ') }
       [
         (Line.new('stashes', AGAINST, describe.call(counted)) unless counted.empty?),
         (Line.new('stashes', LISTED, "from other work, not counted: #{describe.call(others)}") unless others.empty?)
       ].compact
+    end
+
+    def stash_branch(subject)
+      name = subject[STASH_BRANCH, 1]
+      name == NO_BRANCH ? nil : name
+    end
+
+    # With no prefix given no branch can be told from the story's, and
+    # every branch is treated as the story's.
+    def story_branch?(name, prefixes)
+      prefixes.empty? || prefixes.any? { |prefix| name.start_with?(prefix) }
     end
 
     # `branches` maps each local branch other than the default to the

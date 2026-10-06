@@ -123,9 +123,9 @@ end
 class UnpushedDecisionTest < Minitest::Test
   PREFIXES = ['abc-12-'].freeze
 
-  def lines(default_ahead: 0, detached: 0, branches: {})
+  def lines(default_ahead: 0, detached: 0, branches: {}, prefixes: PREFIXES)
     SafeToLeave::Checks.unpushed(default: 'main', default_ahead: default_ahead, detached: detached,
-                                 branches: branches, prefixes: PREFIXES)
+                                 branches: branches, prefixes: prefixes)
   end
 
   def test_nothing_unpushed_is_one_clean_line
@@ -162,6 +162,15 @@ class UnpushedDecisionTest < Minitest::Test
     assert_includes result.first.detail, 'other-work'
   end
 
+  # With no story branch named there is nothing to attribute a branch
+  # to, as with a stash.
+  def test_with_no_story_prefix_every_branch_with_unpushed_commits_counts
+    result = lines(branches: { 'other-work' => 3 }, prefixes: [])
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_equal 'other-work (3 commits)', result.first.detail
+  end
+
   # Commits made with HEAD detached are on no branch, so no branch's
   # count includes them.
   def test_commits_on_a_detached_head_count
@@ -183,8 +192,8 @@ class WorktreeDecisionTest < Minitest::Test
     SafeToLeave::Worktree.new('/tmp/elsewhere', branch, changes, detached_commits, reason)
   end
 
-  def statuses(worktrees)
-    SafeToLeave::Checks.worktrees(worktrees, PREFIXES).map(&:status)
+  def statuses(worktrees, prefixes = PREFIXES)
+    SafeToLeave::Checks.worktrees(worktrees, prefixes).map(&:status)
   end
 
   def test_no_linked_worktrees_is_one_clean_line
@@ -201,6 +210,10 @@ class WorktreeDecisionTest < Minitest::Test
 
   def test_a_linked_worktree_on_a_story_branch_counts
     assert_equal ['AGAINST'], statuses([worktree('abc-12-fix-export', 0)])
+  end
+
+  def test_with_no_story_prefix_a_clean_worktree_on_any_branch_counts
+    assert_equal ['AGAINST'], statuses([worktree('other-work', 0)], [])
   end
 
   def test_a_detached_worktree_holding_commits_on_no_branch_counts
@@ -845,6 +858,17 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal 1, result.status
       assert_equal ['AGAINST'], result.statuses['stashes']
+    end
+  end
+
+  def test_with_no_story_branch_named_every_branch_with_unpushed_commits_counts
+    with_repo do |repo|
+      repo.branch_from_main('other-work')
+      repo.commit_locally('other', 'Other work')
+      result = report_on(repo, ['-C', repo.work])
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['unpushed']
     end
   end
 
