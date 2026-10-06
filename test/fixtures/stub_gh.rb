@@ -55,8 +55,9 @@ module StubGh
   # it are graded against a forge that is quietly broken. The test base
   # derives its scrub list from this, and a guard test checks this list
   # against the source below.
-  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_RUNS STUB_GH_API STUB_GH_FAIL
-                STUB_GH_FAIL_AFTER STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
+  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_RUNS STUB_GH_API STUB_GH_AUTH_HOSTS
+                STUB_GH_FAIL STUB_GH_FAIL_AFTER STUB_GH_GARBAGE STUB_GH_SHAPE
+                STUB_GH_MISMATCH].freeze
 
   # gh's own defaults, reproduced because a sweep that omits either
   # flag must see what it would really see.
@@ -77,6 +78,8 @@ module StubGh
   def main(argv)
     log_invocation(argv)
     refuse_redirecting_environment
+    return answer_auth(argv.drop(2)) if argv.take(2) == %w[auth status]
+
     fail_after_as_configured
     fail_as_configured
     garble_as_configured
@@ -284,6 +287,22 @@ module StubGh
     refuse("unserved --created form: #{raw.inspect}") if stamp.nil?
 
     Time.iso8601(stamp)
+  end
+
+  # Whether gh is signed in to a host, answered the way the real client
+  # answers it: by exit status. It runs ahead of the failure switches,
+  # because a caller asks it to learn whether the other questions are
+  # worth asking, and a host gh has never heard of is an answer and not
+  # an outage.
+  def answer_auth(argv)
+    refuse("unserved auth arguments: #{argv.join(' ')}") unless argv.length == 2 && argv.first == '--hostname'
+
+    hosts = ENV.fetch('STUB_GH_AUTH_HOSTS', nil)
+    refuse('STUB_GH_AUTH_HOSTS is unset; there is no data to serve') if hosts.nil?
+    return if hosts.split(',').include?(argv.last)
+
+    warn "You are not logged into any accounts on #{argv.last}"
+    exit 1
   end
 
   # A GET of one path, answered with the object the data file holds for

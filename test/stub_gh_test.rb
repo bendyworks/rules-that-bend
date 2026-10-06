@@ -438,4 +438,33 @@ class StubGhTest < Minitest::Test
 
     assert_match(/unserved api arguments/, result.refusals.join("\n"))
   end
+
+  # Whether gh is signed in to a host, which it answers by exit status.
+  def test_an_auth_question_about_a_signed_in_host_exits_clean
+    result = run_stub('auth', 'status', '--hostname', 'github.example.com',
+                      env: { 'STUB_GH_AUTH_HOSTS' => 'github.com,github.example.com' })
+
+    assert result.ok?, result.stderr
+    assert_empty result.refusals
+  end
+
+  def test_an_auth_question_about_any_other_host_fails_without_a_refusal
+    result = run_stub('auth', 'status', '--hostname', 'gitlab.example.com',
+                      env: { 'STUB_GH_AUTH_HOSTS' => 'github.com' })
+
+    refute result.ok?
+    assert_empty result.refusals, 'not signed in is an answer, not a call nothing serves'
+  end
+
+  def test_an_auth_question_with_no_hosts_configured_is_refused
+    result = refusal_case('auth', 'status', '--hostname', 'github.com')
+
+    assert_match(/STUB_GH_AUTH_HOSTS is unset/, result.refusals.join("\n"))
+  end
+
+  def test_an_auth_question_that_names_no_host_is_refused
+    result = refusal_case('auth', 'status', env: { 'STUB_GH_AUTH_HOSTS' => 'github.com' })
+
+    assert_match(/unserved auth arguments/, result.refusals.join("\n"))
+  end
 end
