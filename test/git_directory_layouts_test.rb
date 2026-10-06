@@ -30,6 +30,25 @@ class GitDirectoryLayoutsTest < Minitest::Test
     status.success? ? File.realpath(out.strip) : nil
   end
 
+  # git -C does not override an inherited GIT_DIR, so a build that kept
+  # one would commit to the repository it names.
+  def test_it_builds_inside_its_scratch_directory_when_git_dir_is_exported
+    ambient = File.join(@scratch, 'ambient')
+    Fixtures::GitDirectoryLayouts.git('init', '-q', ambient)
+    saved = ENV.to_h.slice('GIT_DIR', 'GIT_WORK_TREE')
+    ENV['GIT_DIR'] = File.join(ambient, '.git')
+    ENV['GIT_WORK_TREE'] = ambient
+    begin
+      layouts = Fixtures::GitDirectoryLayouts.build(File.realpath(Dir.mktmpdir('built', @scratch)))
+      found = rev_parse(layouts.fetch(:nested).path, '--git-common-dir')
+    ensure
+      %w[GIT_DIR GIT_WORK_TREE].each { |key| ENV[key] = saved[key] }
+    end
+    assert_equal layouts.fetch(:checkout).common_dir, found
+    assert_empty Dir.children(File.join(ambient, '.git', 'refs', 'heads'))
+    refute File.exist?(File.join(ambient, '.git', 'worktrees'))
+  end
+
   def test_it_builds_every_layout_once
     assert_equal %i[checkout subdirectory nested outside crlf missing unreachable], @layouts.keys
     @layouts.each_value { |layout| assert File.directory?(layout.path), layout.name.to_s }

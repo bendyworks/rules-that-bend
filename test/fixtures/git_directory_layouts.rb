@@ -25,11 +25,22 @@ module Fixtures
   #                 holds its git directory: what a container sees when
   #                 it mounts the checkout at another path
   module GitDirectoryLayouts
-    GIT_ENV = {
+    # Variables that point git at a repository or hand it configuration
+    # from outside. Open3 merges an environment into the inherited one,
+    # and `git -C` does not override an inherited GIT_DIR, so each is
+    # removed for every git command here: a build that kept one would
+    # commit to the repository it names.
+    AMBIENT_GIT_KEYS = %w[
+      GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+      GIT_CEILING_DIRECTORIES GIT_CONFIG GIT_CONFIG_COUNT GIT_TEMPLATE_DIR
+    ].freeze
+
+    GIT_ENV = AMBIENT_GIT_KEYS.to_h { |key| [key, nil] }.merge(
       'GIT_CONFIG_GLOBAL' => File::NULL, 'GIT_CONFIG_SYSTEM' => File::NULL,
       'GIT_AUTHOR_NAME' => 'Test', 'GIT_AUTHOR_EMAIL' => 'test@example.com',
       'GIT_COMMITTER_NAME' => 'Test', 'GIT_COMMITTER_EMAIL' => 'test@example.com'
-    }.freeze
+    ).freeze
 
     # git_dir is the layout's own git directory and common_dir the one
     # every worktree of its checkout shares; both are nil where nothing
