@@ -94,6 +94,16 @@ class StashDecisionTest < Minitest::Test
     assert_equal ['AGAINST'], statuses([stash(0, 'something I saved')])
   end
 
+  # `git stash list` can print a line that is no stash, such as a
+  # signature check under log.showSignature. It carries no separator
+  # and names no branch.
+  def test_a_listing_line_with_no_subject_counts
+    stray = SafeToLeave::Stash.parse('gpg: Signature made')
+
+    assert_equal '', stray.subject
+    assert_equal ['AGAINST'], statuses([stray])
+  end
+
   # With no story branch named there is nothing to attribute a stash to.
   def test_with_no_story_prefix_every_stash_counts
     assert_equal ['AGAINST'], statuses([stash(0, 'WIP on other-work: 1a2b3c4 Start')], [])
@@ -308,6 +318,25 @@ class LeaveArgumentTest < LeaveCliTestCase
     end
   end
 
+  # Exit status 1 means something counts against leaving, and Ruby exits
+  # 1 on an exception nothing rescued.
+  def test_an_unexpected_failure_is_an_error_not_a_verdict
+    in_empty_directory do |dir|
+      result = with_git_raising(ArgumentError.new('invalid byte sequence')) { run_report(['-C', dir]) }
+
+      assert_equal 2, result.status
+      assert_match(/ArgumentError: invalid byte sequence/, result.stderr)
+      assert_empty result.stdout
+    end
+  end
+
+  def with_git_raising(error)
+    SafeToLeave::Git.define_singleton_method(:new) { |**| raise error }
+    yield
+  ensure
+    SafeToLeave::Git.singleton_class.send(:remove_method, :new)
+  end
+
   def with_path(path)
     saved = ENV.fetch('PATH')
     ENV['PATH'] = path
@@ -440,6 +469,39 @@ class LeaveReportTest < LeaveCliTestCase
       assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: café.md',
                    report(repo).line_for('working-tree')
     end
+  end
+
+  # Ruby tags a child's output with the locale's encoding, which under
+  # the C locale is US-ASCII, and a pattern match on a string holding
+  # bytes outside its encoding raises.
+  def test_a_non_ascii_path_is_reported_under_an_ascii_locale
+    with_repo do |repo|
+      repo.write('café.md', 'unsent')
+      result = with_external_encoding(Encoding::US_ASCII) { report(repo) }
+
+      assert_equal 1, result.status, result.stderr
+      assert_includes result.stdout.dup.force_encoding(Encoding::UTF_8), 'working-tree: 1 uncommitted or untracked file: café.md'
+    end
+  end
+
+  def test_a_non_ascii_stash_subject_is_reported_under_an_ascii_locale
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.stash_change('café fix')
+      repo.checkout('main')
+      result = with_external_encoding(Encoding::US_ASCII) { report(repo) }
+
+      assert_equal 1, result.status, result.stderr
+      assert_includes result.stdout.dup.force_encoding(Encoding::UTF_8), 'café fix'
+    end
+  end
+
+  def with_external_encoding(encoding)
+    saved = Encoding.default_external
+    Encoding.default_external = encoding
+    yield
+  ensure
+    Encoding.default_external = saved
   end
 
   # A staged rename is one entry, named by where the file is now.

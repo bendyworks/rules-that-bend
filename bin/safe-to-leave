@@ -76,7 +76,15 @@ module SafeToLeave
     end
   end
 
-  Stash = Struct.new(:ref, :subject)
+  Stash = Struct.new(:ref, :subject) do
+    # One line of `git stash list --format=%gd%x00%gs`. A line with no
+    # separator is not a stash entry, and is kept with an empty subject:
+    # it names no branch, and a stash that names no branch counts.
+    def self.parse(line)
+      ref, subject = line.split("\0", 2)
+      new(ref, subject.to_s)
+    end
+  end
 
   # `changes` is the number of uncommitted or untracked entries, or nil
   # when the worktree could not be read.
@@ -204,9 +212,18 @@ module SafeToLeave
     end
 
     def capture(*args)
-      Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
-    rescue Errno::ENOENT, Errno::EACCES, Errno::ENOTDIR => e
+      stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
+      [utf8(stdout), utf8(stderr), status]
+    rescue Errno::ENOENT, Errno::EACCES => e
       raise Error, "could not run git: #{e.message}"
+    end
+
+    # Ruby tags a child's output with the locale's encoding, and under
+    # the C locale a path holding a non-ASCII letter is then a string
+    # no pattern can be matched against. Git writes paths and subjects
+    # as bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
+    def utf8(text)
+      text.force_encoding(Encoding::UTF_8).scrub
     end
 
     def output(*args)
@@ -279,9 +296,7 @@ module SafeToLeave
     end
 
     def stashes
-      output('stash', 'list', '--format=%gd%x00%gs').lines(chomp: true).map do |line|
-        Stash.new(*line.split("\0", 2))
-      end
+      output('stash', 'list', '--format=%gd%x00%gs').lines(chomp: true).map { |line| Stash.parse(line) }
     end
 
     # Every worktree but the one at `here`, each with its branch and
@@ -368,6 +383,11 @@ module SafeToLeave
       exit 1 if lines.any?(&:against?)
     rescue Error, OptionParser::ParseError => e
       warn "safe-to-leave: #{e.message}"
+      exit 2
+    # Ruby exits 1 on an exception nothing rescued, and 1 is this
+    # command's answer that something counts against leaving.
+    rescue StandardError => e
+      warn "safe-to-leave: unexpected #{e.class}: #{e.message}"
       exit 2
     end
 
