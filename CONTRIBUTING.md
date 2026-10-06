@@ -378,6 +378,17 @@ finding names commands and a state, run those commands in that state
 before deciding the finding is wrong, and record which fixes rest on
 that run and not on an arm.
 
+**A short headless session may not produce what a long real one does.**
+Rules against rhetorical habits measured in months of commit history
+could not be tested the usual way: on the unfixed text the control
+produced almost none of the habits, on any model, whether the session
+was handed a finished change, made to find and fix the bug itself, or
+run in a project whose history was written in that style. Where a
+behavior comes from long sessions, look for a before and an after in
+real history (the same model on the same project, either side of the
+date the rule arrived), and say which rules rest on that count and which
+on the arms.
+
 ## Writing a new skill
 
 A skill is a folder under `skills/<name>/` with a `SKILL.md` and any
