@@ -88,8 +88,9 @@ module SafeToLeave
 
   # `changes` is the number of uncommitted or untracked entries, and
   # `detached_commits` the number of commits on a detached HEAD that are
-  # on no branch. Both are nil when the worktree could not be read.
-  Worktree = Struct.new(:path, :branch, :changes, :detached_commits)
+  # on no branch. Both are nil when the worktree could not be read, and
+  # `reason` then says why.
+  Worktree = Struct.new(:path, :branch, :changes, :detached_commits, :reason)
 
   # The decisions, as functions of gathered facts. Nothing here runs a
   # command.
@@ -165,10 +166,14 @@ module SafeToLeave
           (worktree.branch && story_branch?(worktree.branch, prefixes))
       end
       [
-        (Line.new('worktrees', UNCHECKED, "could not be read: #{unread.map(&:path).join(', ')}") unless unread.empty?),
+        (Line.new('worktrees', UNCHECKED, "could not be read: #{describe_unread(unread)}") unless unread.empty?),
         (Line.new('worktrees', AGAINST, describe_worktrees(counted)) unless counted.empty?),
         (Line.new('worktrees', LISTED, "clean, on other work: #{clean.map(&:path).join(', ')}") unless clean.empty?)
       ].compact
+    end
+
+    def describe_unread(worktrees)
+      worktrees.map { |worktree| "#{worktree.path} (#{worktree.reason})" }.join(', ')
     end
 
     def describe_worktrees(worktrees)
@@ -252,6 +257,16 @@ module SafeToLeave
       stdout.chomp
     end
 
+    # Refuses a directory that is not the top of a worktree. A worktree
+    # directory that has lost its .git file is a plain directory, and
+    # git run inside it answers for whatever repository encloses it.
+    def require_worktree_root
+      raise Error, 'its directory is missing' unless File.directory?(@dir)
+
+      found = toplevel
+      raise Error, "git finds #{found} there" unless File.realpath(found) == File.realpath(@dir)
+    end
+
     # -z, so a path with a space or a non-ASCII letter arrives as
     # itself, where the default form quotes and escapes it. The two
     # settings are passed because configuration can turn either off:
@@ -331,9 +346,11 @@ module SafeToLeave
 
     private
 
+    # -z, so a path holding a newline stays one field: fields end with
+    # NUL and records with a second one.
     def worktree_records
-      output('worktree', 'list', '--porcelain').split("\n\n").filter_map do |block|
-        fields = block.lines(chomp: true)
+      output('worktree', 'list', '--porcelain', '-z').split("\0\0").filter_map do |record|
+        fields = record.split("\0")
         path = fields.find { |field| field.start_with?('worktree ') }&.delete_prefix('worktree ')
         next if path.nil? || fields.include?('bare')
 
@@ -347,12 +364,11 @@ module SafeToLeave
     end
 
     def read_worktree(path, branch)
-      return Worktree.new(path, branch, nil, nil) unless File.directory?(path)
-
       there = Git.new(dir: path, remote: @remote)
+      there.require_worktree_root
       Worktree.new(path, branch, there.status_entries.length, there.detached_commits)
-    rescue Error
-      Worktree.new(path, branch, nil, nil)
+    rescue Error => e
+      Worktree.new(path, branch, nil, nil, e.message)
     end
   end
 

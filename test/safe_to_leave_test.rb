@@ -179,8 +179,8 @@ end
 class WorktreeDecisionTest < Minitest::Test
   PREFIXES = ['abc-12-'].freeze
 
-  def worktree(branch, changes, detached_commits = 0)
-    SafeToLeave::Worktree.new('/tmp/elsewhere', branch, changes, detached_commits)
+  def worktree(branch, changes, detached_commits = 0, reason = nil)
+    SafeToLeave::Worktree.new('/tmp/elsewhere', branch, changes, detached_commits, reason)
   end
 
   def statuses(worktrees)
@@ -226,8 +226,11 @@ class WorktreeDecisionTest < Minitest::Test
 
   # A worktree whose directory is gone, or that git cannot read, has an
   # unknown state. Unknown is not clean.
-  def test_a_linked_worktree_that_could_not_be_read_is_unchecked
-    assert_equal ['UNCHECKED'], statuses([worktree('other-work', nil)])
+  def test_a_linked_worktree_that_could_not_be_read_is_unchecked_with_the_reason
+    lines = SafeToLeave::Checks.worktrees([worktree('other-work', nil, nil, 'its directory is missing')], PREFIXES)
+
+    assert_equal ['UNCHECKED'], lines.map(&:status)
+    assert_equal 'could not be read: /tmp/elsewhere (its directory is missing)', lines.first.detail
   end
 end
 
@@ -762,7 +765,40 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal 1, result.status
       assert_equal ['UNCHECKED'], result.statuses['worktrees']
-      assert_includes result.line_for('worktrees'), 'elsewhere'
+      assert_includes result.line_for('worktrees'), 'elsewhere (its directory is missing)'
+    end
+  end
+
+  # A worktree directory that has lost its .git file is a plain
+  # directory, and git run inside it answers for whatever repository
+  # encloses it, or fails when none does.
+  def test_a_linked_worktree_that_is_no_longer_one_is_unchecked
+    with_repo do |repo|
+      path = repo.add_worktree('elsewhere', 'other-work')
+      FileUtils.rm(File.join(path, '.git'))
+
+      assert_equal ['UNCHECKED'], report(repo).statuses['worktrees']
+    end
+  end
+
+  def test_a_former_worktree_inside_the_repository_is_not_read_as_the_repository
+    with_repo do |repo|
+      path = repo.add_worktree('work/nested', 'other-work')
+      FileUtils.rm(File.join(path, '.git'))
+      result = report(repo)
+
+      assert_equal ['UNCHECKED'], result.statuses['worktrees']
+      assert_includes result.line_for('worktrees'), "nested (git finds #{File.realpath(repo.work)} there)"
+    end
+  end
+
+  # git prints a worktree's path as it is, newline included, and a line
+  # reading "bare" marks a record the report skips.
+  def test_a_worktree_path_holding_a_newline_is_one_record
+    with_repo do |repo|
+      repo.add_worktree("else\nbare", 'abc-12-fix-export')
+
+      assert_equal ['AGAINST'], report(repo).statuses['worktrees']
     end
   end
 
