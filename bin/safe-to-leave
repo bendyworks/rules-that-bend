@@ -42,15 +42,6 @@ module SafeToLeave
 
   DEFAULT_REMOTE = 'origin'
 
-  # Ruby tags git's output, the arguments, and the working directory
-  # with the locale's encoding, and under the C locale text holding a
-  # non-ASCII letter is then a string no pattern can be matched against
-  # and no UTF-8 string joined to. Git and the file system hold names as
-  # bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
-  def self.utf8(text)
-    text.dup.force_encoding(Encoding::UTF_8).scrub
-  end
-
   USAGE = <<~TXT
     Usage: safe-to-leave [-C DIR] [--remote NAME] [--story-branch PREFIX]...
 
@@ -129,7 +120,24 @@ module SafeToLeave
   # `detached_commits` the number of commits on a detached HEAD that are
   # on no branch. Both are nil when the worktree could not be read, and
   # `reason` then says why.
-  Worktree = Struct.new(:path, :branch, :changes, :detached_commits, :reason)
+  Worktree = Struct.new(:path, :branch, :changes, :detached_commits, :reason) do
+    def self.read(path, branch, changes:, detached_commits:)
+      new(path, branch, changes, detached_commits, nil)
+    end
+
+    def self.unread(path, branch, reason)
+      new(path, branch, nil, nil, reason)
+    end
+  end
+
+  # Ruby tags git's output, the arguments, and the working directory
+  # with the locale's encoding, and under the C locale text holding a
+  # non-ASCII letter is then a string no pattern can be matched against
+  # and no UTF-8 string joined to. Git and the file system hold names as
+  # bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
+  def self.utf8(text)
+    text.dup.force_encoding(Encoding::UTF_8).scrub
+  end
 
   # What each check concludes, as functions of gathered facts. Nothing
   # here runs a command.
@@ -209,8 +217,12 @@ module SafeToLeave
       [
         (Line.new('worktrees', UNCHECKED, "could not be read: #{describe_unread(unread)}") unless unread.empty?),
         (Line.new('worktrees', AGAINST, describe_worktrees(counted)) unless counted.empty?),
-        (Line.new('worktrees', LISTED, "not counted, clean and on other work: #{clean.map(&:path).join(', ')}") unless clean.empty?)
+        (Line.new('worktrees', LISTED, "not counted, clean and on other work: #{paths(clean)}") unless clean.empty?)
       ].compact
+    end
+
+    def paths(worktrees)
+      worktrees.map(&:path).join(', ')
     end
 
     def describe_unread(worktrees)
@@ -318,13 +330,7 @@ module SafeToLeave
     # remote has since deleted or moved names commits the remote may not
     # have, and is left out, so those commits count as unpushed.
     def current_tracking_refs
-      @current_tracking_refs ||= begin
-        prefix = "refs/remotes/#{@remote}/"
-        output('for-each-ref', '--format=%(objectname) %(refname)', prefix).lines(chomp: true).filter_map do |line|
-          commit, ref = line.split(' ', 2)
-          ref if advertised.heads[ref.delete_prefix(prefix)] == commit
-        end
-      end
+      @current_tracking_refs ||= confirm_tracking_refs
     end
 
     # Short names, for the report. A tag sharing a branch's name makes
@@ -394,6 +400,32 @@ module SafeToLeave
       stderr.lines.first.to_s.strip
     end
 
+    def confirm_tracking_refs
+      prefix = "refs/remotes/#{@remote}/"
+      output('for-each-ref', '--format=%(objectname) %(refname)', prefix).lines(chomp: true).filter_map do |line|
+        commit, ref = line.split(' ', 2)
+        ref if advertised.heads[ref.delete_prefix(prefix)] == commit
+      end
+    end
+
+    def advertised
+      @advertised ||= ask_remote
+    end
+
+    # One question to the remote: which branch is its default, and
+    # where each of its branches is.
+    def ask_remote
+      require_configured_remote
+      answer = output('ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*')
+               .lines(chomp: true).map { |line| line.split("\t", 2) }
+      default = answer.find { |value, ref| ref == 'HEAD' && value.start_with?('ref: refs/heads/') }
+      raise Error, "#{@remote} names no default branch" if default.nil?
+
+      heads = answer.select { |_commit, ref| ref.to_s.start_with?('refs/heads/') }
+                    .to_h { |commit, ref| [ref.delete_prefix('refs/heads/'), commit] }
+      Advertised.new(default.first.delete_prefix('ref: refs/heads/'), heads)
+    end
+
     # git takes a URL or a path where a remote's name is expected, and
     # would contact whatever it was handed. A name that is not
     # configured is a misspelling.
@@ -403,22 +435,6 @@ module SafeToLeave
 
       known = configured.empty? ? 'this repository has none' : "configured: #{configured.join(', ')}"
       raise Error, "no such remote: #{@remote} (#{known})"
-    end
-
-    # One question to the remote: which branch is its default, and
-    # where each of its branches is.
-    def advertised
-      @advertised ||= begin
-        require_configured_remote
-        answer = output('ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*')
-                 .lines(chomp: true).map { |line| line.split("\t", 2) }
-        default = answer.find { |value, ref| ref == 'HEAD' && value.start_with?('ref: refs/heads/') }
-        raise Error, "#{@remote} names no default branch" if default.nil?
-
-        heads = answer.select { |_commit, ref| ref.to_s.start_with?('refs/heads/') }
-                      .to_h { |commit, ref| [ref.delete_prefix('refs/heads/'), commit] }
-        Advertised.new(default.first.delete_prefix('ref: refs/heads/'), heads)
-      end
     end
 
     def ref?(name)
@@ -465,9 +481,10 @@ module SafeToLeave
     def read_worktree(path, branch)
       there = Git.new(dir: path, remote: @remote)
       there.require_worktree_root
-      Worktree.new(path, branch, there.status_entries.length, there.detached_commits(self))
+      Worktree.read(path, branch, changes: there.status_entries.length,
+                                  detached_commits: there.detached_commits(self))
     rescue Error => e
-      Worktree.new(path, branch, nil, nil, e.message)
+      Worktree.unread(path, branch, e.message)
     end
   end
 
