@@ -11,8 +11,9 @@
 # of a checkout's worktrees share, so a second run started from any of them
 # is refused while the first is going. The refusal comes at once and names
 # the holder's process ID, start time, and command. `--wait` waits for the
-# holder instead; a session whose commands have a time limit should not
-# pass it. See docs/parallel-checkouts.md.
+# holder instead; a caller whose commands have a time limit, such as an
+# AI coding session or a CI step, should not pass it. See
+# docs/parallel-checkouts.md.
 #
 # The command replaces this script (`exec`), so the process the lock
 # records is the suite itself, and nothing has to release the lock: it is
@@ -173,6 +174,8 @@ holder_alive() {
   [ -n "$holder_start" ] && [ "$(process_start "$holder_pid")" = "$holder_start" ]
 }
 
+# `-mmin +1` is true from one minute with BSD find, which rounds an age
+# up to whole minutes, and from two with GNU find, which rounds down.
 older_than_a_minute() {
   [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]
 }
