@@ -99,7 +99,7 @@ elif [ -f "$walk/.git" ]; then
     ''|/*) ;;
     *) git_dir="$walk/$git_dir" ;;
   esac
-  if [ -n "$git_dir" ] && [ -d "$git_dir" ]; then
+  if [ -d "$git_dir" ]; then
     common="$git_dir"
     # A commondir file that is empty or cannot be read names no common
     # directory. Falling back to the worktree's own git directory would
@@ -116,7 +116,11 @@ elif [ -f "$walk/.git" ]; then
   fi
 fi
 
-if [ -z "$common" ] || [ ! -d "$common" ]; then
+# Every git directory holds a HEAD file. A `gitdir:` line naming some
+# other directory, the working tree itself included, is not followed
+# into one: the lock, and the removal of a stale one, stay inside git's
+# own directory.
+if [ -z "$common" ] || [ ! -f "$common/HEAD" ]; then
   echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take. If this is a worktree, its .git file or the commondir file beside its git directory cannot be read, or names a directory that is not there: run \`git worktree list\` in its checkout to see whether it was pruned, or whether the checkout is mounted at another path here, as inside a container -- see docs/parallel-checkouts.md" >&2
   exit 78
 fi

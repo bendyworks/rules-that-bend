@@ -245,7 +245,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # be taken for the git directory, and a directory named suite-lock in
   # the working tree for a lock left behind.
   def test_a_git_file_that_names_no_git_directory_is_not_followed
-    ['', "gitdir:\n", "gitdir:   \n", "../checkout/.git\n"].each do |content|
+    ['', "gitdir:\n", "gitdir:   \n", "../checkout/.git\n", "gitdir: .\n", "gitdir: bin\n"].each do |content|
       project = File.join(@scratch, 'archive')
       copy = install_in(project)
       FileUtils.mkdir_p(File.join(project, 'suite-lock'))
