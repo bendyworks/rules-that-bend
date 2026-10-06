@@ -86,9 +86,10 @@ module SafeToLeave
     end
   end
 
-  # `changes` is the number of uncommitted or untracked entries, or nil
-  # when the worktree could not be read.
-  Worktree = Struct.new(:path, :branch, :changes)
+  # `changes` is the number of uncommitted or untracked entries, and
+  # `detached_commits` the number of commits on a detached HEAD that are
+  # on no branch. Both are nil when the worktree could not be read.
+  Worktree = Struct.new(:path, :branch, :changes, :detached_commits)
 
   # The decisions, as functions of gathered facts. Nothing here runs a
   # command.
@@ -136,11 +137,14 @@ module SafeToLeave
     end
 
     # `branches` maps each local branch other than the default to the
-    # number of its commits no branch on the remote has.
-    def unpushed(default:, default_ahead:, branches:, prefixes:)
+    # number of its commits no branch on the remote has. `detached` is
+    # the number of commits on a detached HEAD that are on no branch,
+    # local or on the remote.
+    def unpushed(default:, default_ahead:, detached:, branches:, prefixes:)
       ahead = branches.select { |_name, commits| commits.positive? }
       story, others = ahead.partition { |name, _commits| story_branch?(name, prefixes) }
       counted = story.map { |name, commits| "#{name} (#{count(commits, 'commit')})" }
+      counted.unshift("HEAD is detached with #{count_on_no_branch(detached)}") if detached.positive?
       counted.unshift("#{default} is #{count(default_ahead, 'commit')} ahead of the remote") if default_ahead.positive?
       lines = []
       lines << Line.new('unpushed', AGAINST, counted.join(', ')) unless counted.empty?
@@ -157,7 +161,8 @@ module SafeToLeave
 
       unread, read = worktrees.partition { |worktree| worktree.changes.nil? }
       counted, clean = read.partition do |worktree|
-        worktree.changes.positive? || (worktree.branch && story_branch?(worktree.branch, prefixes))
+        worktree.changes.positive? || worktree.detached_commits.positive? ||
+          (worktree.branch && story_branch?(worktree.branch, prefixes))
       end
       [
         (Line.new('worktrees', UNCHECKED, "could not be read: #{unread.map(&:path).join(', ')}") unless unread.empty?),
@@ -168,10 +173,17 @@ module SafeToLeave
 
     def describe_worktrees(worktrees)
       worktrees.map do |worktree|
-        on = worktree.branch ? "on #{worktree.branch}" : 'detached'
-        changes = worktree.changes.positive? ? ", #{count(worktree.changes, 'uncommitted or untracked file')}" : ''
-        "#{worktree.path} (#{on}#{changes})"
+        facts = [
+          worktree.branch ? "on #{worktree.branch}" : 'detached',
+          (count_on_no_branch(worktree.detached_commits) if worktree.detached_commits.positive?),
+          (count(worktree.changes, 'uncommitted or untracked file') if worktree.changes.positive?)
+        ]
+        "#{worktree.path} (#{facts.compact.join(', ')})"
       end.join(', ')
+    end
+
+    def count_on_no_branch(commits)
+      "#{count(commits, 'commit')} on no branch"
     end
 
     def count(number, noun)
@@ -295,16 +307,26 @@ module SafeToLeave
       commits("refs/heads/#{branch}", '--not', "--remotes=#{@remote}")
     end
 
+    # The commits on a detached HEAD that no local branch and no branch
+    # on the remote has, and 0 when HEAD is on a branch. `symbolic-ref
+    # -q` exits 1 for a detached HEAD and higher for a failure.
+    def detached_commits
+      _stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
+      return 0 if status.success?
+      raise Error, "git symbolic-ref failed: #{stderr.strip}" unless status.exitstatus == 1
+
+      commits('HEAD', '--not', '--branches', "--remotes=#{@remote}")
+    end
+
     def stashes
       output('stash', 'list', '--format=%gd%x00%gs').lines(chomp: true).map { |line| Stash.parse(line) }
     end
 
-    # Every worktree but the one at `here`, each with its branch and
-    # how many entries its own status shows.
+    # Every worktree but the one at `here`, each with its branch, how
+    # many entries its own status shows, and its detached commits.
     def other_worktrees(here)
-      worktree_records.reject { |record| same_directory?(record[:path], here) }.map do |record|
-        Worktree.new(record[:path], record[:branch], changes_in(record[:path]))
-      end
+      worktree_records.reject { |record| same_directory?(record[:path], here) }
+                      .map { |record| read_worktree(record[:path], record[:branch]) }
     end
 
     private
@@ -324,12 +346,13 @@ module SafeToLeave
       File.exist?(path) && File.exist?(other) && File.realpath(path) == File.realpath(other)
     end
 
-    def changes_in(path)
-      return nil unless File.directory?(path)
+    def read_worktree(path, branch)
+      return Worktree.new(path, branch, nil, nil) unless File.directory?(path)
 
-      Git.new(dir: path, remote: @remote).status_entries.length
+      there = Git.new(dir: path, remote: @remote)
+      Worktree.new(path, branch, there.status_entries.length, there.detached_commits)
     rescue Error
-      nil
+      Worktree.new(path, branch, nil, nil)
     end
   end
 
@@ -364,7 +387,7 @@ module SafeToLeave
       default = @git.default_branch
       branches = (@git.local_branches - [default]).to_h { |branch| [branch, @git.unpushed_on(branch)] }
       Checks.unpushed(default: default, default_ahead: @git.default_ahead(default),
-                      branches: branches, prefixes: @prefixes)
+                      detached: @git.detached_commits, branches: branches, prefixes: @prefixes)
     end
   end
 

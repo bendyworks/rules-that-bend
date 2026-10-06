@@ -123,8 +123,8 @@ end
 class UnpushedDecisionTest < Minitest::Test
   PREFIXES = ['abc-12-'].freeze
 
-  def lines(default_ahead: 0, branches: {})
-    SafeToLeave::Checks.unpushed(default: 'main', default_ahead: default_ahead,
+  def lines(default_ahead: 0, detached: 0, branches: {})
+    SafeToLeave::Checks.unpushed(default: 'main', default_ahead: default_ahead, detached: detached,
                                  branches: branches, prefixes: PREFIXES)
   end
 
@@ -162,6 +162,15 @@ class UnpushedDecisionTest < Minitest::Test
     assert_includes result.first.detail, 'other-work'
   end
 
+  # Commits made with HEAD detached are on no branch, so no branch's
+  # count includes them.
+  def test_commits_on_a_detached_head_count
+    result = lines(detached: 2)
+
+    assert_equal ['AGAINST'], result.map(&:status)
+    assert_equal 'HEAD is detached with 2 commits on no branch', result.first.detail
+  end
+
   def test_a_branch_with_nothing_unpushed_is_not_mentioned
     assert_equal ['ok'], lines(branches: { 'other-work' => 0, 'abc-12-fix-export' => 0 }).map(&:status)
   end
@@ -170,8 +179,8 @@ end
 class WorktreeDecisionTest < Minitest::Test
   PREFIXES = ['abc-12-'].freeze
 
-  def worktree(branch, changes)
-    SafeToLeave::Worktree.new('/tmp/elsewhere', branch, changes)
+  def worktree(branch, changes, detached_commits = 0)
+    SafeToLeave::Worktree.new('/tmp/elsewhere', branch, changes, detached_commits)
   end
 
   def statuses(worktrees)
@@ -192,6 +201,17 @@ class WorktreeDecisionTest < Minitest::Test
 
   def test_a_linked_worktree_on_a_story_branch_counts
     assert_equal ['AGAINST'], statuses([worktree('abc-12-fix-export', 0)])
+  end
+
+  def test_a_detached_worktree_holding_commits_on_no_branch_counts
+    lines = SafeToLeave::Checks.worktrees([worktree(nil, 0, 2)], PREFIXES)
+
+    assert_equal ['AGAINST'], lines.map(&:status)
+    assert_equal '/tmp/elsewhere (detached, 2 commits on no branch)', lines.first.detail
+  end
+
+  def test_a_clean_detached_worktree_holding_no_such_commit_does_not_count
+    assert_equal ['listed'], statuses([worktree(nil, 0, 0)])
   end
 
   def test_a_counted_worktree_is_described_by_its_branch_and_its_changes
@@ -593,6 +613,28 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # Housekeeping can leave HEAD detached, and a commit made there is on
+  # no branch for the branch counts to find.
+  def test_a_commit_on_a_detached_head_counts
+    with_repo do |repo|
+      repo.detach_head
+      repo.commit_locally('notes', 'Add notes')
+      result = report(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'HEAD is detached with 1 commit on no branch'
+    end
+  end
+
+  def test_a_detached_head_at_a_pushed_commit_does_not_count
+    with_repo do |repo|
+      repo.detach_head
+
+      assert_equal ['ok'], report(repo).statuses['unpushed']
+    end
+  end
+
   # The remote is asked which branch is its default. When it cannot be
   # asked, how far ahead the default branch is has no answer, and no
   # answer counts against leaving.
@@ -697,6 +739,18 @@ class LeaveReportTest < LeaveCliTestCase
       repo.add_worktree('elsewhere', 'abc-12-fix-export')
 
       assert_equal ['AGAINST'], report(repo).statuses['worktrees']
+    end
+  end
+
+  def test_a_detached_linked_worktree_holding_a_commit_on_no_branch_counts
+    with_repo do |repo|
+      path = repo.add_detached_worktree('elsewhere')
+      repo.git('commit', '-q', '--allow-empty', '-m', 'Left on no branch', dir: path)
+      result = report(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['AGAINST'], result.statuses['worktrees']
+      assert_includes result.line_for('worktrees'), 'elsewhere (detached, 1 commit on no branch)'
     end
   end
 

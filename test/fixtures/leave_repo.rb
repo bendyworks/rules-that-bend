@@ -63,6 +63,14 @@ module Fixtures
       git(*args)
     end
 
+    # A linked worktree beside the main one, with HEAD detached at the
+    # default branch's tip.
+    def add_detached_worktree(name)
+      path = File.join(root, name)
+      git('worktree', 'add', '-q', '--detach', path, DEFAULT_BRANCH)
+      path
+    end
+
     # A linked worktree beside the main one, on a new branch.
     def add_worktree(name, branch)
       path = File.join(root, name)
