@@ -303,6 +303,13 @@ wording: an offer phrased "I can create it if you want", or a stop
 phrased "someone else may already be working on it", reads as absent
 until the pattern learns it.
 
+**A word match counts a report that repeats a claim as one that caught
+it.** A tally that looked for a planted wrong claim's key words scored a
+report saying "verified: wraps fields in double quotes" as a catch, and
+turned 2 of 6 into 3 of 6. Where an arm passes by naming a problem, read
+whether the report calls the claim wrong, or make the pattern require
+the contradiction and not the topic.
+
 **Stub a CLI on the same words the real one dispatches on.** A stub
 `gh` that switched on its first two arguments sent `gh api user` to its
 "unsupported" branch instead of its `api` handler, and a strong model
@@ -342,6 +349,16 @@ gives a different verdict on each. Write down, per pattern, which
 scenarios invite it, before any output exists. A pool changed after
 seeing results is reported as changed, with both figures.
 
+**Run the control again beside every treatment batch, and never compare
+wordings on six runs.** The same brief, byte for byte, caught a planted
+error in 3 of 6 runs in one batch and 0 of 6 in the next, on the
+smallest model. Three rewordings scored 0 of 6, 2 of 6 and 1 of 10 in
+between, and each read as a regression until the unchanged text scored
+inside that spread. A rate that low needs at least twenty runs per arm
+before two wordings can be told apart. With fewer, report the spread,
+and where you can, change the design so it no longer depends on the
+difference.
+
 **Pin a container to one CPU to reproduce a race that fails only in
 CI.** A test that wrote to the pipe of a child process which exits
 without reading passed 30 runs of 30 in a Linux container with every
@@ -360,6 +377,17 @@ own commands, in order, in a scratch repository reproduced it. When a
 finding names commands and a state, run those commands in that state
 before deciding the finding is wrong, and record which fixes rest on
 that run and not on an arm.
+
+**A short headless session may not produce what a long real one does.**
+Rules against rhetorical habits measured in months of commit history
+could not be tested the usual way: on the unfixed text the control
+produced almost none of the habits, on any model, whether the session
+was handed a finished change, made to find and fix the bug itself, or
+run in a project whose history was written in that style. Where a
+behavior comes from long sessions, look for a before and an after in
+real history (the same model on the same project, either side of the
+date the rule arrived), and say which rules rest on that count and which
+on the arms.
 
 ## Writing a new skill
 
