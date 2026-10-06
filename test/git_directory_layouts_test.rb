@@ -41,12 +41,15 @@ class GitDirectoryLayoutsTest < Minitest::Test
     begin
       layouts = Fixtures::GitDirectoryLayouts.build(File.realpath(Dir.mktmpdir('built', @scratch)))
       found = rev_parse(layouts.fetch(:nested).path, '--git-common-dir')
+    rescue StandardError => e
+      built = e
     ensure
       %w[GIT_DIR GIT_WORK_TREE].each { |key| ENV[key] = saved[key] }
     end
+    assert_empty Dir.children(File.join(ambient, '.git', 'refs', 'heads')), 'the build committed to the exported repository'
+    refute File.exist?(File.join(ambient, '.git', 'worktrees')), 'the build added worktrees to the exported repository'
+    assert_nil built
     assert_equal layouts.fetch(:checkout).common_dir, found
-    assert_empty Dir.children(File.join(ambient, '.git', 'refs', 'heads'))
-    refute File.exist?(File.join(ambient, '.git', 'worktrees'))
   end
 
   def test_it_builds_the_layouts_in_order
@@ -56,7 +59,7 @@ class GitDirectoryLayoutsTest < Minitest::Test
   end
 
   def test_git_agrees_with_every_layout_it_can_still_read
-    %i[checkout subdirectory nested outside relative absolute_common].each do |name|
+    %i[checkout subdirectory nested outside crlf relative absolute_common crlf_common].each do |name|
       layout = @layouts.fetch(name)
       assert_equal layout.git_dir, rev_parse(layout.path, '--git-dir'), "#{name} git directory"
       assert_equal layout.common_dir, rev_parse(layout.path, '--git-common-dir'), "#{name} common directory"
@@ -89,6 +92,9 @@ class GitDirectoryLayoutsTest < Minitest::Test
     crlf = @layouts.fetch(:crlf_common)
     assert_equal "../..\r\n", File.binread(File.join(crlf.git_dir, 'commondir'))
     assert_equal crlf.common_dir, File.realpath('../..', crlf.git_dir)
+    [absolute, crlf].each do |layout|
+      assert_equal "gitdir: #{layout.git_dir}\n", File.read(File.join(layout.path, '.git')), layout.name.to_s
+    end
   end
 
   def test_the_missing_layout_points_at_a_git_directory_that_is_gone

@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'open3'
 require 'pathname'
+require_relative 'repo_builder'
 
 module Fixtures
   # The directory layouts a parallel-checkouts template can be run from,
@@ -13,35 +14,32 @@ module Fixtures
   # project as a single file. Running every reader against these layouts
   # is what keeps them agreeing.
   #
-  #   checkout      a clone's main working tree
-  #   subdirectory  a directory inside it, as for an app that is not at
-  #                 its repository's root
-  #   nested        a linked worktree inside the checkout, where Claude
-  #                 Code puts its own
-  #   outside       a linked worktree elsewhere on disk
-  #   crlf          a linked worktree whose .git file has CRLF endings
-  #   relative      a linked worktree whose .git file names its git
-  #                 directory by a relative path
+  #   checkout         a clone's main working tree
+  #   subdirectory     a directory inside it, as for an app that is not
+  #                    at its repository's root
+  #   nested           a linked worktree inside the checkout, where
+  #                    Claude Code puts its own
+  #   outside          a linked worktree elsewhere on disk
+  #   crlf             a linked worktree whose .git file has CRLF
+  #                    endings
+  #   relative         a linked worktree whose .git file names its git
+  #                    directory by a relative path
   #   absolute_common  a linked worktree whose commondir file holds an
-  #                 absolute path, where git writes a relative one
-  #   crlf_common   a linked worktree whose commondir file has CRLF
-  #                 endings
-  #   missing       a linked worktree whose git directory is gone
-  #   unreachable   a nested worktree whose .git file names a path that
-  #                 does not exist, while the checkout around it still
-  #                 holds its git directory: what a container sees when
-  #                 it mounts the checkout at another path
+  #                    absolute path, where git writes a relative one
+  #   crlf_common      a linked worktree whose commondir file has CRLF
+  #                    endings
+  #   missing          a linked worktree whose git directory is gone
+  #   unreachable      a nested worktree whose .git file names a path
+  #                    that does not exist, while the checkout around it
+  #                    still holds its git directory: what a container
+  #                    sees when it mounts the checkout at another path
   module GitDirectoryLayouts
     # Variables that point git at a repository or hand it configuration
     # from outside. Open3 merges an environment into the inherited one,
     # and `git -C` does not override an inherited GIT_DIR, so each is
     # removed for every git command here: a build that kept one would
-    # commit to the repository it names.
-    AMBIENT_GIT_KEYS = %w[
-      GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
-      GIT_CEILING_DIRECTORIES GIT_CONFIG GIT_CONFIG_COUNT GIT_TEMPLATE_DIR
-    ].freeze
+    # commit to the repository it names. RepoBuilder keeps the lists.
+    AMBIENT_GIT_KEYS = (RepoBuilder::LOCATION_KEYS + RepoBuilder::CONFIG_KEYS).freeze
 
     GIT_ENV = AMBIENT_GIT_KEYS.to_h { |key| [key, nil] }.merge(
       'GIT_CONFIG_GLOBAL' => File::NULL, 'GIT_CONFIG_SYSTEM' => File::NULL,

@@ -52,10 +52,15 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     FileUtils.rm_rf(@scratch)
   end
 
-  def install(layout)
-    FileUtils.mkdir_p(File.join(layout.path, 'bin'))
-    FileUtils.cp(TEMPLATE, script(layout.name))
-    File.chmod(0o755, script(layout.name))
+  def install(layout) = install_in(layout.path)
+
+  # Copies the template into a project's bin/ and returns its path.
+  def install_in(project)
+    copy = File.join(project, 'bin', 'suite-lock')
+    FileUtils.mkdir_p(File.dirname(copy))
+    FileUtils.cp(TEMPLATE, copy)
+    File.chmod(0o755, copy)
+    copy
   end
 
   def script(name) = File.join(@layouts.fetch(name).path, 'bin', 'suite-lock')
@@ -75,12 +80,13 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # and not a suite that never finishes.
   def run_lock(name, *args, **options) = run_script(script(name), *args, **options)
 
-  def run_script(path, *args, stdin: '', within: 30, vars: {})
+  def run_script(path, *args, stdin: '', within: 30, vars: {}, umask: File.umask)
     @runs += 1
     files = %w[in out err].to_h { |stream| [stream, File.join(@scratch, "run-#{@runs}.#{stream}")] }
     File.write(files['in'], stdin)
     pid = Process.spawn(env.merge(vars), path, *args, in: files['in'], out: files['out'], err: files['err'],
-                                                  chdir: @scratch, unsetenv_others: true)
+                                                  chdir: @scratch, unsetenv_others: true, umask: umask)
+    @holders << pid
     status = wait_within(pid, within)
     unless status
       release(pid)
@@ -89,15 +95,24 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     [File.read(files['out']), File.read(files['err']), status]
   end
 
+  # The status of a run once it has exited, or nil if it is still going
+  # after `seconds`. A run that has been collected is no longer one for
+  # teardown to kill: its process ID may belong to something else by then.
   def wait_within(pid, seconds)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
     loop do
-      _pid, status = Process.wait2(pid, Process::WNOHANG)
+      status = collected(pid)
       return status if status
       return nil if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
 
       sleep 0.02
     end
+  end
+
+  def collected(pid)
+    _pid, status = Process.wait2(pid, Process::WNOHANG)
+    @holders.delete(pid) if status
+    status
   end
 
   # A command that leaves a mark when it runs, for a run that must not.
@@ -197,9 +212,9 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # The command line stays in the holder file after the run, so only
   # its owner may read it, and the command keeps the umask it was given.
   def test_only_the_owner_can_read_the_holder_file
-    out, _err, _status = run_lock(:checkout, 'sh', '-c', 'umask')
+    out, _err, _status = run_lock(:checkout, 'sh', '-c', 'umask', umask: 0o022)
     assert_equal 0o600, File.stat(holder_file).mode & 0o777
-    assert_equal format('%04o', File.umask), out.strip
+    assert_equal '0022', out.strip
   end
 
   def test_refuses_a_second_run_at_once_naming_the_holder
@@ -220,6 +235,8 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # ps prints a start time in the caller's time zone, so two runs that
   # disagree about the zone must still agree about the holder.
   def test_refuses_a_run_whose_time_zone_differs_from_the_holders
+    offsets = %w[America/Chicago Asia/Tokyo].map { |zone| `TZ=#{zone} date +%z` }
+    skip 'this machine has no time zone data' if offsets.uniq.size == 1
     pid = hold(:checkout, vars: { 'TZ' => 'America/Chicago' })
     assert_refused(run_lock(:checkout, *mark_ran, vars: { 'TZ' => 'Asia/Tokyo' }), "process #{pid}")
   end
@@ -230,13 +247,12 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def test_a_git_file_that_names_no_git_directory_is_not_followed
     ['', "gitdir:\n", "gitdir:   \n", "../checkout/.git\n"].each do |content|
       project = File.join(@scratch, 'archive')
-      FileUtils.mkdir_p(File.join(project, 'bin'))
+      copy = install_in(project)
       FileUtils.mkdir_p(File.join(project, 'suite-lock'))
       FileUtils.touch(File.join(project, 'suite-lock', 'kept'))
       File.utime(Time.now - 300, Time.now - 300, File.join(project, 'suite-lock'))
       File.write(File.join(project, '.git'), content)
-      FileUtils.cp(TEMPLATE, File.join(project, 'bin', 'suite-lock'))
-      _out, err, status = run_script(File.join(project, 'bin', 'suite-lock'), *mark_ran)
+      _out, err, status = run_script(copy, *mark_ran)
       assert_equal 78, status.exitstatus, "#{content.inspect}: #{err}"
       assert File.exist?(File.join(project, 'suite-lock', 'kept')), content.inspect
       refute File.exist?(ran_log), content.inspect
@@ -272,9 +288,11 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot be read')
   end
 
-  def stand_in(name, body)
-    File.write(File.join(@fakebin, name), "#!/bin/sh\n#{body}\n")
-    File.chmod(0o755, File.join(@fakebin, name))
+  # Puts a command of that name first on every run's PATH, or in `dir`.
+  def stand_in(name, body, dir: @fakebin)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, name), "#!/bin/sh\n#{body}\n")
+    File.chmod(0o755, File.join(dir, name))
   end
 
   # A run that went on without a holder file, or with one holding no
@@ -346,30 +364,68 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert File.directory?("#{lock_dir}.takeover")
   end
 
+  # The other run's takeover ends only once this one has been refused
+  # and gone to sleep, which its stand-in sleep marks.
   def test_wait_takes_the_lock_once_another_runs_takeover_is_over
     write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
     FileUtils.mkdir_p("#{lock_dir}.takeover")
+    slept = File.join(@scratch, 'slept')
+    waiting = path_with('waiting-bin', 'sleep' => "touch #{slept.shellescape}\nexec /bin/sleep \"$@\"")
     finishing = Thread.new do
-      sleep 1.5
-      Dir.rmdir("#{lock_dir}.takeover")
+      Dir.rmdir("#{lock_dir}.takeover") if wait_for(slept)
     end
-    assert_took_the_lock(run_lock(:checkout, '--wait', 'echo', 'ran'), 'echo ran')
-    finishing.join
+    begin
+      assert_took_the_lock(run_lock(:checkout, '--wait', 'echo', 'ran', vars: { 'PATH' => waiting }), 'echo ran')
+      assert File.exist?(slept), 'the run never waited'
+    ensure
+      finishing.join
+    end
   end
 
-  # A PATH whose first directory holds the given commands, each a
-  # stand-in that can pause a run at a chosen step.
+  # A PATH whose first directory holds the given commands.
   def path_with(name, commands)
     dir = File.join(@scratch, name)
-    FileUtils.mkdir_p(dir)
-    commands.each do |command, body|
-      File.write(File.join(dir, command), "#!/bin/sh\n#{body}\n")
-      File.chmod(0o755, File.join(dir, command))
-    end
+    commands.each { |command, body| stand_in(command, body, dir: dir) }
     "#{dir}:#{env.fetch('PATH')}"
   end
 
-  def wait_for(path) = Timeout.timeout(10) { sleep 0.02 until File.exist?(path) }
+  # True once the file is there, false after ten seconds without it.
+  def wait_for(path)
+    Timeout.timeout(10) { sleep 0.02 until File.exist?(path) }
+    true
+  rescue Timeout::Error
+    false
+  end
+
+  # Shell that marks a run as having reached `name` and holds it there
+  # until the test lets it go. It also stops holding once the scratch
+  # directory is gone, so a test that fails midway leaves no process
+  # waiting on a file that can no longer appear.
+  def pause_at(name)
+    at, go, scratch = ["at-#{name}", "go-#{name}", ''].map { |file| File.join(@scratch, file).shellescape }
+    "{ touch #{at}; while [ ! -e #{go} ] && [ -d #{scratch} ]; do sleep 0.05; done; }"
+  end
+
+  def reached?(name) = wait_for(File.join(@scratch, "at-#{name}"))
+  def let_go(name) = FileUtils.touch(File.join(@scratch, "go-#{name}"))
+
+  # A PATH on which a takeover is terminated by `signal` once it has
+  # removed the lock. The stand-in signals its parent, the template,
+  # unless that has gone and left it a child of process 1.
+  def terminated_by(signal)
+    path_with("#{signal}-bin",
+              'rm' => "/bin/rm \"$@\"\ncase \"$1\" in -rf) [ \"$PPID\" -gt 1 ] && kill -#{signal} \"$PPID\";; esac")
+  end
+
+  def test_a_takeover_ended_by_a_signal_exits_with_that_signals_status_and_leaves_no_takeover_directory
+    { 'INT' => 130, 'TERM' => 143, 'HUP' => 129 }.each do |signal, expected|
+      write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+      _out, err, status = run_lock(:checkout, *mark_ran, vars: { 'PATH' => terminated_by(signal) })
+      assert_equal expected, status.exitstatus, "#{signal}: #{err}"
+      assert_empty Dir.glob("#{lock_dir}*"), signal
+      refute File.exist?(ran_log), signal
+    end
+  end
 
   # One run is paused on its way into a takeover while another run's
   # takeover is terminated after removing the dead holder's lock, which
@@ -378,28 +434,27 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # one, and a third run takes the free lock in that moment.
   def test_a_takeover_that_found_no_lock_leaves_one_taken_since
     write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
-    gate = ->(name) { File.join(@scratch, name).shellescape }
-    pause = "{ touch #{gate['at-gap']}; while [ ! -e #{gate['go-gap']} ]; do sleep 0.05; done; }"
+    # The pause before `rm -rf` is where a template that removed a lock
+    # it had not found would be held while the third run takes it. One
+    # that removes nothing there is held at the mkdir that follows.
     paused = path_with('paused-bin',
-                       'mkdir' => "case \"$1\" in *.takeover) touch #{gate['at-takeover']}; " \
-                                  "while [ ! -e #{gate['go-takeover']} ]; do sleep 0.05; done;; " \
-                                  "*) [ -e #{gate['at-takeover']} ] && #{pause};; esac\n" \
-                                  'exec /bin/mkdir "$@"',
-                       'rm' => "case \"$1\" in -rf) #{pause};; esac\nexec /bin/rm \"$@\"")
+                       'mkdir' => "case \"$1\" in *.takeover) #{pause_at('takeover')};; " \
+                                  "*) [ -e #{File.join(@scratch, 'at-takeover').shellescape} ] && #{pause_at('gap')};; " \
+                                  "esac\nexec /bin/mkdir \"$@\"",
+                       'rm' => "case \"$1\" in -rf) #{pause_at('gap')};; esac\nexec /bin/rm \"$@\"")
     second = Process.spawn(env.merge('PATH' => paused), script(:checkout), *mark_ran,
                            chdir: @scratch, unsetenv_others: true, err: File::NULL)
     @holders << second
-    wait_for(File.join(@scratch, 'at-takeover'))
+    assert reached?('takeover'), 'the second run never began a takeover'
 
-    terminated = path_with('terminated-bin', 'rm' => "/bin/rm \"$@\"\ncase \"$1\" in -rf) kill -TERM $PPID;; esac")
-    _out, err, status = run_lock(:checkout, 'true', vars: { 'PATH' => terminated })
+    _out, err, status = run_lock(:checkout, 'true', vars: { 'PATH' => terminated_by('TERM') })
     assert_equal 143, status.exitstatus, err
     assert_empty Dir.glob("#{lock_dir}*")
 
-    FileUtils.touch(File.join(@scratch, 'go-takeover'))
-    wait_for(File.join(@scratch, 'at-gap'))
+    let_go('takeover')
+    assert reached?('gap'), 'the second run never reached the lock'
     third = hold(:checkout)
-    FileUtils.touch(File.join(@scratch, 'go-gap'))
+    let_go('gap')
 
     assert_equal REFUSED, wait_within(second, 10)&.exitstatus
     assert_equal third.to_s, File.read(holder_file).lines.first.strip
@@ -412,7 +467,6 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def test_only_one_of_many_contenders_takes_over_from_a_dead_holder
     6.times do |round|
       FileUtils.rm_rf(ran_log)
-      FileUtils.rm_rf(lock_dir)
       write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
       pids = Array.new(8) do
         Process.spawn(env, script(:checkout), 'sh', '-c', "echo ran >> #{ran_log.shellescape}; exec sleep 30",
@@ -420,8 +474,8 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
       end
       @holders.concat(pids)
       refused = refused_among(pids, 7)
-      Timeout.timeout(10) { sleep 0.02 until File.size?(ran_log) }
       assert_equal [REFUSED] * 7, refused.values, "round #{round}"
+      assert wait_for(ran_log), "round #{round}: no run took the lock; statuses #{refused.values}"
       assert_equal 1, File.readlines(ran_log).size, "round #{round}"
       (pids - refused.keys).each { |pid| release(pid) }
     end
@@ -434,7 +488,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 20
     while exited.size < count && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
       (pids - exited.keys).each do |pid|
-        _pid, status = Process.wait2(pid, Process::WNOHANG)
+        status = collected(pid)
         exited[pid] = status.exitstatus if status
       end
       sleep 0.02
