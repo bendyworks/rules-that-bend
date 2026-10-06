@@ -222,41 +222,11 @@ module SafeToLeave
 
     # A porcelain status entry that carries a second path: the entry is
     # followed by the path it was renamed or copied from.
-    TWO_PATH_STATUS = /\A[RC]|\A.[RC]/
+    TWO_PATH_STATUS = /\A.?[RC]/
 
-    attr_reader :dir
-
-    def initialize(dir:, remote: DEFAULT_REMOTE)
+    def initialize(dir:, remote:)
       @dir = dir
       @remote = remote
-    end
-
-    def capture(*args)
-      stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
-      [utf8(stdout), utf8(stderr), status]
-    rescue Errno::ENOENT, Errno::EACCES => e
-      raise Error, "could not run git: #{e.message}"
-    end
-
-    # Ruby tags a child's output with the locale's encoding, and under
-    # the C locale a path holding a non-ASCII letter is then a string
-    # no pattern can be matched against. Git writes paths and subjects
-    # as bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
-    def utf8(text)
-      text.force_encoding(Encoding::UTF_8).scrub
-    end
-
-    def output(*args)
-      stdout, stderr, status = capture(*args)
-      raise Error, "git #{args.first} failed: #{complaint(stderr)}" unless status.success?
-
-      stdout
-    end
-
-    # The first line of what git wrote. The rest repeats it or is
-    # advice, and a report line is one line.
-    def complaint(stderr)
-      stderr.lines.first.to_s.strip
     end
 
     def toplevel
@@ -305,16 +275,9 @@ module SafeToLeave
       line.split("\t").first.delete_prefix('ref: refs/heads/')
     end
 
-    def ref?(name)
-      capture('show-ref', '--verify', '--quiet', name).last.success?
-    end
-
-    def commits(*revisions)
-      Integer(output('rev-list', '--count', *revisions).strip)
-    end
-
-    # Full refnames in, short names out: a tag sharing a branch's name
-    # makes the short form ambiguous to rev-list.
+    # Short names, for the report. A tag sharing a branch's name makes
+    # the short form ambiguous to rev-list, so the two methods below
+    # hand git the full refname.
     def local_branches
       output('for-each-ref', '--format=%(refname)', 'refs/heads/')
         .lines(chomp: true).map { |ref| ref.delete_prefix('refs/heads/') }
@@ -356,6 +319,34 @@ module SafeToLeave
 
     private
 
+    def capture(*args)
+      stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
+      [utf8(stdout), utf8(stderr), status]
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise Error, "could not run git: #{e.message}"
+    end
+
+    # Ruby tags a child's output with the locale's encoding, and under
+    # the C locale a path holding a non-ASCII letter is then a string
+    # no pattern can be matched against. Git writes paths and subjects
+    # as bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
+    def utf8(text)
+      text.force_encoding(Encoding::UTF_8).scrub
+    end
+
+    def output(*args)
+      stdout, stderr, status = capture(*args)
+      raise Error, "git #{args.first} failed: #{complaint(stderr)}" unless status.success?
+
+      stdout
+    end
+
+    # The first line of what git wrote. The rest repeats it or is
+    # advice, and a report line is one line.
+    def complaint(stderr)
+      stderr.lines.first.to_s.strip
+    end
+
     # git takes a URL or a path where a remote's name is expected, and
     # would contact whatever it was handed. A name that is not
     # configured is a misspelling.
@@ -365,6 +356,14 @@ module SafeToLeave
 
       known = configured.empty? ? 'this repository has none' : "configured: #{configured.join(', ')}"
       raise Error, "no such remote: #{@remote} (#{known})"
+    end
+
+    def ref?(name)
+      capture('show-ref', '--verify', '--quiet', name).last.success?
+    end
+
+    def commits(*revisions)
+      Integer(output('rev-list', '--count', *revisions).strip)
     end
 
     # -z, so a path holding a newline stays one field: fields end with
