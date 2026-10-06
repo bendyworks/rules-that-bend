@@ -39,10 +39,16 @@ module Fixtures
 
     # The fetch reproduces what the command's usage text asks of its
     # caller: unpushed commits are measured against the remote-tracking
-    # refs, so the caller fetches first.
+    # refs, so the caller fetches first. A plain fetch, as the usage
+    # text says, which leaves the tracking ref of a branch the remote
+    # has deleted in place.
     def push(branch, remote: 'origin')
       git('push', '-q', remote, branch)
-      git('fetch', '-q', '--prune', remote)
+      fetch(remote)
+    end
+
+    def fetch(remote = 'origin')
+      git('fetch', '-q', remote)
     end
 
     # A second remote beside origin, empty until something is pushed.

@@ -102,6 +102,10 @@ module SafeToLeave
     end
   end
 
+  # What the remote said when asked: the name of its default branch,
+  # and the commit each of its branches is at, by branch name.
+  Advertised = Struct.new(:default, :heads)
+
   # `changes` is the number of uncommitted or untracked entries, and
   # `detached_commits` the number of commits on a detached HEAD that are
   # on no branch. Both are nil when the worktree could not be read, and
@@ -282,12 +286,21 @@ module SafeToLeave
     # written at clone time, and names the old branch after a default
     # branch is renamed.
     def default_branch
-      require_configured_remote
-      line = output('ls-remote', '--symref', @remote, 'HEAD')
-             .lines(chomp: true).find { |candidate| candidate.start_with?('ref: refs/heads/') }
-      raise Error, "#{@remote} names no default branch" if line.nil?
+      advertised.default
+    end
 
-      line.split("\t").first.delete_prefix('ref: refs/heads/')
+    # The remote-tracking refs that are where the remote's branches are
+    # now. A tracking ref records the last fetch. One whose branch the
+    # remote has since deleted or moved names commits the remote may not
+    # have, and is left out, so those commits count as unpushed.
+    def current_tracking_refs
+      @current_tracking_refs ||= begin
+        prefix = "refs/remotes/#{@remote}/"
+        output('for-each-ref', '--format=%(objectname) %(refname)', prefix).lines(chomp: true).filter_map do |line|
+          commit, ref = line.split(' ', 2)
+          ref if advertised.heads[ref.delete_prefix(prefix)] == commit
+        end
+      end
     end
 
     # Short names, for the report. A tag sharing a branch's name makes
@@ -301,24 +314,26 @@ module SafeToLeave
     def default_ahead(default)
       tracking = "refs/remotes/#{@remote}/#{default}"
       raise Error, "#{tracking} is absent; fetch #{@remote} first" unless ref?(tracking)
+      unless current_tracking_refs.include?(tracking)
+        raise Error, "#{tracking} is not where #{@remote} has #{default} now; fetch #{@remote} first"
+      end
       return 0 unless ref?("refs/heads/#{default}")
 
-      commits("#{tracking}..refs/heads/#{default}")
+      commits_beyond("refs/heads/#{default}", [tracking])
     end
 
     def unpushed_on(branch)
-      commits("refs/heads/#{branch}", '--not', "--remotes=#{@remote}")
+      commits_beyond("refs/heads/#{branch}", current_tracking_refs)
     end
 
     # The commits on a detached HEAD that no local branch and no branch
-    # on the remote has, and 0 when HEAD is on a branch. `symbolic-ref
-    # -q` exits 1 for a detached HEAD and higher for a failure.
-    def detached_commits
-      _stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
-      return 0 if status.success?
-      raise Error, "git symbolic-ref failed: #{complaint(stderr)}" unless status.exitstatus == 1
+    # on the remote has, and 0 when HEAD is on a branch. Worktrees share
+    # their refs, so a linked worktree's reader is handed the reader
+    # that has already asked the remote.
+    def detached_commits(asked = self)
+      return 0 unless detached?
 
-      commits('HEAD', '--not', '--branches', "--remotes=#{@remote}")
+      commits_beyond('HEAD', local_branches.map { |branch| "refs/heads/#{branch}" } + asked.current_tracking_refs)
     end
 
     def stashes
@@ -334,8 +349,8 @@ module SafeToLeave
 
     private
 
-    def capture(*args)
-      stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args)
+    def capture(*args, stdin: '')
+      stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args, stdin_data: stdin)
       [utf8(stdout), utf8(stderr), status]
     rescue Errno::ENOENT, Errno::EACCES => e
       raise Error, "could not run git: #{e.message}"
@@ -349,8 +364,8 @@ module SafeToLeave
       text.force_encoding(Encoding::UTF_8).scrub
     end
 
-    def output(*args)
-      stdout, stderr, status = capture(*args)
+    def output(*args, stdin: '')
+      stdout, stderr, status = capture(*args, stdin: stdin)
       raise Error, "git #{args.first} failed: #{complaint(stderr)}" unless status.success?
 
       stdout
@@ -373,12 +388,42 @@ module SafeToLeave
       raise Error, "no such remote: #{@remote} (#{known})"
     end
 
+    # One question to the remote: which branch is its default, and
+    # where each of its branches is.
+    def advertised
+      @advertised ||= begin
+        require_configured_remote
+        answer = output('ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*')
+                 .lines(chomp: true).map { |line| line.split("\t", 2) }
+        default = answer.find { |value, ref| ref == 'HEAD' && value.start_with?('ref: refs/heads/') }
+        raise Error, "#{@remote} names no default branch" if default.nil?
+
+        heads = answer.select { |_commit, ref| ref.to_s.start_with?('refs/heads/') }
+                      .to_h { |commit, ref| [ref.delete_prefix('refs/heads/'), commit] }
+        Advertised.new(default.first.delete_prefix('ref: refs/heads/'), heads)
+      end
+    end
+
     def ref?(name)
       capture('show-ref', '--verify', '--quiet', name).last.success?
     end
 
-    def commits(*revisions)
-      Integer(output('rev-list', '--count', *revisions).strip)
+    # The number of commits reachable from `tip` and from none of
+    # `refs`. The refs go in on stdin, since a remote can have more
+    # branches than a command line holds.
+    def commits_beyond(tip, refs)
+      revisions = [tip] + refs.map { |ref| "^#{ref}" }
+      Integer(output('rev-list', '--count', '--stdin', stdin: revisions.join("\n")).strip)
+    end
+
+    # `symbolic-ref -q` exits 1 for a detached HEAD and higher for a
+    # failure.
+    def detached?
+      _stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
+      return false if status.success?
+      raise Error, "git symbolic-ref failed: #{complaint(stderr)}" unless status.exitstatus == 1
+
+      true
     end
 
     # -z, so a path holding a newline stays one field: fields end with
@@ -401,7 +446,7 @@ module SafeToLeave
     def read_worktree(path, branch)
       there = Git.new(dir: path, remote: @remote)
       there.require_worktree_root
-      Worktree.new(path, branch, there.status_entries.length, there.detached_commits)
+      Worktree.new(path, branch, there.status_entries.length, there.detached_commits(self))
     rescue Error => e
       Worktree.new(path, branch, nil, nil, e.message)
     end

@@ -700,6 +700,39 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A remote-tracking ref records the last fetch, and a plain fetch
+  # keeps the ref of a branch the remote has since deleted. The commits
+  # it names are then on this machine alone.
+  def test_a_story_branch_deleted_on_the_remote_counts_after_a_plain_fetch
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.push('abc-12-fix-export')
+      repo.checkout('main')
+      repo.git('branch', '-D', 'abc-12-fix-export', dir: repo.origin)
+      repo.fetch
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'abc-12-fix-export (1 commit)'
+    end
+  end
+
+  # The remote's default branch was put back a commit after the last
+  # fetch, so the tracking ref names a commit the remote no longer has.
+  def test_a_default_branch_the_remote_has_moved_leaves_unpushed_unchecked
+    with_repo do |repo|
+      start = repo.git('rev-parse', 'main').strip
+      repo.commit_locally('notes', 'Add notes')
+      repo.push('main')
+      repo.git('update-ref', 'refs/heads/main', start, dir: repo.origin)
+      result = report(repo)
+
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'fetch origin first'
+    end
+  end
+
   # A branch pushed to a second remote is still absent from the remote
   # the report measures against, and --remote chooses which one that is.
   def test_unpushed_is_measured_against_the_named_remote_alone
