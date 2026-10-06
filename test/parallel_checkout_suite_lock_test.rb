@@ -569,7 +569,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
       _out, err, status = run_lock(name, *mark_ran)
       assert_equal 78, status.exitstatus, name.to_s
       assert_includes err, 'cannot find the git directory'
-      assert_includes err, 'mounted at another path'
+      assert_includes err, 'mounts the checkout at another path'
       refute File.exist?(ran_log)
     end
   end

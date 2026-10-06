@@ -3,7 +3,7 @@
 #
 # Run a full lint+test suite while holding this checkout's suite lock:
 #
-#   bin/suite-lock [--wait] <command...>
+#   bin/suite-lock [--wait] [--] <command...>
 #
 # Every worktree of a checkout shares the checkout's test database and its
 # pinned test ports, so two full runs started from two of them at once
@@ -26,23 +26,27 @@
 # The holder file keeps the command line after the run has ended, and a
 # later run that is refused prints it. Only the file's owner can read
 # it, but a secret passed as an argument to the command is stored there
-# and shown again: pass secrets through the environment.
+# and shown again: pass secrets through the environment. Because only
+# its owner can read it, the lock is one user's: a run by another user
+# cannot tell whether the holder is gone, and is refused, with `--wait`
+# too, until the owner runs again or removes the lock.
 #
 # A lock whose holder is gone is taken over inside a second directory lock,
 # so that of several runs arriving together one takes it and the rest are
 # refused. A takeover directory left behind by a run killed in that step is
 # never removed by age, since that would let two runs into the takeover at
-# once; the refusal names it for a person to remove.
+# once; the refusal names it for a person to remove, and `--wait` does not
+# wait for it.
 #
-# The git common directory is found by reading .git, gitdir, and commondir
-# files, never by running git, which an exported GIT_DIR, a missing binary,
-# or an old version would each point elsewhere. It targets bash 3.2,
-# macOS's /bin/bash.
+# The git common directory is found by reading the .git file's `gitdir:`
+# line and the commondir file, never by running git: an exported GIT_DIR
+# points git elsewhere, and git may be missing or too old. It targets
+# bash 3.2, macOS's /bin/bash.
 #
 # Exit status: the command's own; 64 with no command; 73 when this run
 # cannot be recorded as the holder; 75 when refused; 78 when the git
-# directory cannot be found; 128 plus the signal's number when interrupted, hung up
-# on, or terminated while taking over a lock.
+# directory cannot be found; 128 plus the signal's number when
+# interrupted, hung up on, or terminated while taking over a lock.
 set -u
 
 wait_for_lock=""
@@ -63,7 +67,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ $# -eq 0 ]; then
-  echo "Usage: bin/suite-lock [--wait] <command...>" >&2
+  echo "Usage: bin/suite-lock [--wait] [--] <command...>" >&2
   exit 64
 fi
 
@@ -121,7 +125,7 @@ fi
 # into one: the lock, and the removal of a stale one, stay inside git's
 # own directory.
 if [ -z "$common" ] || [ ! -f "$common/HEAD" ]; then
-  echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take. If this is a worktree, its .git file or the commondir file beside its git directory cannot be read, or names a directory that is not there: run \`git worktree list\` in its checkout to see whether it was pruned, or whether the checkout is mounted at another path here, as inside a container -- see docs/parallel-checkouts.md" >&2
+  echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take. If this is a worktree, its .git file, or the commondir file in its git directory, cannot be read or names a directory that is not a git directory here. Run \`git worktree list\` in its checkout to see whether the worktree was pruned; inside a container that mounts the checkout at another path, a worktree's .git file names the path on the host -- see docs/parallel-checkouts.md" >&2
   exit 78
 fi
 
@@ -203,8 +207,8 @@ holder_alive() {
   [ -n "$holder_start" ] && [ "$(process_start "$holder_pid")" = "$holder_start" ]
 }
 
-# `-mmin +1` is true from one minute with BSD find, which rounds an age
-# up to whole minutes, and from two with GNU find, which rounds down.
+# `-mmin +1` is true from one minute with GNU find and from two with
+# BSD find (macOS), which counts an age in whole minutes.
 older_than_a_minute() {
   [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]
 }

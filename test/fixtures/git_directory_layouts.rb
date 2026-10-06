@@ -8,7 +8,7 @@ require_relative 'repo_builder'
 module Fixtures
   # The directory layouts a parallel-checkouts template can be run from,
   # built as real git repositories. The templates find a checkout's git
-  # directory by reading .git, gitdir and commondir files themselves
+  # directory by reading the .git file and the commondir file themselves
   # (git may be missing, old, or redirected by an exported GIT_DIR), and
   # they do it in more than one language, since each is copied into a
   # project as a single file. Running every reader against these layouts
