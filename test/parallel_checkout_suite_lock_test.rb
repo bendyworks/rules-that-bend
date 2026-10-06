@@ -278,14 +278,23 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   end
 
   # The holder file is its owner's alone to read, so another user's run
-  # finds one it cannot read whenever the lock is held.
-  def test_a_holder_file_that_cannot_be_read_is_a_held_lock
+  # finds one it cannot read whenever the lock is held. A holder whose
+  # umask is 077 makes a lock directory another user cannot look into
+  # at all.
+  def test_a_holder_file_or_lock_directory_that_cannot_be_read_is_a_held_lock
     skip 'root can read every file' if Process.uid.zero?
     hold(:checkout)
-    File.chmod(0o000, holder_file)
-    assert_refused(run_lock(:checkout, *mark_ran), 'cannot be read', holder_file)
-    File.utime(Time.now - 300, Time.now - 300, lock_dir)
-    assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot be read')
+    [holder_file, lock_dir].each do |closed|
+      mode = File.stat(closed).mode
+      File.chmod(0o000, closed)
+      File.utime(Time.now - 300, Time.now - 300, lock_dir)
+      begin
+        assert_refused(run_lock(:checkout, *mark_ran), 'cannot be read', lock_dir)
+        assert_refused(run_lock(:checkout, '--wait', *mark_ran, within: 5), 'cannot be read')
+      ensure
+        File.chmod(mode, closed)
+      end
+    end
   end
 
   # Puts a command of that name first on every run's PATH, or in `dir`.

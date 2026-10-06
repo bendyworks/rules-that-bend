@@ -165,16 +165,21 @@ hold_or_quit() {
   exit 78
 }
 
-# Sets holder_unreadable for a holder file this user cannot read. The
-# file is its owner's alone to read, so that is another user's lock,
-# and nothing here can tell whether its run is still going.
+# Sets holder_unreadable for a holder file this user cannot open, or a
+# lock directory this user cannot look into. The file is its owner's
+# alone to read, so that is another user's lock, and nothing here can
+# tell whether its run is still going.
 read_holder() {
   holder_pid=""
   holder_start=""
   holder_command=""
   holder_unreadable=""
+  if [ -d "$lock" ] && [ ! -x "$lock" ]; then
+    holder_unreadable=1
+    return 0
+  fi
   [ -f "$lock/holder" ] || return 1
-  if [ ! -r "$lock/holder" ]; then
+  if ! { : < "$lock/holder"; } 2>/dev/null; then
     holder_unreadable=1
     return 0
   fi
@@ -273,7 +278,7 @@ refuse() {
       echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start UTC, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
       ;;
     unreadable)
-      echo "${0##*/}: this checkout's suite lock is held, and its holder file ($lock/holder) cannot be read by this user, so there is no telling whether that run is still going. If it is not, whoever owns $lock can remove it -- see docs/parallel-checkouts.md" >&2
+      echo "${0##*/}: this checkout's suite lock ($lock) is held, and its holder file cannot be read by this user, so there is no telling whether that run is still going. If it is not, whoever owns the lock can remove it (rm -r) -- see docs/parallel-checkouts.md" >&2
       ;;
     abandoned)
       echo "${0##*/}: $takeover was left behind by a run that was killed while taking the suite lock, over a minute ago. If no full run is starting in this checkout, remove it (rmdir) and run this again -- see docs/parallel-checkouts.md" >&2
