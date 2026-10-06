@@ -476,3 +476,44 @@ the refuse-unless-finalized gate).
 
 Open an issue with the "New skill proposal" template. A rough sketch of
 the trigger phrases and the workflow is enough to start the conversation.
+
+## Issue priorities
+
+An open issue carries one `priority:` label. Each level says what
+happens, and to whom, if the issue waits:
+
+| Label | Applies when | Label description |
+| --- | --- | --- |
+| `priority: high` | Someone following shipped text gets a wrong or harmful result, `main` is red, or work in flight is blocked. Waiting costs somebody now. | Shipped text misleads someone now, main is red, or work in flight is blocked |
+| `priority: medium` | Nothing breaks, but the cost recurs with every story until it is fixed: a correction a developer keeps making by hand, a prompt a session keeps getting wrong. | Nothing breaks, but the cost recurs with every story until it is fixed |
+| `priority: low` | Waiting costs nothing that grows: a cleanup, a consolidation of two passages that agree, a lesson from one story. | Waiting costs nothing that grows: a cleanup, a consolidation, a one-off lesson |
+| `priority: untriaged` | Nobody has weighed the issue yet. It says nothing about how much the issue matters. | Nobody has weighed this yet; says nothing about how much it matters |
+
+GitHub caps a label's description at 100 characters, so the third
+column is the short form the labels page shows.
+
+- **Whoever files an issue proposes a level with a one-line reason, and
+  the maintainer confirms or changes it.** Propose high, medium, or
+  low, never `priority: untriaged`. A filer who cannot apply labels
+  writes the proposal in the issue body.
+- **The maintainer applies `priority: untriaged` when choosing not to
+  judge an issue yet.** An issue filed with no priority label counts
+  as untriaged until it has one.
+- **Changing a priority swaps the label**, removing the old one in the
+  same command:
+
+  ```bash
+  gh issue edit NNN --remove-label "priority: untriaged" --add-label "priority: medium"
+  ```
+
+- **To list the open issues that need a priority**, which are those
+  with no priority label and, as an error to correct, those with more
+  than one:
+
+  ```bash
+  gh issue list --state open --limit 500 --json number,labels \
+    --jq '.[] | select([.labels[].name | select(ascii_downcase | startswith("priority:"))] | length != 1) | .number'
+  ```
+
+  The command reads at most 500 issues; raise `--limit` if the
+  repository ever has more open.

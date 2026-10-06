@@ -2,7 +2,7 @@
 name: Skill bug
 about: A skill misbehaved, misfired, or gave bad guidance
 title: "<skill-name>: <what went wrong>"
-labels: bug
+labels: ["bug", "priority: untriaged"]
 ---
 
 ## Skill
