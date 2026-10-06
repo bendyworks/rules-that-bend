@@ -522,6 +522,7 @@ module SafeToLeave
 
     # A request for usage is answered even beside a stray argument.
     def parse(argv)
+      refuse_completion_flags(argv)
       options = { prefixes: [], help: false }
       stray = option_parser(options).permute(argv)
       unless stray.empty? || options[:help]
@@ -531,6 +532,14 @@ module SafeToLeave
       { dir: SafeToLeave.utf8(Dir.pwd), remote: DEFAULT_REMOTE }.merge(options)
     rescue OptionParser::ParseError => e
       raise Error, e.message
+    end
+
+    # OptionParser answers `--*-completion-bash` and
+    # `--*-completion-zsh` itself, by printing and exiting 0, and offers
+    # no way to turn them off.
+    def refuse_completion_flags(argv)
+      flag = argv.find { |argument| argument.start_with?('--*') }
+      raise Error, "invalid option: #{flag}" if flag
     end
 
     # The caller runs permute rather than parse, which stops at the

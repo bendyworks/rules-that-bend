@@ -330,6 +330,20 @@ class LeaveArgumentTest < LeaveCliTestCase
     end
   end
 
+  # OptionParser also answers two completion flags itself, by printing
+  # a script or a list and exiting 0, which is this command's answer
+  # that nothing counts against leaving.
+  def test_a_completion_flag_is_refused
+    in_empty_directory do |dir|
+      script = run_report(['-C', dir, '--*-completion-zsh'])
+      list = run_report(['-C', dir, '--*-completion-bash=--r'])
+
+      assert_equal [2, 2], [script.status, list.status]
+      assert_equal ['', ''], [script.stdout, list.stdout]
+      assert_match(/invalid option: --\*-completion-zsh/, script.stderr)
+    end
+  end
+
   def test_an_abbreviated_flag_is_refused
     in_empty_directory do |dir|
       result = run_report(['-C', dir, '--story', 'abc-12-'])
