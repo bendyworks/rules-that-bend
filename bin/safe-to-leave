@@ -38,6 +38,15 @@ module SafeToLeave
 
   DEFAULT_REMOTE = 'origin'
 
+  # Ruby tags git's output, the arguments, and the working directory
+  # with the locale's encoding, and under the C locale text holding a
+  # non-ASCII letter is then a string no pattern can be matched against
+  # and no UTF-8 string joined to. Git and the file system hold names as
+  # bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
+  def self.utf8(text)
+    text.dup.force_encoding(Encoding::UTF_8).scrub
+  end
+
   USAGE = <<~TXT
     Usage: safe-to-leave [-C DIR] [--remote NAME] [--story-branch PREFIX]...
 
@@ -351,17 +360,9 @@ module SafeToLeave
 
     def capture(*args, stdin: '')
       stdout, stderr, status = Open3.capture3(CHILD_ENV, 'git', '-C', @dir, *args, stdin_data: stdin)
-      [utf8(stdout), utf8(stderr), status]
+      [SafeToLeave.utf8(stdout), SafeToLeave.utf8(stderr), status]
     rescue Errno::ENOENT, Errno::EACCES => e
       raise Error, "could not run git: #{e.message}"
-    end
-
-    # Ruby tags a child's output with the locale's encoding, and under
-    # the C locale a path holding a non-ASCII letter is then a string
-    # no pattern can be matched against. Git writes paths and subjects
-    # as bytes, nearly always UTF-8; a byte that is not becomes U+FFFD.
-    def utf8(text)
-      text.force_encoding(Encoding::UTF_8).scrub
     end
 
     def output(*args, stdin: '')
@@ -501,7 +502,7 @@ module SafeToLeave
     end
 
     def run(argv)
-      options = parse(argv)
+      options = parse(argv.map { |argument| SafeToLeave.utf8(argument) })
       return puts(USAGE) if options[:help]
 
       git = Git.new(dir: options[:dir], remote: options[:remote])
@@ -527,7 +528,7 @@ module SafeToLeave
         raise Error, "unexpected extra arguments: #{stray.map(&:inspect).join(', ')}"
       end
 
-      { dir: Dir.pwd, remote: DEFAULT_REMOTE }.merge(options)
+      { dir: SafeToLeave.utf8(Dir.pwd), remote: DEFAULT_REMOTE }.merge(options)
     rescue OptionParser::ParseError => e
       raise Error, e.message
     end
@@ -575,7 +576,7 @@ module SafeToLeave
     # lines that a reader, or a session, takes as this command's own.
     # Each such character is printed as its Ruby escape.
     def printable(text)
-      text.gsub(UNPRINTABLE) { |character| character.dump[1..-2] }
+      SafeToLeave.utf8(text).gsub(UNPRINTABLE) { |character| character.dump[1..-2] }
     end
 
     def refuse(message)

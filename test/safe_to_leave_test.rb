@@ -410,6 +410,29 @@ class LeaveArgumentTest < LeaveCliTestCase
     end
   end
 
+  # Under the C locale Ruby hands over an argument holding a non-ASCII
+  # byte tagged as binary, which no UTF-8 pattern can be matched
+  # against and no UTF-8 string joined to.
+  def test_a_non_ascii_directory_named_under_an_ascii_locale_is_an_error_not_a_crash
+    in_empty_directory do |dir|
+      named = File.join(dir, 'café')
+      FileUtils.mkdir_p(named)
+      result = run_report(['-C', named.b])
+
+      assert_equal 2, result.status
+      assert_match(/cannot report on .*café: fatal: not a git repository/, result.stderr)
+    end
+  end
+
+  def test_a_non_ascii_flag_under_an_ascii_locale_is_a_usage_error
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--café'.b])
+
+      assert_equal 2, result.status
+      assert_match(/invalid option: --café/, result.stderr)
+    end
+  end
+
   def test_git_missing_from_the_path_is_an_error_not_a_verdict
     in_empty_directory do |dir|
       result = with_path(dir) { run_report(['-C', dir]) }
@@ -793,6 +816,15 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal ['UNCHECKED'], result.statuses['unpushed']
       assert_includes result.line_for('unpushed'), 'fork names no default branch'
+    end
+  end
+
+  def test_a_non_ascii_remote_named_under_an_ascii_locale_is_reported_whole
+    with_repo do |repo|
+      result = report(repo, '--remote', 'café'.b)
+
+      assert_equal 6, result.stdout.lines.length, result.stdout + result.stderr
+      assert_includes result.line_for('unpushed'), 'no such remote: café (configured: origin)'
     end
   end
 
