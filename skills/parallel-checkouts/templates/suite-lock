@@ -34,7 +34,8 @@
 # macOS's /bin/bash.
 #
 # Exit status: the command's own; 64 with no command; 75 when refused; 78
-# when the git directory cannot be found.
+# when the git directory cannot be found or this run cannot be recorded
+# as the holder.
 set -u
 
 wait_for_lock=""
@@ -119,8 +120,23 @@ process_start() {
 
 # The holder file appears whole or not at all.
 write_holder() {
-  printf '%s\n%s\n%s\n' "$$" "$(process_start "$$")" "$suite_command" > "$lock/holder.$$" &&
+  local started
+  started="$(process_start "$$")"
+  [ -n "$started" ] || return 1
+  printf '%s\n%s\n%s\n' "$$" "$started" "$suite_command" > "$lock/holder.$$" &&
     mv -f "$lock/holder.$$" "$lock/holder"
+}
+
+# Record this run as the holder of the lock directory it has just made,
+# or give the directory back and stop. A run that went on with no holder
+# file, or with one holding no start time, would be read as gone by
+# every later run.
+hold_or_quit() {
+  write_holder && return 0
+  rm -f "$lock/holder.$$"
+  rmdir "$lock" 2>/dev/null
+  echo "${0##*/}: cannot record this run as the holder of the suite lock ($lock), so the command was not run: either ps gave no start time for process $$ (the lock needs a ps that prints lstart, as macOS and procps do), or the holder file could not be written -- see docs/parallel-checkouts.md" >&2
+  exit 78
 }
 
 read_holder() {
@@ -163,7 +179,7 @@ lock_is_stale() {
 # `abandoned` (a takeover directory was left behind).
 try_take() {
   if mkdir "$lock" 2>/dev/null; then
-    write_holder
+    hold_or_quit
     return 0
   fi
 
@@ -188,7 +204,7 @@ try_take() {
   if [ ! -d "$lock" ] || lock_is_stale; then
     rm -rf "$lock"
     if mkdir "$lock" 2>/dev/null; then
-      write_holder
+      hold_or_quit
       taken=0
     fi
   fi
