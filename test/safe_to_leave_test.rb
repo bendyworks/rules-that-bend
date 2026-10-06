@@ -75,7 +75,7 @@ class StashDecisionTest < Minitest::Test
     lines = SafeToLeave::Checks.stashes([stash(0, 'WIP on other-work: 1a2b3c4 Start')], PREFIXES)
 
     assert_equal ['listed'], lines.map(&:status)
-    assert_includes lines.first.detail, 'stash@{0}'
+    assert_equal 'not counted, from other work: stash@{0} (WIP on other-work: 1a2b3c4 Start)', lines.first.detail
   end
 
   def test_story_and_other_stashes_are_reported_on_separate_lines
@@ -159,7 +159,7 @@ class UnpushedDecisionTest < Minitest::Test
     result = lines(branches: { 'other-work' => 3 })
 
     assert_equal ['listed'], result.map(&:status)
-    assert_includes result.first.detail, 'other-work'
+    assert_equal 'not counted, on other branches: other-work (3 commits)', result.first.detail
   end
 
   # With no story branch named there is nothing to attribute a branch
@@ -201,7 +201,10 @@ class WorktreeDecisionTest < Minitest::Test
   end
 
   def test_a_clean_linked_worktree_on_another_branch_does_not_count
-    assert_equal ['listed'], statuses([worktree('other-work', 0)])
+    lines = SafeToLeave::Checks.worktrees([worktree('other-work', 0)], PREFIXES)
+
+    assert_equal ['listed'], lines.map(&:status)
+    assert_equal 'not counted, clean and on other work: /tmp/elsewhere', lines.first.detail
   end
 
   def test_a_linked_worktree_with_changes_counts
@@ -393,6 +396,17 @@ class LeaveArgumentTest < LeaveCliTestCase
 
       assert_equal 2, result.status
       assert_equal 1, result.stderr.lines.length, result.stderr
+    end
+  end
+
+  # git's own reason is carried, since "not a repository" is the wrong
+  # thing to go and check when the directory is missing.
+  def test_a_directory_that_does_not_exist_is_named_as_missing
+    in_empty_directory do |dir|
+      result = run_report(['-C', File.join(dir, 'gone')])
+
+      assert_equal 2, result.status
+      assert_match(/cannot report on .*gone: fatal: cannot change to/, result.stderr)
     end
   end
 
@@ -877,6 +891,19 @@ class LeaveReportTest < LeaveCliTestCase
       assert_equal 1, result.status
       assert_equal ['AGAINST'], result.statuses['worktrees']
       assert_includes result.line_for('worktrees'), 'elsewhere (detached, 1 commit on no branch)'
+    end
+  end
+
+  # A bare repository's own record names no checkout to read.
+  def test_run_from_a_worktree_of_a_bare_repository_the_bare_record_is_skipped
+    with_repo do |repo|
+      bare = File.join(repo.root, 'bare.git')
+      checkout = File.join(repo.root, 'from-bare')
+      repo.git('clone', '-q', '--bare', repo.origin, bare, dir: repo.root)
+      repo.git('worktree', 'add', '-q', checkout, 'main', dir: bare)
+      result = report_on(repo, ['-C', checkout, '--story-branch', STORY])
+
+      assert_equal ['ok'], result.statuses['worktrees'], result.stdout + result.stderr
     end
   end
 
