@@ -22,6 +22,11 @@
 # runner killed while its own child processes run on leaves the lock free
 # while they finish.
 #
+# The holder file keeps the command line after the run has ended, and a
+# later run that is refused prints it. Only the file's owner can read
+# it, but a secret passed as an argument to the command is stored there
+# and shown again: pass secrets through the environment.
+#
 # A lock whose holder is gone is taken over inside a second directory lock,
 # so that of several runs arriving together one takes it and the rest are
 # refused. A takeover directory left behind by a run killed in that step is
@@ -131,7 +136,7 @@ write_holder() {
   local started
   started="$(process_start "$$")"
   [ -n "$started" ] || return 1
-  printf '%s\n%s\n%s\n' "$$" "$started" "$suite_command" > "$lock/holder.$$" &&
+  (umask 077 && printf '%s\n%s\n%s\n' "$$" "$started" "$suite_command" > "$lock/holder.$$") &&
     mv -f "$lock/holder.$$" "$lock/holder"
 }
 

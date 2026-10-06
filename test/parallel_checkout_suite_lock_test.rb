@@ -194,6 +194,14 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert_includes recorded_command, 'sleep 30'
   end
 
+  # The command line stays in the holder file after the run, so only
+  # its owner may read it, and the command keeps the umask it was given.
+  def test_only_the_owner_can_read_the_holder_file
+    out, _err, _status = run_lock(:checkout, 'sh', '-c', 'umask')
+    assert_equal 0o600, File.stat(holder_file).mode & 0o777
+    assert_equal format('%04o', File.umask), out.strip
+  end
+
   def test_refuses_a_second_run_at_once_naming_the_holder
     pid = hold(:checkout)
     assert_refused(run_lock(:checkout, *mark_ran, within: 5), "process #{pid}", start_time(pid), 'sleep 30')
