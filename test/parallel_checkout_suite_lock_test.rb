@@ -73,11 +73,13 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # and status. A run still going after `within` seconds is killed and
   # fails the test, so a run that waits when it should not is a failure
   # and not a suite that never finishes.
-  def run_lock(name, *args, stdin: '', within: 30, vars: {})
+  def run_lock(name, *args, **options) = run_script(script(name), *args, **options)
+
+  def run_script(path, *args, stdin: '', within: 30, vars: {})
     @runs += 1
     files = %w[in out err].to_h { |stream| [stream, File.join(@scratch, "run-#{@runs}.#{stream}")] }
     File.write(files['in'], stdin)
-    pid = Process.spawn(env.merge(vars), script(name), *args, in: files['in'], out: files['out'], err: files['err'],
+    pid = Process.spawn(env.merge(vars), path, *args, in: files['in'], out: files['out'], err: files['err'],
                                                   chdir: @scratch, unsetenv_others: true)
     status = wait_within(pid, within)
     unless status
@@ -193,6 +195,26 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def test_refuses_a_run_whose_time_zone_differs_from_the_holders
     pid = hold(:checkout, vars: { 'TZ' => 'America/Chicago' })
     assert_refused(run_lock(:checkout, *mark_ran, vars: { 'TZ' => 'Asia/Tokyo' }), "process #{pid}")
+  end
+
+  # Without a `gitdir:` line the directory holding the .git file would
+  # be taken for the git directory, and a directory named suite-lock in
+  # the working tree for a lock left behind.
+  def test_a_git_file_that_names_no_git_directory_is_not_followed
+    ['', "gitdir:\n", "gitdir:   \n", "../checkout/.git\n"].each do |content|
+      project = File.join(@scratch, 'archive')
+      FileUtils.mkdir_p(File.join(project, 'bin'))
+      FileUtils.mkdir_p(File.join(project, 'suite-lock'))
+      FileUtils.touch(File.join(project, 'suite-lock', 'kept'))
+      File.utime(Time.now - 300, Time.now - 300, File.join(project, 'suite-lock'))
+      File.write(File.join(project, '.git'), content)
+      FileUtils.cp(TEMPLATE, File.join(project, 'bin', 'suite-lock'))
+      _out, err, status = run_script(File.join(project, 'bin', 'suite-lock'), *mark_ran)
+      assert_equal 78, status.exitstatus, "#{content.inspect}: #{err}"
+      assert File.exist?(File.join(project, 'suite-lock', 'kept')), content.inspect
+      refute File.exist?(ran_log), content.inspect
+      FileUtils.rm_rf(project)
+    end
   end
 
   def stand_in(name, body)

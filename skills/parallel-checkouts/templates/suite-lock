@@ -75,13 +75,21 @@ if [ -d "$walk/.git" ]; then
 elif [ -f "$walk/.git" ]; then
   IFS= read -r git_dir < "$walk/.git" || true
   git_dir="${git_dir%$'\r'}"
-  git_dir="${git_dir#gitdir:}"
-  git_dir="${git_dir#"${git_dir%%[![:space:]]*}"}"
+  # Only a `gitdir:` line names a git directory. Anything else is left
+  # unfollowed: an empty value would make the working tree itself the
+  # place to look for the lock.
   case "$git_dir" in
-    /*) ;;
+    gitdir:*)
+      git_dir="${git_dir#gitdir:}"
+      git_dir="${git_dir#"${git_dir%%[![:space:]]*}"}"
+      ;;
+    *) git_dir="" ;;
+  esac
+  case "$git_dir" in
+    ''|/*) ;;
     *) git_dir="$walk/$git_dir" ;;
   esac
-  if [ -d "$git_dir" ]; then
+  if [ -n "$git_dir" ] && [ -d "$git_dir" ]; then
     common="$git_dir"
     if [ -f "$git_dir/commondir" ]; then
       IFS= read -r common < "$git_dir/commondir" || true
