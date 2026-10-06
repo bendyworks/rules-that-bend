@@ -345,6 +345,15 @@ class LeaveArgumentTest < LeaveCliTestCase
     end
   end
 
+  def test_an_error_names_a_directory_on_one_line
+    in_empty_directory do |dir|
+      result = run_report(['-C', File.join(dir, "gone\nsafe-to-leave: nothing counts against leaving")])
+
+      assert_equal 2, result.status
+      assert_equal 1, result.stderr.lines.length, result.stderr
+    end
+  end
+
   def test_git_missing_from_the_path_is_an_error_not_a_verdict
     in_empty_directory do |dir|
       result = with_path(dir) { run_report(['-C', dir]) }
@@ -540,6 +549,28 @@ class LeaveReportTest < LeaveCliTestCase
     Encoding.default_external = saved
   end
 
+  # A file name can hold a newline, and what follows it would print as
+  # a line of the report.
+  def test_a_file_name_cannot_add_a_line_to_the_report
+    with_repo do |repo|
+      repo.write("x\n  ok        stashes: none", 'unsent')
+      result = report(repo)
+
+      assert_equal 6, result.stdout.lines.length, result.stdout
+      assert_includes result.line_for('working-tree'), 'x\n  ok        stashes: none'
+    end
+  end
+
+  def test_a_terminal_escape_in_a_file_name_is_printed_as_text
+    with_repo do |repo|
+      repo.write("a\e[2Jb", 'unsent')
+      result = report(repo)
+
+      refute_includes result.stdout, "\e"
+      assert_includes result.line_for('working-tree'), 'a\e[2Jb'
+    end
+  end
+
   # A staged rename is one entry, named by where the file is now.
   def test_a_renamed_file_is_one_entry_under_its_new_name
     with_repo do |repo|
@@ -663,6 +694,18 @@ class LeaveReportTest < LeaveCliTestCase
       assert_equal ['UNCHECKED'], result.statuses['unpushed']
       assert_includes result.line_for('unpushed'), 'git ls-remote failed: '
       assert_equal ['ok'], result.statuses['working-tree']
+    end
+  end
+
+  # git's complaint about an unreachable remote runs to several lines,
+  # each starting "fatal:" or blank. The report is one line per finding.
+  def test_an_unchecked_line_carries_one_line_of_gits_complaint
+    with_repo do |repo|
+      FileUtils.remove_entry(repo.origin)
+      result = report(repo)
+
+      assert_equal 6, result.stdout.lines.length, result.stdout
+      refute_match(/^fatal:/, result.stdout)
     end
   end
 

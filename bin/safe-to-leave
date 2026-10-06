@@ -248,9 +248,15 @@ module SafeToLeave
 
     def output(*args)
       stdout, stderr, status = capture(*args)
-      raise Error, "git #{args.first} failed: #{stderr.strip}" unless status.success?
+      raise Error, "git #{args.first} failed: #{complaint(stderr)}" unless status.success?
 
       stdout
+    end
+
+    # The first line of what git wrote. The rest repeats it or is
+    # advice, and a report line is one line.
+    def complaint(stderr)
+      stderr.lines.first.to_s.strip
     end
 
     def toplevel
@@ -331,7 +337,7 @@ module SafeToLeave
     def detached_commits
       _stdout, stderr, status = capture('symbolic-ref', '-q', 'HEAD')
       return 0 if status.success?
-      raise Error, "git symbolic-ref failed: #{stderr.strip}" unless status.exitstatus == 1
+      raise Error, "git symbolic-ref failed: #{complaint(stderr)}" unless status.exitstatus == 1
 
       commits('HEAD', '--not', '--branches', "--remotes=#{@remote}")
     end
@@ -415,6 +421,10 @@ module SafeToLeave
     # each one refuses a value with a leading dash.
     VALUE_NOT_FLAG = /\A[^-].*\z/m
 
+    # Control characters, and the Unicode characters that reorder the
+    # text around them.
+    UNPRINTABLE = /[[:cntrl:]\u202A-\u202E\u2066-\u2069]/
+
     module_function
 
     def run(argv)
@@ -424,12 +434,12 @@ module SafeToLeave
       print_report(git.toplevel, lines)
       exit 1 if lines.any?(&:against?)
     rescue Error, OptionParser::ParseError => e
-      warn "safe-to-leave: #{e.message}"
+      warn "safe-to-leave: #{printable(e.message)}"
       exit 2
     # Ruby exits 1 on an exception nothing rescued, and 1 is this
     # command's answer that something counts against leaving.
     rescue StandardError => e
-      warn "safe-to-leave: unexpected #{e.class}: #{e.message}"
+      warn "safe-to-leave: unexpected #{e.class}: #{printable(e.message)}"
       exit 2
     end
 
@@ -452,9 +462,20 @@ module SafeToLeave
       options
     end
 
+    # File names, stash subjects, worktree paths, and git's messages can
+    # hold a newline or a terminal escape, and they are printed inside
+    # lines that a reader, or a session, takes as this command's own.
+    # Each such character is printed as its Ruby escape.
+    def printable(text)
+      text.gsub(UNPRINTABLE) { |character| character.dump[1..-2] }
+    end
+
     def print_report(toplevel, lines)
-      puts "safe-to-leave: #{toplevel}"
-      lines.each { |line| puts format('  %-10<status>s%<check>s: %<detail>s', line.to_h) }
+      puts "safe-to-leave: #{printable(toplevel)}"
+      lines.each do |line|
+        puts format('  %-10<status>s%<check>s: %<detail>s', status: line.status, check: line.check,
+                                                           detail: printable(line.detail))
+      end
       against = lines.count(&:against?)
       if against.zero?
         puts 'safe-to-leave: nothing counts against leaving (repository checks)'
