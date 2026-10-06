@@ -11,7 +11,7 @@
 
 require_relative 'cli_test_case'
 require_relative 'fixtures/git_directory_layouts'
-require 'open3'
+require 'shellwords'
 require 'timeout'
 
 class ParallelCheckoutSuiteLockTest < Minitest::Test
@@ -35,9 +35,14 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     File.symlink(SYSTEM_BASH, File.join(@fakebin, 'bash')) if BASH3
     @layouts.each_value { |layout| install(layout) }
     @holders = []
+    @runs = 0
   end
 
+  # The stand-in git is first on PATH in every test, so this covers
+  # every path a test takes through the template.
   def teardown
+    refute File.exist?(git_log), 'the template ran git'
+  ensure
     @holders.each do |pid|
       Process.kill('KILL', pid)
       Process.wait(pid)
@@ -64,14 +69,42 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     keep.merge('PATH' => "#{@fakebin}:#{ENV.fetch('PATH')}", 'FAKE_GIT_LOG' => git_log)
   end
 
-  def run_lock(name, *args, stdin: '')
-    Open3.capture3(env, script(name), *args, stdin_data: stdin, chdir: @scratch, unsetenv_others: true)
+  # Runs the template to its end and returns its output, error output
+  # and status. A run still going after `within` seconds is killed and
+  # fails the test, so a run that waits when it should not is a failure
+  # and not a suite that never finishes.
+  def run_lock(name, *args, stdin: '', within: 30)
+    @runs += 1
+    files = %w[in out err].to_h { |stream| [stream, File.join(@scratch, "run-#{@runs}.#{stream}")] }
+    File.write(files['in'], stdin)
+    pid = Process.spawn(env, script(name), *args, in: files['in'], out: files['out'], err: files['err'],
+                                                  chdir: @scratch, unsetenv_others: true)
+    status = wait_within(pid, within)
+    unless status
+      release(pid)
+      flunk "suite-lock #{args.join(' ')} was still running after #{within} seconds: #{File.read(files['err'])}"
+    end
+    [File.read(files['out']), File.read(files['err']), status]
   end
+
+  def wait_within(pid, seconds)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+    loop do
+      _pid, status = Process.wait2(pid, Process::WNOHANG)
+      return status if status
+      return nil if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      sleep 0.02
+    end
+  end
+
+  # A command that leaves a mark when it runs, for a run that must not.
+  def mark_ran = ['sh', '-c', "echo ran > #{ran_log.shellescape}"]
 
   # Starts a command under the lock and returns once it is running.
   def hold(name, seconds: 30)
     started = File.join(@scratch, "started-#{@holders.size}")
-    pid = Process.spawn(env, script(name), 'sh', '-c', "echo $$ > #{started}; exec sleep #{seconds}",
+    pid = Process.spawn(env, script(name), 'sh', '-c', "echo $$ > #{started.shellescape}; exec sleep #{seconds}",
                         chdir: @scratch, unsetenv_others: true)
     @holders << pid
     Timeout.timeout(10) { sleep 0.02 until File.size?(started) }
@@ -81,13 +114,16 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def release(pid)
     Process.kill('KILL', pid)
     Process.wait(pid)
+    @holders.delete(pid)
   end
+
+  def process_state(pid) = `LC_ALL=C ps -o stat= -p #{pid}`.strip
 
   def start_time(pid) = `LC_ALL=C ps -o lstart= -p #{pid}`.strip
 
-  def write_holder(pid:, start:, command: 'rake')
+  def write_holder(pid:, start:)
     FileUtils.mkdir_p(lock_dir)
-    File.write(holder_file, "#{pid}\n#{start}\n#{command}\n")
+    File.write(holder_file, "#{pid}\n#{start}\nrake\n")
   end
 
   def dead_pid
@@ -136,16 +172,13 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def test_refuses_a_second_run_at_once_naming_the_holder
     pid = hold(:checkout)
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    result = run_lock(:checkout, 'sh', '-c', "echo ran > #{ran_log}")
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
-    assert_refused(result, "process #{pid}", start_time(pid), 'sleep 30')
+    assert_refused(run_lock(:checkout, *mark_ran, within: 5), "process #{pid}", start_time(pid), 'sleep 30')
   end
 
   def test_every_readable_layout_of_one_checkout_shares_the_lock
     hold(:outside)
     %i[checkout subdirectory nested crlf].each do |name|
-      assert_refused(run_lock(name, 'sh', '-c', "echo ran > #{ran_log}"), 'sleep 30')
+      assert_refused(run_lock(name, *mark_ran), 'sleep 30')
     end
   end
 
@@ -162,7 +195,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def test_a_lock_directory_with_no_holder_file_yet_is_held
     FileUtils.mkdir_p(lock_dir)
-    assert_refused(run_lock(:checkout, 'sh', '-c', "echo ran > #{ran_log}"), 'being taken')
+    assert_refused(run_lock(:checkout, *mark_ran), 'being taken')
   end
 
   def test_a_lock_directory_left_without_a_holder_file_is_taken_over
@@ -177,55 +210,77 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
     FileUtils.mkdir_p("#{lock_dir}.takeover")
     File.utime(Time.now - 300, Time.now - 300, "#{lock_dir}.takeover")
-    assert_refused(run_lock(:checkout, '--wait', 'sh', '-c', "echo ran > #{ran_log}"),
+    assert_refused(run_lock(:checkout, '--wait', *mark_ran),
                    "#{lock_dir}.takeover", 'remove it')
   end
 
-  # Eight runs start together against a holder that is gone. Each one
-  # that gets the lock keeps it for longer than the others take to be
-  # refused, so more than one line in the log means two held it at once.
+  # Eight runs start together against a holder that is gone. Whichever
+  # gets the lock keeps it until the other seven have been refused, so
+  # a second line in the log means two held it at once.
   def test_only_one_of_many_contenders_takes_over_from_a_dead_holder
     6.times do |round|
       FileUtils.rm_rf(ran_log)
+      FileUtils.rm_rf(lock_dir)
       write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
       pids = Array.new(8) do
-        Process.spawn(env, script(:checkout), 'sh', '-c', "echo ran >> #{ran_log}; exec sleep 1",
+        Process.spawn(env, script(:checkout), 'sh', '-c', "echo ran >> #{ran_log.shellescape}; exec sleep 30",
                       chdir: @scratch, unsetenv_others: true, err: File::NULL)
       end
-      statuses = pids.map { |pid| Process.wait2(pid).last.exitstatus }
-      assert_equal 1, File.readlines(ran_log).size, "round #{round}: #{statuses}"
-      assert_equal [0] + ([REFUSED] * 7), statuses.sort, "round #{round}"
+      @holders.concat(pids)
+      refused = refused_among(pids, 7)
+      Timeout.timeout(10) { sleep 0.02 until File.size?(ran_log) }
+      assert_equal [REFUSED] * 7, refused.values, "round #{round}"
+      assert_equal 1, File.readlines(ran_log).size, "round #{round}"
+      (pids - refused.keys).each { |pid| release(pid) }
     end
+  end
+
+  # Waits until `count` of the runs have exited, or twenty seconds, and
+  # returns the exit status of each that has.
+  def refused_among(pids, count)
+    exited = {}
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 20
+    while exited.size < count && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+      (pids - exited.keys).each do |pid|
+        _pid, status = Process.wait2(pid, Process::WNOHANG)
+        exited[pid] = status.exitstatus if status
+      end
+      sleep 0.02
+    end
+    exited
   end
 
   # The holder here is this test's own child, so once killed it stays in
   # the process table until the test collects it.
   def test_a_holder_that_exited_and_was_not_collected_by_its_parent_is_gone
-    Process.kill('KILL', hold(:checkout))
-    sleep 0.2
+    pid = hold(:checkout)
+    Process.kill('KILL', pid)
+    Timeout.timeout(10) { sleep 0.02 until process_state(pid).start_with?('Z') }
     assert_took_the_lock(run_lock(:checkout, 'echo', 'ran'), 'echo ran')
   end
 
   def test_wait_runs_the_command_after_the_holder_exits
     hold(:checkout, seconds: 2)
-    out, _err, status = Timeout.timeout(20) { run_lock(:outside, '--wait', 'echo', 'waited') }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out, err, status = run_lock(:outside, '--wait', 'echo', 'waited')
+    assert_predicate status, :success?, err
     assert_equal "waited\n", out
-    assert_predicate status, :success?
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :>, 1
+    assert_equal 'echo waited', File.read(holder_file).split("\n").last
   end
 
   def test_explains_a_worktree_whose_git_directory_cannot_be_found
     %i[missing unreachable].each do |name|
-      _out, err, status = run_lock(name, 'sh', '-c', "echo ran > #{ran_log}")
+      _out, err, status = run_lock(name, *mark_ran)
       assert_equal 78, status.exitstatus, name.to_s
       assert_includes err, 'cannot find the git directory'
       refute File.exist?(ran_log)
     end
   end
 
-  def test_never_runs_git
-    hold(:nested)
-    run_lock(:crlf, 'true')
-    run_lock(:missing, 'true')
-    refute File.exist?(git_log), 'the template ran git'
+  def test_the_stand_in_git_records_a_call
+    system(env, 'git', 'status', unsetenv_others: true, out: File::NULL, err: File::NULL)
+    assert_equal "status\n", File.read(git_log)
+    FileUtils.rm_f(git_log)
   end
 end
