@@ -244,6 +244,23 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     end
   end
 
+  # A file its owner cannot read is no file to follow. Root reads
+  # everything, so there is nothing to test as root.
+  def test_a_git_file_or_commondir_that_cannot_be_read_or_is_empty_is_not_followed
+    skip 'root can read every file' if Process.uid.zero?
+    hold(:checkout)
+    commondir = File.join(@layouts.fetch(:outside).git_dir, 'commondir')
+    [-> { File.chmod(0o000, commondir) },
+     -> { File.chmod(0o644, commondir) && File.write(commondir, '') },
+     -> { File.chmod(0o000, File.join(@layouts.fetch(:outside).path, '.git')) }].each_with_index do |damage, index|
+      damage.call
+      _out, err, status = run_lock(:outside, *mark_ran)
+      assert_equal 78, status.exitstatus, "#{index}: #{err}"
+      assert_includes err, 'cannot find the git directory', index.to_s
+      refute File.exist?(ran_log), index.to_s
+    end
+  end
+
   def stand_in(name, body)
     File.write(File.join(@fakebin, name), "#!/bin/sh\n#{body}\n")
     File.chmod(0o755, File.join(@fakebin, name))
