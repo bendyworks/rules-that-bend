@@ -39,9 +39,9 @@
 # or an old version would each point elsewhere. It targets bash 3.2,
 # macOS's /bin/bash.
 #
-# Exit status: the command's own; 64 with no command; 75 when refused; 78
-# when the git directory cannot be found or this run cannot be recorded
-# as the holder; 128 plus the signal's number when interrupted, hung up
+# Exit status: the command's own; 64 with no command; 73 when this run
+# cannot be recorded as the holder; 75 when refused; 78 when the git
+# directory cannot be found; 128 plus the signal's number when interrupted, hung up
 # on, or terminated while taking over a lock.
 set -u
 
@@ -161,8 +161,12 @@ hold_or_quit() {
   write_holder && return 0
   rm -f "$lock/holder.$$"
   rmdir "$lock" 2>/dev/null
-  echo "${0##*/}: cannot record this run as the holder of the suite lock ($lock), so the command was not run: either ps gave no start time for process $$ (the lock needs a ps that prints lstart, as macOS and procps do), or the holder file could not be written -- see docs/parallel-checkouts.md" >&2
-  exit 78
+  if [ -z "$(process_start "$$")" ]; then
+    echo "${0##*/}: ps gave no start time for this run (process $$), so it cannot be recorded as the holder of the suite lock and the command was not run. The lock needs a ps that prints lstart: macOS's does, and so does the procps package on Linux; BusyBox's does not -- see docs/parallel-checkouts.md" >&2
+  else
+    echo "${0##*/}: the holder file in $lock could not be written, so this run cannot be recorded as the holder of the suite lock and the command was not run. Check that $common can be written to and has room -- see docs/parallel-checkouts.md" >&2
+  fi
+  exit 73
 }
 
 # Sets holder_unreadable for a holder file this user cannot open, or a

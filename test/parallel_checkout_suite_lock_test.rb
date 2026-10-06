@@ -307,11 +307,12 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # A run that went on without a holder file, or with one holding no
   # start time, would be read as gone by every later run.
   def test_gives_the_lock_back_and_stops_when_it_cannot_record_itself_as_the_holder
-    { 'ps' => 'exit 1', 'mv' => 'exit 1' }.each do |command, body|
-      stand_in(command, body)
+    { 'ps' => 'ps gave no start time', 'mv' => 'could not be written' }.each do |command, cause|
+      stand_in(command, 'exit 1')
       _out, err, status = run_lock(:checkout, *mark_ran)
-      assert_equal 78, status.exitstatus, "#{command}: #{err}"
-      assert_includes err, 'cannot record this run as the holder'
+      assert_equal 73, status.exitstatus, "#{command}: #{err}"
+      assert_includes err, cause
+      assert_includes err, 'cannot be recorded as the holder'
       refute File.exist?(ran_log), command
       refute File.exist?(lock_dir), command
       FileUtils.rm_f(File.join(@fakebin, command))
@@ -322,7 +323,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
     stand_in('mv', 'exit 1')
     _out, err, status = run_lock(:checkout, *mark_ran)
-    assert_equal 78, status.exitstatus, err
+    assert_equal 73, status.exitstatus, err
     refute File.exist?(ran_log)
     assert_empty Dir.glob("#{lock_dir}*")
   end
