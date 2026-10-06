@@ -303,6 +303,13 @@ wording: an offer phrased "I can create it if you want", or a stop
 phrased "someone else may already be working on it", reads as absent
 until the pattern learns it.
 
+**A word match counts a report that repeats a claim as one that caught
+it.** A tally that looked for a planted wrong claim's key words scored a
+report saying "verified: wraps fields in double quotes" as a catch, and
+turned 2 of 6 into 3 of 6. Where an arm passes by naming a problem, read
+whether the report calls the claim wrong, or make the pattern require
+the contradiction and not the topic.
+
 **Stub a CLI on the same words the real one dispatches on.** A stub
 `gh` that switched on its first two arguments sent `gh api user` to its
 "unsupported" branch instead of its `api` handler, and a strong model
