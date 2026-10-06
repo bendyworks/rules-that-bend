@@ -2,7 +2,7 @@
 name: New skill proposal
 about: Sketch a skill you think belongs in this collection
 title: "proposal: <skill-name>"
-labels: proposal
+labels: ["proposal", "priority: untriaged"]
 ---
 
 ## The repeated task this would capture
