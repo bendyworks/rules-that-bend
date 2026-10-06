@@ -297,6 +297,7 @@ module SafeToLeave
     # written at clone time, and names the old branch after a default
     # branch is renamed.
     def default_branch
+      require_configured_remote
       line = output('ls-remote', '--symref', @remote, 'HEAD')
              .lines(chomp: true).find { |candidate| candidate.start_with?('ref: refs/heads/') }
       raise Error, "#{@remote} names no default branch" if line.nil?
@@ -354,6 +355,17 @@ module SafeToLeave
     end
 
     private
+
+    # git takes a URL or a path where a remote's name is expected, and
+    # would contact whatever it was handed. A name that is not
+    # configured is a misspelling.
+    def require_configured_remote
+      configured = output('remote').lines(chomp: true)
+      return if configured.include?(@remote)
+
+      known = configured.empty? ? 'this repository has none' : "configured: #{configured.join(', ')}"
+      raise Error, "no such remote: #{@remote} (#{known})"
+    end
 
     # -z, so a path holding a newline stays one field: fields end with
     # NUL and records with a second one.

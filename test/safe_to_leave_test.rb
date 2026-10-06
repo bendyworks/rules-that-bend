@@ -724,6 +724,31 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # git takes a URL or a path where a remote's name is expected, and
+  # would contact whatever it was handed.
+  def test_a_remote_that_is_not_configured_is_never_contacted
+    with_repo do |repo|
+      repo.add_remote('fork')
+      repo.git('remote', 'remove', 'fork')
+      result = report(repo, '--remote', File.join(repo.root, 'fork.git'))
+
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'no such remote: '
+      assert_includes result.line_for('unpushed'), '(configured: origin)'
+    end
+  end
+
+  # An empty remote answers, and names a default branch it does not have.
+  def test_a_remote_with_no_default_branch_leaves_unpushed_unchecked
+    with_repo do |repo|
+      repo.add_remote('fork')
+      result = report(repo, '--remote', 'fork')
+
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'fork names no default branch'
+    end
+  end
+
   # The remote is asked which branch is its default. When it cannot be
   # asked, how far ahead the default branch is has no answer, and no
   # answer counts against leaving.
