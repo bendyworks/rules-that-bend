@@ -284,15 +284,29 @@ class LeaveCliTestCase < CliTestCase
     SafeToLeave::CLI.run(argv)
   end
 
-  # The exit status is 0 when the CLI returns without exiting.
+  # The exit status is 0 when the CLI returns without exiting. An
+  # exception the CLI lets out is a failed assertion here, so a test
+  # about one reads as failing and not as broken.
   def run_report(argv)
     status = 0
+    escaped = nil
     out, err = capture_io do
       run_cli(argv)
     rescue SystemExit => e
       status = e.status
+    rescue StandardError => e
+      escaped = e
     end
+    assert_nil escaped, "the command let #{escaped.class} out: #{escaped&.message}"
     Result.new(status, out, err)
+  end
+
+  def with_external_encoding(encoding)
+    saved = Encoding.default_external
+    Encoding.default_external = encoding
+    yield
+  ensure
+    Encoding.default_external = saved
   end
 end
 
@@ -341,6 +355,7 @@ class LeaveArgumentTest < LeaveCliTestCase
       assert_equal [2, 2], [script.status, list.status]
       assert_equal ['', ''], [script.stdout, list.stdout]
       assert_match(/invalid option: --\*-completion-zsh/, script.stderr)
+      assert_match(/invalid option: --\*-completion-bash=--r/, list.stderr)
     end
   end
 
@@ -444,6 +459,28 @@ class LeaveArgumentTest < LeaveCliTestCase
 
       assert_equal 2, result.status
       assert_match(/invalid option: --café/, result.stderr)
+    end
+  end
+
+  # git names the directory in its own complaint, and Ruby tags that
+  # complaint with the locale's encoding as it does git's other output.
+  def test_gits_complaint_about_a_non_ascii_directory_is_carried_under_an_ascii_locale
+    in_empty_directory do |dir|
+      gone = File.join(dir, 'café', 'gone')
+      result = with_external_encoding(Encoding::US_ASCII) { run_report(['-C', gone]) }
+
+      assert_equal 2, result.status
+      assert_match(%r{cannot report on .*café/gone: fatal: cannot change to}, result.stderr.dup.force_encoding(Encoding::UTF_8))
+    end
+  end
+
+  # An exception's message can arrive tagged as binary too.
+  def test_an_unexpected_failure_with_a_non_ascii_message_is_still_an_error
+    in_empty_directory do |dir|
+      result = with_git_raising(ArgumentError.new('café'.b)) { run_report(['-C', dir]) }
+
+      assert_equal 2, result.status
+      assert_match(/ArgumentError: café/, result.stderr)
     end
   end
 
@@ -622,6 +659,43 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A stash subject is whatever bytes it was given. One that is not
+  # UTF-8 is reported with U+FFFD in its place.
+  def test_a_stash_subject_that_is_not_utf8_is_reported
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.stash_change("caf\xE9".b)
+      repo.checkout('main')
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['stashes'], result.stderr
+      assert_includes result.line_for('stashes'), "caf\uFFFD"
+    end
+  end
+
+  # The prefix is an argument, and a branch name is git's output.
+  def test_a_non_ascii_story_prefix_under_an_ascii_locale_matches_its_branch
+    with_repo do |repo|
+      repo.branch_from_main('café-fix')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.checkout('main')
+      result = report_on(repo, ['-C', repo.work, '--story-branch', 'café-'.b])
+
+      assert_equal ['AGAINST'], result.statuses['unpushed'], result.stderr
+      assert_includes result.line_for('unpushed'), 'café-fix (1 commit)'
+    end
+  end
+
+  def test_run_with_no_directory_named_the_working_directory_is_reported
+    with_repo do |repo|
+      repo.write('draft.md', 'unsent')
+      result = Dir.chdir(repo.work) { report_on(repo, ['--story-branch', STORY]) }
+
+      assert_equal 1, result.status, result.stderr
+      assert_includes result.line_for('working-tree'), 'draft.md'
+    end
+  end
+
   def test_a_non_ascii_stash_subject_is_reported_under_an_ascii_locale
     with_repo do |repo|
       repo.branch_from_main('abc-12-fix-export')
@@ -634,14 +708,6 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
-  def with_external_encoding(encoding)
-    saved = Encoding.default_external
-    Encoding.default_external = encoding
-    yield
-  ensure
-    Encoding.default_external = saved
-  end
-
   # A file name can hold a newline, and what follows it would print as
   # a line of the report.
   def test_a_file_name_cannot_add_a_line_to_the_report
@@ -649,7 +715,7 @@ class LeaveReportTest < LeaveCliTestCase
       repo.write("x\n  ok        stashes: none", 'unsent')
       result = report(repo)
 
-      assert_equal 6, result.stdout.lines.length, result.stdout
+      assert_equal ['ok'], result.statuses['stashes'], result.stdout
       assert_includes result.line_for('working-tree'), 'x\n  ok        stashes: none'
     end
   end
@@ -662,6 +728,20 @@ class LeaveReportTest < LeaveCliTestCase
 
       refute_includes result.stdout, "\u2028"
       assert_includes result.line_for('working-tree'), 'x\u2028  ok        stashes: none'
+    end
+  end
+
+  # U+2029 is the paragraph separator, and U+202E reverses the text
+  # after it.
+  def test_a_paragraph_separator_or_a_text_reversal_in_a_file_name_is_printed_as_text
+    with_repo do |repo|
+      repo.write("p\u2029x", 'unsent')
+      repo.write("r\u202Ex", 'unsent')
+      result = report(repo)
+
+      refute_match(/[\u2029\u202E]/, result.stdout)
+      assert_includes result.line_for('working-tree'), 'p\u2029x'
+      assert_includes result.line_for('working-tree'), 'r\u202Ex'
     end
   end
 
@@ -842,6 +922,32 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A detached HEAD's commits are measured against the local branches
+  # and against the remote's, and either alone accounts for a commit.
+  def test_a_detached_head_at_a_local_branch_tip_adds_no_count
+    with_repo do |repo|
+      repo.branch_from_main('other-work')
+      repo.commit_locally('other', 'Other work')
+      repo.detach_head
+      result = report(repo)
+
+      assert_equal ['listed'], result.statuses['unpushed'], result.stdout
+      refute_includes result.stdout, 'HEAD is detached'
+    end
+  end
+
+  def test_a_detached_head_at_a_commit_only_the_remote_branch_holds_adds_no_count
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.push('abc-12-fix-export')
+      repo.detach_head
+      repo.git('branch', '-D', 'abc-12-fix-export')
+
+      assert_equal ['ok'], report(repo).statuses['unpushed']
+    end
+  end
+
   def test_a_detached_head_at_a_pushed_commit_does_not_count
     with_repo do |repo|
       repo.detach_head
@@ -879,7 +985,8 @@ class LeaveReportTest < LeaveCliTestCase
     with_repo do |repo|
       result = report(repo, '--remote', 'café'.b)
 
-      assert_equal 6, result.stdout.lines.length, result.stdout + result.stderr
+      assert_equal 1, result.status, result.stdout + result.stderr
+      assert_equal %w[working-tree unpushed stashes worktrees], result.statuses.keys
       assert_includes result.line_for('unpushed'), 'no such remote: café (configured: origin)'
     end
   end
@@ -906,8 +1013,9 @@ class LeaveReportTest < LeaveCliTestCase
       FileUtils.remove_entry(repo.origin)
       result = report(repo)
 
-      assert_equal 6, result.stdout.lines.length, result.stdout
-      refute_match(/^fatal:/, result.stdout)
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      refute_includes result.line_for('unpushed'), '\n'
+      refute_includes result.line_for('unpushed'), 'Could not read from remote repository'
     end
   end
 
@@ -920,7 +1028,7 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal 1, result.status
       assert_equal ['UNCHECKED'], result.statuses['unpushed']
-      assert_includes result.line_for('unpushed'), 'fetch origin first'
+      assert_includes result.line_for('unpushed'), 'refs/remotes/origin/main is absent; fetch origin first'
     end
   end
 
@@ -1028,6 +1136,19 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # Only a detached worktree's commits need the remote's answer, so a
+  # worktree on a branch is read without one.
+  def test_a_linked_worktree_on_a_branch_is_read_when_the_remote_cannot_be_asked
+    with_repo do |repo|
+      repo.add_worktree('elsewhere', 'other-work')
+      FileUtils.remove_entry(repo.origin)
+      result = report(repo)
+
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_equal ['listed'], result.statuses['worktrees']
+    end
+  end
+
   def test_a_linked_worktree_whose_directory_is_gone_is_unchecked
     with_repo do |repo|
       path = repo.add_worktree('elsewhere', 'other-work')
@@ -1086,13 +1207,14 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
-  # Read with its last character dropped, the directory would not be
-  # recognized as the one reported on, and would be listed as another.
+  # Read with its last character dropped, the path names no directory,
+  # and the report cannot be made.
   def test_a_directory_whose_name_ends_in_a_carriage_return_is_itself
     with_repo do |repo|
       path = repo.add_worktree("elsewhere\r", 'other-work')
       result = report_on(repo, ['-C', path, '--story-branch', STORY])
 
+      assert_equal 0, result.status, result.stderr
       assert_includes result.stdout.lines.first, 'elsewhere\r'
       refute_includes result.line_for('worktrees'), 'elsewhere'
     end
