@@ -949,6 +949,20 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A HEAD that names a ref with no commit yet holds no commits, and
+  # the branches are still counted.
+  def test_an_unborn_head_that_names_no_branch_leaves_the_branch_counts_standing
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.git('symbolic-ref', 'HEAD', 'refs/elsewhere/unborn')
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['unpushed'], result.stdout
+      assert_includes result.line_for('unpushed'), 'abc-12-fix-export (1 commit)'
+    end
+  end
+
   def test_a_detached_head_at_a_pushed_commit_does_not_count
     with_repo do |repo|
       repo.detach_head
@@ -1148,6 +1162,29 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal ['UNCHECKED'], result.statuses['unpushed']
       assert_equal ['listed'], result.statuses['worktrees']
+    end
+  end
+
+  # `git worktree list` gives a branch field to any worktree whose HEAD
+  # names a ref, and a ref outside refs/heads/ is no branch.
+  def test_a_linked_worktree_whose_head_names_no_branch_is_described_as_detached
+    with_repo do |repo|
+      path = repo.add_detached_worktree('elsewhere')
+      repo.git('symbolic-ref', 'HEAD', 'refs/elsewhere/notes', dir: path)
+      repo.git('commit', '-q', '--allow-empty', '-m', 'Left on no branch', dir: path)
+
+      assert_includes report(repo).line_for('worktrees'), 'elsewhere (detached, 1 commit on no branch)'
+    end
+  end
+
+  def test_a_clean_linked_worktree_whose_head_names_no_branch_counts_as_a_detached_one_does
+    with_repo do |repo|
+      path = repo.add_detached_worktree('elsewhere')
+      repo.git('update-ref', 'refs/elsewhere/notes', 'main')
+      repo.git('symbolic-ref', 'HEAD', 'refs/elsewhere/notes', dir: path)
+      result = report_on(repo, ['-C', repo.work])
+
+      assert_equal ['listed'], result.statuses['worktrees'], result.stdout
     end
   end
 

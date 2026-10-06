@@ -362,7 +362,7 @@ module SafeToLeave
     # asked the remote, which saves a request for each detached
     # worktree.
     def detached_commits(asked = self)
-      return 0 unless detached?
+      return 0 unless detached? && commit?('HEAD')
 
       commits_beyond('HEAD', local_branches.map { |branch| "refs/heads/#{branch}" } + asked.current_tracking_refs)
     end
@@ -449,6 +449,12 @@ module SafeToLeave
       Integer(output('rev-list', '--count', '--stdin', stdin: revisions.join("\n")).strip)
     end
 
+    # False for a HEAD that names a ref with no commit yet, which holds
+    # no commits to count.
+    def commit?(revision)
+      capture('rev-parse', '--verify', '--quiet', "#{revision}^{commit}").last.success?
+    end
+
     # Whether HEAD is on no branch. `symbolic-ref -q` exits 1 for a
     # detached HEAD and higher for a failure. It also answers for a HEAD
     # that names a ref outside refs/heads/, whose commits are on no
@@ -469,7 +475,9 @@ module SafeToLeave
         path = fields.find { |field| field.start_with?('worktree ') }&.delete_prefix('worktree ')
         next if path.nil? || fields.include?('bare')
 
-        branch = fields.find { |field| field.start_with?('branch ') }
+        # A HEAD that names a ref outside refs/heads/ has a branch field
+        # too, and is on no branch.
+        branch = fields.find { |field| field.start_with?('branch refs/heads/') }
         { path: path, branch: branch&.delete_prefix('branch refs/heads/') }
       end
     end
