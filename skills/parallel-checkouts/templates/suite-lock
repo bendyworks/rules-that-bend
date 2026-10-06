@@ -132,13 +132,14 @@ takeover="$lock.takeover"
 # exited and not yet been collected by its parent still has a row in ps,
 # with a state beginning Z. ps prints the time in the caller's time
 # zone, so the zone is fixed: two runs with different TZ values must
-# print the same text for one process.
+# print the same text for one process. UTC0 is the form that needs no
+# time zone files on the machine.
 process_start() {
   local started
   case "$(LC_ALL=C ps -o stat= -p "$1" 2>/dev/null)" in
     ''|Z*) return 0 ;;
   esac
-  started="$(TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)"
+  started="$(TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)"
   started="${started#"${started%%[![:space:]]*}"}"
   started="${started%"${started##*[![:space:]]}"}"
   printf '%s' "$started"

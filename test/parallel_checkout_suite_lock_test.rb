@@ -137,7 +137,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def process_state(pid) = `LC_ALL=C ps -o stat= -p #{pid}`.strip
 
-  def start_time(pid) = `TZ=UTC LC_ALL=C ps -o lstart= -p #{pid}`.strip
+  def start_time(pid) = `TZ=UTC0 LC_ALL=C ps -o lstart= -p #{pid}`.strip
 
   def write_holder(pid:, start:, command: 'rake')
     FileUtils.mkdir_p(lock_dir)
