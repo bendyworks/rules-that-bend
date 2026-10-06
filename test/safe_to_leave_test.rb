@@ -113,7 +113,8 @@ class StashDecisionTest < Minitest::Test
     assert_equal ['listed'], statuses([stash(0, 'WIP on my-abc-12-copy: 1a2b3c4 Start')])
   end
 
-  # Cut at the slash, the first name would start with the prefix.
+  # Read from after its slash, `other/abc-12-fix` would start with the
+  # prefix.
   def test_a_branch_name_holding_a_slash_is_read_whole
     assert_equal ['listed'], statuses([stash(0, 'On other/abc-12-fix: wip')])
     assert_equal ['AGAINST'], statuses([stash(0, 'On abc-12-fix/export: wip')])
@@ -241,7 +242,7 @@ class WorktreeDecisionTest < Minitest::Test
   end
 
   # A worktree whose directory is gone, or that git cannot read, has an
-  # unknown state. Unknown is not clean.
+  # unknown state, which counts against leaving.
   def test_a_linked_worktree_that_could_not_be_read_is_unchecked_with_the_reason
     lines = SafeToLeave::Checks.worktrees([worktree('other-work', nil, nil, 'its directory is missing')], PREFIXES)
 
@@ -1020,7 +1021,8 @@ class LeaveReportTest < LeaveCliTestCase
   end
 
   # The default branch's remote-tracking ref is what "ahead" is measured
-  # from. A repository never fetched has none, and that is not zero.
+  # from. A repository never fetched has none, which leaves the count
+  # unknown.
   def test_a_default_branch_never_fetched_leaves_unpushed_unchecked
     with_repo do |repo|
       repo.git('update-ref', '-d', 'refs/remotes/origin/main')

@@ -6,9 +6,9 @@
 #
 # It prints one or more lines per check and changes nothing: it reads
 # the working tree, the commits the remote does not have, the stashes,
-# and the linked worktrees. The remote is asked which branch is its
-# default, and that is the one use of the network. Each line carries
-# one of four words:
+# and the linked worktrees. The remote is asked, in one request, which
+# branch is its default and where each of its branches is, and that is
+# the one use of the network. Each line carries one of four words:
 #
 #   ok         the check ran and found nothing
 #   AGAINST    something counts against leaving, and is named
@@ -24,9 +24,13 @@
 # stash made on a branch, or a worktree on a branch whose name starts
 # with a --story-branch prefix is the story's. That is the one
 # attribution git can answer. Dates cannot do it: a stash records when
-# it was made, and nothing records when a story began. Two things count
-# whatever their branch: a worktree with uncommitted files, and commits
-# on a detached HEAD that are on no branch.
+# it was made, and nothing records when a story began. Four things count
+# whatever the prefix: commits on the default branch that the remote
+# does not have, a stash that names no branch, a worktree with
+# uncommitted files, and commits on a detached HEAD that are on no
+# branch.
+#
+# The worktrees check needs git 2.36 or newer, for `worktree list -z`.
 #
 # Stdlib-only (no gems). Run with --help for usage.
 
@@ -74,13 +78,19 @@ module SafeToLeave
                       story's
       -h, --help      print this message
 
-    A worktree with uncommitted files counts whatever its branch, and so
-    do commits on a detached HEAD that are on no branch.
+    Four things count whatever the prefix: commits on the default branch
+    that the remote does not have, a stash that names no branch, a
+    worktree with uncommitted files, and commits on a detached HEAD that
+    are on no branch.
 
-    Unpushed commits are measured against what the remote had as of your
-    last fetch, so fetch first. The remote itself is asked only which
-    branch is its default. When it cannot be reached, the unpushed check
-    is UNCHECKED and the others still run.
+    Unpushed commits are measured against your remote-tracking branches,
+    so fetch first. The remote is asked which branch is its default and
+    where each of its branches is. A tracking branch the remote has
+    since moved or deleted is not measured against, and its commits
+    count as unpushed. When the remote cannot be reached, the unpushed
+    check is UNCHECKED and the others still run.
+
+    The worktrees check needs git 2.36 or newer.
 
     Exit status: 0 nothing counts against leaving, 1 something does (an
     UNCHECKED line included), 2 the report could not be made.
@@ -318,7 +328,7 @@ module SafeToLeave
     end
 
     # Short names, for the report. A tag sharing a branch's name makes
-    # the short form ambiguous to rev-list, so the two methods below
+    # the short form ambiguous to rev-list, so the methods below
     # hand git the full refname.
     def local_branches
       output('for-each-ref', '--format=%(refname)', 'refs/heads/')
@@ -342,8 +352,9 @@ module SafeToLeave
 
     # The commits on a detached HEAD that no local branch and no branch
     # on the remote has, and 0 when HEAD is on a branch. Worktrees share
-    # their refs, so a linked worktree's reader is handed the reader
-    # that has already asked the remote.
+    # their refs, so a linked worktree's Git is handed the Git that has
+    # asked the remote, which saves a request for each detached
+    # worktree.
     def detached_commits(asked = self)
       return 0 unless detached?
 
@@ -532,6 +543,8 @@ module SafeToLeave
     def parse(argv)
       refuse_completion_flags(argv)
       options = { prefixes: [], help: false }
+      # permute rather than parse, which stops at the first positional
+      # when POSIXLY_CORRECT is set.
       stray = option_parser(options).permute(argv)
       unless stray.empty? || options[:help]
         raise Error, "unexpected extra arguments: #{stray.map(&:inspect).join(', ')}"
@@ -550,8 +563,6 @@ module SafeToLeave
       raise Error, "invalid option: #{flag}" if flag
     end
 
-    # The caller runs permute rather than parse, which stops at the
-    # first positional when POSIXLY_CORRECT is set.
     def option_parser(options)
       OptionParser.new do |o|
         # Abbreviation is off: `--rem` is a typo, and no flag.
