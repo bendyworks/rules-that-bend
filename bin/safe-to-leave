@@ -117,12 +117,17 @@ module SafeToLeave
   Advertised = Struct.new(:default, :heads)
 
   # `changes` is the number of uncommitted or untracked entries, and
-  # `detached_commits` the number of commits on a detached HEAD that are
-  # on no branch. Both are nil when the worktree could not be read, and
-  # `reason` then says why.
+  # `detached_commits` the number of commits on a HEAD that is on no
+  # branch which no branch has. Both are nil when the worktree could not
+  # be read, and `detached_commits` alone when its files were read and
+  # its commits could not be measured. `reason` then says why.
   Worktree = Struct.new(:path, :branch, :changes, :detached_commits, :reason) do
     def self.read(path, branch, changes:, detached_commits:)
       new(path, branch, changes, detached_commits, nil)
+    end
+
+    def self.unmeasured(path, branch, changes, reason)
+      new(path, branch, changes, nil, reason)
     end
 
     def self.unread(path, branch, reason)
@@ -210,12 +215,17 @@ module SafeToLeave
       return [Line.new('worktrees', OK, 'no other worktree')] if worktrees.empty?
 
       unread, read = worktrees.partition { |worktree| worktree.changes.nil? }
-      counted, clean = read.partition do |worktree|
+      unmeasured = read.select { |worktree| worktree.detached_commits.nil? }
+      counted, clean = (read - unmeasured).partition do |worktree|
         worktree.changes.positive? || worktree.detached_commits.positive? ||
           (worktree.branch && story_branch?(worktree.branch, prefixes))
       end
+      counted += unmeasured.select { |worktree| worktree.changes.positive? }
       [
         (Line.new('worktrees', UNCHECKED, "could not be read: #{describe_unread(unread)}") unless unread.empty?),
+        unless unmeasured.empty?
+          Line.new('worktrees', UNCHECKED, "commits on a detached HEAD not measured: #{describe_unread(unmeasured)}")
+        end,
         (Line.new('worktrees', AGAINST, describe_worktrees(counted)) unless counted.empty?),
         (Line.new('worktrees', LISTED, "not counted, clean and on other work: #{paths(clean)}") unless clean.empty?)
       ].compact
@@ -233,7 +243,7 @@ module SafeToLeave
       worktrees.map do |worktree|
         facts = [
           worktree.branch ? "on #{worktree.branch}" : 'detached',
-          (count_on_no_branch(worktree.detached_commits) if worktree.detached_commits.positive?),
+          (count_on_no_branch(worktree.detached_commits) if worktree.detached_commits.to_i.positive?),
           (count(worktree.changes, 'uncommitted or untracked file') if worktree.changes.positive?)
         ]
         "#{worktree.path} (#{facts.compact.join(', ')})"
@@ -408,8 +418,17 @@ module SafeToLeave
       end
     end
 
+    # The remote is asked once. An answer that failed is kept as well,
+    # and raised again for each caller.
     def advertised
-      @advertised ||= ask_remote
+      @advertised ||= begin
+        ask_remote
+      rescue Error => e
+        e
+      end
+      raise @advertised if @advertised.is_a?(Error)
+
+      @advertised
     end
 
     # One question to the remote: which branch is its default, and
@@ -489,10 +508,18 @@ module SafeToLeave
     def read_worktree(path, branch)
       there = Git.new(dir: path, remote: @remote)
       there.require_worktree_root
-      Worktree.read(path, branch, changes: there.status_entries.length,
-                                  detached_commits: there.detached_commits(self))
+      measure_worktree(there, path, branch, there.status_entries.length)
     rescue Error => e
       Worktree.unread(path, branch, e.message)
+    end
+
+    # The files have been read by now, and are kept when the commits on
+    # a detached HEAD cannot be measured, as when the remote does not
+    # answer.
+    def measure_worktree(there, path, branch, changes)
+      Worktree.read(path, branch, changes: changes, detached_commits: there.detached_commits(self))
+    rescue Error => e
+      Worktree.unmeasured(path, branch, changes, e.message)
     end
   end
 

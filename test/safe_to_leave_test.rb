@@ -231,6 +231,24 @@ class WorktreeDecisionTest < Minitest::Test
     assert_equal ['listed'], statuses([worktree(nil, 0, 0)])
   end
 
+  # A detached worktree's files can be read when its commits cannot be
+  # measured, and both facts are reported.
+  def test_a_detached_worktree_whose_commits_were_not_measured_is_unchecked_and_keeps_its_changes
+    unmeasured = SafeToLeave::Worktree.unmeasured('/tmp/elsewhere', nil, 1, 'the remote did not answer')
+    lines = SafeToLeave::Checks.worktrees([unmeasured], PREFIXES)
+
+    assert_equal %w[UNCHECKED AGAINST], lines.map(&:status)
+    assert_equal 'commits on a detached HEAD not measured: /tmp/elsewhere (the remote did not answer)',
+                 lines.first.detail
+    assert_equal '/tmp/elsewhere (detached, 1 uncommitted or untracked file)', lines.last.detail
+  end
+
+  def test_a_clean_detached_worktree_whose_commits_were_not_measured_is_not_listed_as_clean
+    unmeasured = SafeToLeave::Worktree.unmeasured('/tmp/elsewhere', nil, 0, 'the remote did not answer')
+
+    assert_equal ['UNCHECKED'], statuses([unmeasured])
+  end
+
   def test_a_counted_worktree_is_described_by_its_branch_and_its_changes
     described = lambda do |branch, changes|
       SafeToLeave::Checks.worktrees([worktree(branch, changes)], PREFIXES).first.detail
@@ -1185,6 +1203,39 @@ class LeaveReportTest < LeaveCliTestCase
       result = report_on(repo, ['-C', repo.work])
 
       assert_equal ['listed'], result.statuses['worktrees'], result.stdout
+    end
+  end
+
+  # A detached worktree's commits need the remote's answer. Its files
+  # do not, and are still reported when the remote cannot be asked.
+  def test_a_detached_linked_worktree_keeps_its_changes_when_the_remote_cannot_be_asked
+    with_repo do |repo|
+      path = repo.add_detached_worktree('elsewhere')
+      File.write(File.join(path, 'scratch'), "left behind\n")
+      FileUtils.remove_entry(repo.origin)
+      result = report(repo)
+
+      assert_equal %w[UNCHECKED AGAINST], result.statuses['worktrees'], result.stdout
+      assert_includes result.line_for('worktrees'), 'commits on a detached HEAD not measured: '
+      assert_includes result.line_for('worktrees'), 'elsewhere (detached, 1 uncommitted or untracked file)'
+    end
+  end
+
+  # GIT_TRACE has git log each command it runs.
+  def test_a_remote_that_cannot_be_asked_is_asked_once
+    with_repo do |repo|
+      repo.add_detached_worktree('elsewhere')
+      repo.add_detached_worktree('another')
+      FileUtils.remove_entry(repo.origin)
+      trace = File.join(repo.root, 'trace.log')
+      with_repo_env(repo) do
+        ENV['GIT_TRACE'] = trace
+        run_report(['-C', repo.work, '--story-branch', STORY])
+      ensure
+        ENV.delete('GIT_TRACE')
+      end
+
+      assert_equal 1, File.readlines(trace).grep(/built-in: git ls-remote/).length
     end
   end
 
