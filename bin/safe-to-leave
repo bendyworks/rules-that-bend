@@ -385,18 +385,18 @@ module SafeToLeave
   # A check whose facts cannot be gathered becomes an UNCHECKED line
   # carrying the reason, and the checks after it still run.
   class Report
-    def initialize(git:, prefixes:)
+    def initialize(git:, here:, prefixes:)
       @git = git
+      @here = here
       @prefixes = prefixes
     end
 
     def lines
-      here = @git.toplevel
       [
         checked('working-tree') { Checks.working_tree(@git.status_entries) },
         checked('unpushed') { unpushed },
         checked('stashes') { Checks.stashes(@git.stashes, @prefixes) },
-        checked('worktrees') { Checks.worktrees(@git.other_worktrees(here), @prefixes) }
+        checked('worktrees') { Checks.worktrees(@git.other_worktrees(@here), @prefixes) }
       ].flatten
     end
 
@@ -416,58 +416,73 @@ module SafeToLeave
     end
   end
 
-  module CLI
+  class CLI
     # A value-taking flag swallows a following flag as its value, so
     # each one refuses a value with a leading dash.
     VALUE_NOT_FLAG = /\A[^-].*\z/m
 
     # Control characters, and the Unicode characters that reorder the
     # text around them.
-    UNPRINTABLE = /[[:cntrl:]\u202A-\u202E\u2066-\u2069]/
+    UNPRINTABLE = /[[:cntrl:]‪-‮⁦-⁩]/
 
-    module_function
+    def self.run(argv)
+      new.run(argv)
+    end
 
     def run(argv)
       options = parse(argv)
+      return puts(USAGE) if options[:help]
+
       git = Git.new(dir: options[:dir], remote: options[:remote])
-      lines = Report.new(git: git, prefixes: options[:prefixes]).lines
-      print_report(git.toplevel, lines)
+      here = git.toplevel
+      lines = Report.new(git: git, here: here, prefixes: options[:prefixes]).lines
+      print_report(here, lines)
       exit 1 if lines.any?(&:against?)
-    rescue Error, OptionParser::ParseError => e
-      warn "safe-to-leave: #{printable(e.message)}"
-      exit 2
+    rescue Error => e
+      refuse(e.message)
     # Ruby exits 1 on an exception nothing rescued, and 1 is this
     # command's answer that something counts against leaving.
     rescue StandardError => e
-      warn "safe-to-leave: unexpected #{e.class}: #{printable(e.message)}"
-      exit 2
+      refuse("unexpected #{e.class}: #{e.message}")
     end
 
-    # permute rather than parse, which stops at the first positional
-    # when POSIXLY_CORRECT is set.
+    private
+
+    # A request for usage is answered even beside a stray argument.
     def parse(argv)
-      options = { dir: Dir.pwd, remote: DEFAULT_REMOTE, prefixes: [] }
-      parser = OptionParser.new do |on|
-        on.on('-C DIR', VALUE_NOT_FLAG) { |dir| options[:dir] = dir }
-        on.on('--remote NAME', VALUE_NOT_FLAG) { |name| options[:remote] = name }
-        on.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
-        on.on('-h', '--help') do
-          puts USAGE
-          exit 0
-        end
+      options = { prefixes: [], help: false }
+      stray = option_parser(options).permute(argv)
+      unless stray.empty? || options[:help]
+        raise Error, "unexpected extra arguments: #{stray.map(&:inspect).join(', ')}"
       end
-      stray = parser.permute(argv)
-      raise Error, "unexpected argument: #{stray.join(' ')}\n#{USAGE}" unless stray.empty?
 
-      options
+      { dir: Dir.pwd, remote: DEFAULT_REMOTE }.merge(options)
+    rescue OptionParser::ParseError => e
+      raise Error, e.message
     end
 
-    # File names, stash subjects, worktree paths, and git's messages can
-    # hold a newline or a terminal escape, and they are printed inside
-    # lines that a reader, or a session, takes as this command's own.
-    # Each such character is printed as its Ruby escape.
-    def printable(text)
-      text.gsub(UNPRINTABLE) { |character| character.dump[1..-2] }
+    # The caller runs permute rather than parse, which stops at the
+    # first positional when POSIXLY_CORRECT is set.
+    def option_parser(options)
+      OptionParser.new do |o|
+        # Abbreviation is off: `--rem` is a typo, and no flag.
+        o.require_exact = true
+        o.on('-C DIR', VALUE_NOT_FLAG) { |dir| set_once(options, :dir, '-C', dir) }
+        o.on('--remote NAME', VALUE_NOT_FLAG) { |name| set_once(options, :remote, '--remote', name) }
+        o.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
+        o.on('-h', '--help') { options[:help] = true }
+        # OptionParser answers --version itself, by exiting 1. The
+        # plugin this ships in has no version to give.
+        o.on('--version') { raise Error, 'invalid option: --version' }
+      end
+    end
+
+    # Taking the last of a repeated -C or --remote would report on one
+    # of two things the caller named.
+    def set_once(options, key, flag, value)
+      raise Error, "duplicate #{flag}" if options.key?(key)
+
+      options[key] = value
     end
 
     def print_report(toplevel, lines)
@@ -482,6 +497,19 @@ module SafeToLeave
       else
         puts "safe-to-leave: #{against} #{against == 1 ? 'line counts' : 'lines count'} against leaving"
       end
+    end
+
+    # File names, stash subjects, worktree paths, and git's messages can
+    # hold a newline or a terminal escape, and they are printed inside
+    # lines that a reader, or a session, takes as this command's own.
+    # Each such character is printed as its Ruby escape.
+    def printable(text)
+      text.gsub(UNPRINTABLE) { |character| character.dump[1..-2] }
+    end
+
+    def refuse(message)
+      warn "safe-to-leave: #{printable(message)}"
+      exit 2
     end
   end
 end

@@ -312,7 +312,40 @@ class LeaveArgumentTest < LeaveCliTestCase
       result = run_report(['-C', dir, 'stray'])
 
       assert_equal 2, result.status
-      assert_match(/stray/, result.stderr)
+      assert_equal %(safe-to-leave: unexpected extra arguments: "stray"\n), result.stderr
+    end
+  end
+
+  # OptionParser answers --version itself by exiting 1, which is this
+  # command's answer that something counts against leaving.
+  def test_version_is_refused_as_the_unknown_flag_it_is
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--version'])
+
+      assert_equal 2, result.status
+      assert_match(/invalid option: --version/, result.stderr)
+    end
+  end
+
+  def test_an_abbreviated_flag_is_refused
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--story', 'abc-12-'])
+
+      assert_equal 2, result.status
+      assert_match(/invalid option: --story/, result.stderr)
+    end
+  end
+
+  # Taking the last of two would report on one directory, or against
+  # one remote, where the caller named two.
+  def test_a_repeated_directory_or_remote_is_refused
+    in_empty_directory do |dir|
+      twice_dir = run_report(['-C', dir, '-C', dir])
+      twice_remote = run_report(['-C', dir, '--remote', 'origin', '--remote', 'fork'])
+
+      assert_equal [2, 2], [twice_dir.status, twice_remote.status]
+      assert_match(/duplicate -C/, twice_dir.stderr)
+      assert_match(/duplicate --remote/, twice_remote.stderr)
     end
   end
 
@@ -330,6 +363,15 @@ class LeaveArgumentTest < LeaveCliTestCase
   def test_help_prints_usage_and_exits_clean
     in_empty_directory do |dir|
       result = run_report(['-C', dir, '--help'])
+
+      assert_equal 0, result.status
+      assert_match(/Usage: safe-to-leave/, result.stdout)
+    end
+  end
+
+  def test_help_is_answered_beside_a_stray_argument
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--help', 'stray'])
 
       assert_equal 0, result.status
       assert_match(/Usage: safe-to-leave/, result.stdout)
