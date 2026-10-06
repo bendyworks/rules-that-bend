@@ -349,6 +349,16 @@ gives a different verdict on each. Write down, per pattern, which
 scenarios invite it, before any output exists. A pool changed after
 seeing results is reported as changed, with both figures.
 
+**Run the control again beside every treatment batch, and never compare
+wordings on six runs.** The same brief, byte for byte, caught a planted
+error in 3 of 6 runs in one batch and 0 of 6 in the next, on the
+smallest model. Three rewordings scored 0 of 6, 2 of 6 and 1 of 10 in
+between, and each read as a regression until the unchanged text scored
+inside that spread. A rate that low needs at least twenty runs per arm
+before two wordings can be told apart. With fewer, report the spread,
+and where you can, change the design so it no longer depends on the
+difference.
+
 **Pin a container to one CPU to reproduce a race that fails only in
 CI.** A test that wrote to the pipe of a child process which exits
 without reading passed 30 runs of 30 in a Linux container with every
