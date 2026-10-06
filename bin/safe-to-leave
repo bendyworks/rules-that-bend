@@ -261,7 +261,9 @@ module SafeToLeave
       stdout, stderr, status = capture('rev-parse', '--show-toplevel')
       raise Error, "cannot report on #{@dir}: #{complaint(stderr)}" unless status.success?
 
-      stdout.chomp
+      # Not chomp, which would also take a carriage return that ends
+      # the directory's name.
+      stdout.delete_suffix("\n")
     end
 
     # Refuses a directory that is not the top of a worktree. A worktree
@@ -493,9 +495,10 @@ module SafeToLeave
     # each one refuses a value with a leading dash.
     VALUE_NOT_FLAG = /\A[^-].*\z/m
 
-    # Control characters, and the Unicode characters that reorder the
+    # Control characters, the Unicode line and paragraph separators, and
+    # the format characters, which include the ones that reorder the
     # text around them.
-    UNPRINTABLE = /[[:cntrl:]‪-‮⁦-⁩]/
+    UNPRINTABLE = /[[:cntrl:]\p{Zl}\p{Zp}\p{Cf}]/
 
     def self.run(argv)
       new.run(argv)

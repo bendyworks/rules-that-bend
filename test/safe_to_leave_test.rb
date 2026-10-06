@@ -654,6 +654,17 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # U+2028 is a line end to some readers and is no control character.
+  def test_a_line_separator_in_a_file_name_is_printed_as_text
+    with_repo do |repo|
+      repo.write("x\u2028  ok        stashes: none", 'unsent')
+      result = report(repo)
+
+      refute_includes result.stdout, "\u2028"
+      assert_includes result.line_for('working-tree'), 'x\u2028  ok        stashes: none'
+    end
+  end
+
   def test_a_terminal_escape_in_a_file_name_is_printed_as_text
     with_repo do |repo|
       repo.write("a\e[2Jb", 'unsent')
@@ -1041,6 +1052,18 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal ['ok'], result.statuses['working-tree']
       assert_equal ['AGAINST'], result.statuses['worktrees']
+    end
+  end
+
+  # Read with its last character dropped, the directory would not be
+  # recognized as the one reported on, and would be listed as another.
+  def test_a_directory_whose_name_ends_in_a_carriage_return_is_itself
+    with_repo do |repo|
+      path = repo.add_worktree("elsewhere\r", 'other-work')
+      result = report_on(repo, ['-C', path, '--story-branch', STORY])
+
+      assert_includes result.stdout.lines.first, 'elsewhere\r'
+      refute_includes result.line_for('worktrees'), 'elsewhere'
     end
   end
 
