@@ -125,5 +125,7 @@ module Fixtures
       File.write(File.join(layout.path, '.git'), "gitdir: #{elsewhere}\n")
       layout
     end
+
+    private_class_method :worktree, :crlf, :relative, :absolute_common, :crlf_common, :missing, :unreachable
   end
 end
