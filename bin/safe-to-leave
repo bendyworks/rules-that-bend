@@ -8,7 +8,8 @@
 # the working tree, the commits the remote does not have, the stashes,
 # and the linked worktrees. The remote is asked, in one request, which
 # branch is its default and where each of its branches is, and that is
-# the one use of the network. Each line carries one of four words:
+# the one use of the network. Each line of a check carries one of four
+# words:
 #
 #   ok         the check ran and found nothing
 #   AGAINST    something counts against leaving, and is named
@@ -24,11 +25,11 @@
 # stash made on a branch, or a worktree on a branch whose name starts
 # with a --story-branch prefix is the story's. That is the one
 # attribution git can answer. Dates cannot do it: a stash records when
-# it was made, and nothing records when a story began. Four things count
-# whatever the prefix: commits on the default branch that the remote
-# does not have, a stash that names no branch, a worktree with
-# uncommitted files, and commits on a detached HEAD that are on no
-# branch.
+# it was made, and nothing records when a story began. These count
+# whatever the prefix: uncommitted files in the working tree or in any
+# other worktree, commits on the default branch that the remote does not
+# have, a stash that names no branch, commits on a detached HEAD that
+# are on no branch, and every UNCHECKED line.
 #
 # The worktrees check needs git 2.36 or newer, for `worktree list -z`.
 #
@@ -46,7 +47,8 @@ module SafeToLeave
     Usage: safe-to-leave [-C DIR] [--remote NAME] [--story-branch PREFIX]...
 
     Reports what is left behind in a repository, in one or more lines
-    per check. Nothing is changed. Each line starts with one of:
+    per check. Nothing is changed. Each line of a check starts with one
+    of:
 
       ok         the check ran and found nothing
       AGAINST    something counts against leaving, and is named
@@ -69,17 +71,19 @@ module SafeToLeave
                       story's
       -h, --help      print this message
 
-    Four things count whatever the prefix: commits on the default branch
-    that the remote does not have, a stash that names no branch, a
-    worktree with uncommitted files, and commits on a detached HEAD that
-    are on no branch.
+    These count whatever the prefix: uncommitted files in the working
+    tree or in any other worktree, commits on the default branch that
+    the remote does not have, a stash that names no branch, commits on a
+    detached HEAD that are on no branch, and every UNCHECKED line.
 
     Unpushed commits are measured against your remote-tracking branches,
     so fetch first. The remote is asked which branch is its default and
     where each of its branches is. A tracking branch the remote has
     since moved or deleted is not measured against, and its commits
-    count as unpushed. When the remote cannot be reached, the unpushed
-    check is UNCHECKED and the others still run.
+    count as unpushed. When that branch is the default one, the unpushed
+    check is UNCHECKED until you fetch. When the remote cannot be
+    reached, the unpushed check is UNCHECKED, and so are the commits of
+    a worktree with a detached HEAD. Everything else is still reported.
 
     The worktrees check needs git 2.36 or newer.
 
@@ -344,8 +348,9 @@ module SafeToLeave
     end
 
     # Short names, for the report. A tag sharing a branch's name makes
-    # the short form ambiguous to rev-list, so the methods below
-    # hand git the full refname.
+    # the short form ambiguous to rev-list, so default_ahead,
+    # unpushed_on, and detached_commits name each branch to git by its
+    # full refname.
     def local_branches
       output('for-each-ref', '--format=%(refname)', 'refs/heads/')
         .lines(chomp: true).map { |ref| ref.delete_prefix('refs/heads/') }
@@ -366,8 +371,9 @@ module SafeToLeave
       commits_beyond("refs/heads/#{branch}", current_tracking_refs)
     end
 
-    # The commits on a detached HEAD that no local branch and no branch
-    # on the remote has, and 0 when HEAD is on a branch. Worktrees share
+    # The commits on a detached HEAD that no local branch and no
+    # tracking ref the remote confirms has, and 0 when HEAD is on a
+    # branch or names a ref with no commit yet. Worktrees share
     # their refs, so a linked worktree's Git is handed the Git that has
     # asked the remote, which saves a request for each detached
     # worktree.
