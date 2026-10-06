@@ -73,11 +73,11 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # and status. A run still going after `within` seconds is killed and
   # fails the test, so a run that waits when it should not is a failure
   # and not a suite that never finishes.
-  def run_lock(name, *args, stdin: '', within: 30)
+  def run_lock(name, *args, stdin: '', within: 30, vars: {})
     @runs += 1
     files = %w[in out err].to_h { |stream| [stream, File.join(@scratch, "run-#{@runs}.#{stream}")] }
     File.write(files['in'], stdin)
-    pid = Process.spawn(env, script(name), *args, in: files['in'], out: files['out'], err: files['err'],
+    pid = Process.spawn(env.merge(vars), script(name), *args, in: files['in'], out: files['out'], err: files['err'],
                                                   chdir: @scratch, unsetenv_others: true)
     status = wait_within(pid, within)
     unless status
@@ -102,9 +102,10 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def mark_ran = ['sh', '-c', "echo ran > #{ran_log.shellescape}"]
 
   # Starts a command under the lock and returns once it is running.
-  def hold(name, seconds: 30)
+  def hold(name, seconds: 30, vars: {})
     started = File.join(@scratch, "started-#{@holders.size}")
-    pid = Process.spawn(env, script(name), 'sh', '-c', "echo $$ > #{started.shellescape}; exec sleep #{seconds}",
+    pid = Process.spawn(env.merge(vars), script(name), 'sh', '-c',
+                        "echo $$ > #{started.shellescape}; exec sleep #{seconds}",
                         chdir: @scratch, unsetenv_others: true)
     @holders << pid
     Timeout.timeout(10) { sleep 0.02 until File.size?(started) }
@@ -119,7 +120,7 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
 
   def process_state(pid) = `LC_ALL=C ps -o stat= -p #{pid}`.strip
 
-  def start_time(pid) = `LC_ALL=C ps -o lstart= -p #{pid}`.strip
+  def start_time(pid) = `TZ=UTC LC_ALL=C ps -o lstart= -p #{pid}`.strip
 
   def write_holder(pid:, start:)
     FileUtils.mkdir_p(lock_dir)
@@ -185,6 +186,13 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   def test_refuses_a_second_run_at_once_naming_the_holder
     pid = hold(:checkout)
     assert_refused(run_lock(:checkout, *mark_ran, within: 5), "process #{pid}", start_time(pid), 'sleep 30')
+  end
+
+  # ps prints a start time in the caller's time zone, so two runs that
+  # disagree about the zone must still agree about the holder.
+  def test_refuses_a_run_whose_time_zone_differs_from_the_holders
+    pid = hold(:checkout, vars: { 'TZ' => 'America/Chicago' })
+    assert_refused(run_lock(:checkout, *mark_ran, vars: { 'TZ' => 'Asia/Tokyo' }), "process #{pid}")
   end
 
   def test_every_readable_layout_of_one_checkout_shares_the_lock

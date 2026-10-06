@@ -103,13 +103,15 @@ takeover="$lock.takeover"
 
 # When the process started, or nothing when it is gone. One that has
 # exited and not yet been collected by its parent still has a row in ps,
-# with a state beginning Z.
+# with a state beginning Z. ps prints the time in the caller's time
+# zone, so the zone is fixed: two runs with different TZ values must
+# print the same text for one process.
 process_start() {
   local started
   case "$(LC_ALL=C ps -o stat= -p "$1" 2>/dev/null)" in
     ''|Z*) return 0 ;;
   esac
-  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)"
+  started="$(TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)"
   started="${started#"${started%%[![:space:]]*}"}"
   started="${started%"${started##*[![:space:]]}"}"
   printf '%s' "$started"
@@ -203,7 +205,7 @@ try_take() {
 refuse() {
   case "$held_reason" in
     live)
-      echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
+      echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start UTC, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
       ;;
     abandoned)
       echo "${0##*/}: $takeover was left behind by a run that was killed while taking the suite lock, over a minute ago. If no full run is starting in this checkout, remove it (rmdir) and run this again -- see docs/parallel-checkouts.md" >&2
