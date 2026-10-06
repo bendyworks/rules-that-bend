@@ -329,6 +329,55 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     finishing.join
   end
 
+  # A PATH whose first directory holds the given commands, each a
+  # stand-in that can pause a run at a chosen step.
+  def path_with(name, commands)
+    dir = File.join(@scratch, name)
+    FileUtils.mkdir_p(dir)
+    commands.each do |command, body|
+      File.write(File.join(dir, command), "#!/bin/sh\n#{body}\n")
+      File.chmod(0o755, File.join(dir, command))
+    end
+    "#{dir}:#{env.fetch('PATH')}"
+  end
+
+  def wait_for(path) = Timeout.timeout(10) { sleep 0.02 until File.exist?(path) }
+
+  # One run is paused on its way into a takeover while another run's
+  # takeover is terminated after removing the dead holder's lock, which
+  # leaves no lock at all. The paused run goes on and is paused again
+  # after it has looked at the lock and before it removes or makes
+  # one, and a third run takes the free lock in that moment.
+  def test_a_takeover_that_found_no_lock_leaves_one_taken_since
+    write_holder(pid: dead_pid, start: 'Thu Jan  1 00:00:00 1970')
+    gate = ->(name) { File.join(@scratch, name).shellescape }
+    pause = "{ touch #{gate['at-gap']}; while [ ! -e #{gate['go-gap']} ]; do sleep 0.05; done; }"
+    paused = path_with('paused-bin',
+                       'mkdir' => "case \"$1\" in *.takeover) touch #{gate['at-takeover']}; " \
+                                  "while [ ! -e #{gate['go-takeover']} ]; do sleep 0.05; done;; " \
+                                  "*) [ -e #{gate['at-takeover']} ] && #{pause};; esac\n" \
+                                  'exec /bin/mkdir "$@"',
+                       'rm' => "case \"$1\" in -rf) #{pause};; esac\nexec /bin/rm \"$@\"")
+    second = Process.spawn(env.merge('PATH' => paused), script(:checkout), *mark_ran,
+                           chdir: @scratch, unsetenv_others: true, err: File::NULL)
+    @holders << second
+    wait_for(File.join(@scratch, 'at-takeover'))
+
+    terminated = path_with('terminated-bin', 'rm' => "/bin/rm \"$@\"\ncase \"$1\" in -rf) kill -TERM $PPID;; esac")
+    _out, err, status = run_lock(:checkout, 'true', vars: { 'PATH' => terminated })
+    assert_equal 143, status.exitstatus, err
+    assert_empty Dir.glob("#{lock_dir}*")
+
+    FileUtils.touch(File.join(@scratch, 'go-takeover'))
+    wait_for(File.join(@scratch, 'at-gap'))
+    third = hold(:checkout)
+    FileUtils.touch(File.join(@scratch, 'go-gap'))
+
+    assert_equal REFUSED, wait_within(second, 10)&.exitstatus
+    assert_equal third.to_s, File.read(holder_file).lines.first.strip
+    refute File.exist?(ran_log)
+  end
+
   # Eight runs start together against a holder that is gone. Whichever
   # gets the lock keeps it until the other seven have been refused, so
   # a second line in the log means two held it at once.

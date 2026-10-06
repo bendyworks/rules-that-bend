@@ -216,16 +216,18 @@ try_take() {
   trap 'exit 143' TERM
   trap 'exit 129' HUP
 
-  # The lock directory exists from the check below until the removal, so
-  # no run can take it in between; one that takes it after the removal
-  # makes the mkdir here fail.
+  # Only a lock that is there and stale is removed. It exists from that
+  # check until the removal, so no run can take it in between, and one
+  # that takes it after the removal makes the mkdir here fail. With no
+  # lock directory there is nothing to remove: a run may take the lock
+  # at any moment, and the mkdir alone decides between it and this one.
   local taken=1
-  if [ ! -d "$lock" ] || lock_is_stale; then
+  if [ -d "$lock" ] && lock_is_stale; then
     rm -rf "$lock"
-    if mkdir "$lock" 2>/dev/null; then
-      hold_or_quit
-      taken=0
-    fi
+  fi
+  if mkdir "$lock" 2>/dev/null; then
+    hold_or_quit
+    taken=0
   fi
 
   rmdir "$takeover" 2>/dev/null
