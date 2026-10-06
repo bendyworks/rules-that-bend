@@ -103,7 +103,7 @@ elif [ -f "$walk/.git" ]; then
 fi
 
 if [ -z "$common" ] || [ ! -d "$common" ]; then
-  echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take; if this is a worktree, run \`git worktree list\` in its checkout to see whether it was pruned -- see docs/parallel-checkouts.md" >&2
+  echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take. If this is a worktree, its .git file names a directory that is not there: run \`git worktree list\` in its checkout to see whether it was pruned, or whether the checkout is mounted at another path here, as inside a container -- see docs/parallel-checkouts.md" >&2
   exit 78
 fi
 
