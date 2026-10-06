@@ -20,8 +20,7 @@ module Fixtures
       prepare_root
       init_remote_and_clone(DEFAULT_BRANCH)
       commit('README', 'a project', 'Start the project')
-      git('push', '-q', 'origin', DEFAULT_BRANCH)
-      git('fetch', '-q', '--prune', 'origin')
+      push(DEFAULT_BRANCH)
       self
     end
 
@@ -29,7 +28,7 @@ module Fixtures
       File.write(File.join(work, path), "#{contents}\n")
     end
 
-    # A commit on the current branch that no remote has.
+    # A commit on the current branch that is pushed nowhere.
     def commit_locally(path, message)
       commit(path, message, message)
     end
@@ -38,16 +37,28 @@ module Fixtures
       git('checkout', '-q', '-b', name, DEFAULT_BRANCH)
     end
 
-    def push(branch)
-      git('push', '-q', 'origin', branch)
-      git('fetch', '-q', '--prune', 'origin')
+    # The fetch reproduces what the command's usage text asks of its
+    # caller: unpushed commits are measured against the remote-tracking
+    # refs, so the caller fetches first.
+    def push(branch, remote: 'origin')
+      git('push', '-q', remote, branch)
+      git('fetch', '-q', '--prune', remote)
+    end
+
+    # A second remote beside origin, empty until something is pushed.
+    def add_remote(name)
+      git('init', '-q', '-b', DEFAULT_BRANCH, '--bare', "#{name}.git", dir: root)
+      git('remote', 'add', name, File.join(root, "#{name}.git"))
     end
 
     # Stashes a change to a tracked file, which is what a plain
     # `git stash` takes; an untracked file alone would leave nothing to
-    # stash and the command would exit 0 having done nothing.
+    # stash and the command would exit 0 having done nothing. Each call
+    # writes different contents, since stashing an unchanged file does
+    # nothing either.
     def stash_change(message = nil)
-      write('README', "changed #{rand(1_000_000)}")
+      @stashes = @stashes.to_i + 1
+      write('README', "changed #{@stashes}")
       args = message ? ['stash', 'push', '-q', '-m', message] : %w[stash push -q]
       git(*args)
     end

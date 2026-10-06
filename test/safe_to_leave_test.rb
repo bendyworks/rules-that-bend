@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # Tests for bin/safe-to-leave, which reports what a finished story has
-# left behind in a repository: uncommitted files, commits no remote has,
-# stashes, and linked worktrees.
+# left behind in a repository: uncommitted files, commits the remote does
+# not have, stashes, and linked worktrees.
 #
 # Two halves, split the way the CLI is. The decisions are a function of
 # gathered facts and are tested without a repository. The gathering is
@@ -33,8 +33,13 @@ class WorkingTreeDecisionTest < Minitest::Test
     lines = SafeToLeave::Checks.working_tree(['notes.md', '.claude/settings.json'])
 
     assert_equal ['AGAINST'], lines.map(&:status)
-    assert_includes lines.first.detail, 'notes.md'
-    assert_includes lines.first.detail, '.claude/settings.json'
+    assert_equal '2 uncommitted or untracked files: notes.md, .claude/settings.json', lines.first.detail
+  end
+
+  def test_one_entry_is_counted_in_the_singular
+    lines = SafeToLeave::Checks.working_tree(['notes.md'])
+
+    assert_equal '1 uncommitted or untracked file: notes.md', lines.first.detail
   end
 end
 
@@ -57,7 +62,7 @@ class StashDecisionTest < Minitest::Test
     lines = SafeToLeave::Checks.stashes([stash(0, 'WIP on abc-12-fix-export: 1a2b3c4 Start')], PREFIXES)
 
     assert_equal ['AGAINST'], lines.map(&:status)
-    assert_includes lines.first.detail, 'stash@{0}'
+    assert_equal 'stash@{0} (WIP on abc-12-fix-export: 1a2b3c4 Start)', lines.first.detail
   end
 
   # `git stash push -m` writes "On <branch>: <message>" where a bare
@@ -98,7 +103,9 @@ class StashDecisionTest < Minitest::Test
     assert_equal ['listed'], statuses([stash(0, 'WIP on my-abc-12-copy: 1a2b3c4 Start')])
   end
 
-  def test_a_branch_name_holding_a_colon_free_slash_is_read_whole
+  # Cut at the slash, the first name would start with the prefix.
+  def test_a_branch_name_holding_a_slash_is_read_whole
+    assert_equal ['listed'], statuses([stash(0, 'On other/abc-12-fix: wip')])
     assert_equal ['AGAINST'], statuses([stash(0, 'On abc-12-fix/export: wip')])
   end
 end
@@ -119,15 +126,20 @@ class UnpushedDecisionTest < Minitest::Test
     result = lines(default_ahead: 2)
 
     assert_equal ['AGAINST'], result.map(&:status)
-    assert_includes result.first.detail, 'main'
-    assert_includes result.first.detail, '2'
+    assert_equal 'main is 2 commits ahead of the remote', result.first.detail
   end
 
   def test_a_story_branch_with_unpushed_commits_counts
     result = lines(branches: { 'abc-12-fix-export' => 1 })
 
     assert_equal ['AGAINST'], result.map(&:status)
-    assert_includes result.first.detail, 'abc-12-fix-export'
+    assert_equal 'abc-12-fix-export (1 commit)', result.first.detail
+  end
+
+  def test_the_default_branch_and_a_story_branch_share_one_line
+    result = lines(default_ahead: 1, branches: { 'abc-12-fix-export' => 3 })
+
+    assert_equal ['main is 1 commit ahead of the remote, abc-12-fix-export (3 commits)'], result.map(&:detail)
   end
 
   # Another story's unpushed work is that story's to report. Counting it
@@ -172,6 +184,16 @@ class WorktreeDecisionTest < Minitest::Test
     assert_equal ['AGAINST'], statuses([worktree('abc-12-fix-export', 0)])
   end
 
+  def test_a_counted_worktree_is_described_by_its_branch_and_its_changes
+    described = lambda do |branch, changes|
+      SafeToLeave::Checks.worktrees([worktree(branch, changes)], PREFIXES).first.detail
+    end
+
+    assert_equal '/tmp/elsewhere (on abc-12-fix-export)', described.call('abc-12-fix-export', 0)
+    assert_equal '/tmp/elsewhere (on other-work, 2 uncommitted or untracked files)', described.call('other-work', 2)
+    assert_equal '/tmp/elsewhere (detached, 1 uncommitted or untracked file)', described.call(nil, 1)
+  end
+
   # A worktree whose directory is gone, or that git cannot read, has an
   # unknown state. Unknown is not clean.
   def test_a_linked_worktree_that_could_not_be_read_is_unchecked
@@ -179,49 +201,11 @@ class WorktreeDecisionTest < Minitest::Test
   end
 end
 
-class LeaveArgumentTest < CliTestCase
-  def shimmed_commands
-    ['gh']
-  end
-
-  def dispatch_cli(argv)
-    SafeToLeave::CLI.run(argv)
-  end
-
-  def test_an_unknown_flag_is_a_usage_error_with_its_own_exit_status
-    result = abort_result(['--no-such-flag'])
-
-    assert_equal 2, result.status
-    assert_match(/--no-such-flag/, result.stderr)
-  end
-
-  def test_a_stray_argument_is_a_usage_error
-    result = abort_result(['stray'])
-
-    assert_equal 2, result.status
-    assert_match(/stray/, result.stderr)
-  end
-
-  def test_help_prints_usage_and_exits_clean
-    result = abort_result(['--help'])
-
-    assert_equal 0, result.status
-    assert_match(/Usage: safe-to-leave/, result.stdout)
-  end
-
-  def test_a_directory_that_is_not_a_repository_is_an_error_not_a_verdict
-    Dir.mktmpdir('safe-to-leave-empty') do |dir|
-      result = abort_result(['-C', dir])
-
-      assert_equal 2, result.status
-      assert_match(/not a git repository/i, result.stderr)
-    end
-  end
-end
-
-class LeaveReportTest < CliTestCase
+# What both CLI suites share: the entry point, the refusal to report on
+# anything outside the temporary directory, and one way to run a report.
+class LeaveCliTestCase < CliTestCase
   STORY = 'abc-12-'
-  Report = Struct.new(:status, :stdout, :stderr) do
+  Result = Struct.new(:status, :stdout, :stderr) do
     # check name => every status reported for it, in order.
     def statuses
       stdout.lines(chomp: true).filter_map { |line| line.match(/\A  (\S+)\s+(\S+): /) }
@@ -251,6 +235,89 @@ class LeaveReportTest < CliTestCase
     SafeToLeave::CLI.run(argv)
   end
 
+  # The exit status is 0 when the CLI returns without exiting.
+  def run_report(argv)
+    status = 0
+    out, err = capture_io do
+      run_cli(argv)
+    rescue SystemExit => e
+      status = e.status
+    end
+    Result.new(status, out, err)
+  end
+end
+
+class LeaveArgumentTest < LeaveCliTestCase
+  def in_empty_directory(&)
+    Dir.mktmpdir('safe-to-leave-empty', &)
+  end
+
+  def test_an_unknown_flag_is_a_usage_error_with_its_own_exit_status
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--no-such-flag'])
+
+      assert_equal 2, result.status
+      assert_match(/--no-such-flag/, result.stderr)
+    end
+  end
+
+  def test_a_stray_argument_is_a_usage_error
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, 'stray'])
+
+      assert_equal 2, result.status
+      assert_match(/stray/, result.stderr)
+    end
+  end
+
+  # Without the refusal, `--story-branch --remote` would read --remote
+  # as the prefix.
+  def test_a_flag_where_a_value_belongs_is_a_usage_error
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--story-branch', '--remote'])
+
+      assert_equal 2, result.status
+      assert_match(/--story-branch/, result.stderr)
+    end
+  end
+
+  def test_help_prints_usage_and_exits_clean
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir, '--help'])
+
+      assert_equal 0, result.status
+      assert_match(/Usage: safe-to-leave/, result.stdout)
+    end
+  end
+
+  def test_a_directory_that_is_not_a_repository_is_an_error_not_a_verdict
+    in_empty_directory do |dir|
+      result = run_report(['-C', dir])
+
+      assert_equal 2, result.status
+      assert_match(/not a git repository/i, result.stderr)
+    end
+  end
+
+  def test_git_missing_from_the_path_is_an_error_not_a_verdict
+    in_empty_directory do |dir|
+      result = with_path(dir) { run_report(['-C', dir]) }
+
+      assert_equal 2, result.status
+      assert_match(/could not run git/, result.stderr)
+    end
+  end
+
+  def with_path(path)
+    saved = ENV.fetch('PATH')
+    ENV['PATH'] = path
+    yield
+  ensure
+    ENV['PATH'] = saved
+  end
+end
+
+class LeaveReportTest < LeaveCliTestCase
   def with_repo
     Dir.mktmpdir('safe-to-leave') do |dir|
       yield Fixtures::LeaveRepo.new(File.join(dir, 'project')).build
@@ -266,15 +333,11 @@ class LeaveReportTest < CliTestCase
   end
 
   def report(repo, *extra)
-    with_repo_env(repo) do
-      status = 0
-      out, err = capture_io do
-        run_cli(['-C', repo.work, '--story-branch', STORY, *extra])
-      rescue SystemExit => e
-        status = e.status
-      end
-      Report.new(status, out, err)
-    end
+    report_on(repo, ['-C', repo.work, '--story-branch', STORY, *extra])
+  end
+
+  def report_on(repo, argv)
+    with_repo_env(repo) { run_report(argv) }
   end
 
   def test_a_clean_pushed_repository_has_nothing_against_leaving
@@ -321,13 +384,34 @@ class LeaveReportTest < CliTestCase
     end
   end
 
-  # A path git would quote (a space, a non-ASCII letter) must come back
-  # as the path, since the developer has to be able to find the file.
+  # git quotes a path that holds a space and escapes one that holds a
+  # non-ASCII letter. The developer has to be able to find the file, so
+  # both must come back as written.
   def test_a_path_with_a_space_is_named_as_written
     with_repo do |repo|
       repo.write('my draft.md', 'unsent')
 
-      assert_includes report(repo).line_for('working-tree'), 'my draft.md'
+      assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: my draft.md',
+                   report(repo).line_for('working-tree')
+    end
+  end
+
+  def test_a_path_with_a_non_ascii_letter_is_named_as_written
+    with_repo do |repo|
+      repo.write('café.md', 'unsent')
+
+      assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: café.md',
+                   report(repo).line_for('working-tree')
+    end
+  end
+
+  # A staged rename is one entry, named by where the file is now.
+  def test_a_renamed_file_is_one_entry_under_its_new_name
+    with_repo do |repo|
+      repo.git('mv', 'README', 'README.md')
+
+      assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: README.md',
+                   report(repo).line_for('working-tree')
     end
   end
 
@@ -338,7 +422,7 @@ class LeaveReportTest < CliTestCase
 
       assert_equal 1, result.status
       assert_equal ['AGAINST'], result.statuses['unpushed']
-      assert_includes result.line_for('unpushed'), 'main'
+      assert_includes result.line_for('unpushed'), 'main is 1 commit ahead of the remote'
     end
   end
 
@@ -350,7 +434,8 @@ class LeaveReportTest < CliTestCase
       result = report(repo)
 
       assert_equal 1, result.status
-      assert_includes result.line_for('unpushed'), 'abc-12-fix-export'
+      assert_equal ['AGAINST'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'abc-12-fix-export (1 commit)'
     end
   end
 
@@ -378,14 +463,34 @@ class LeaveReportTest < CliTestCase
     end
   end
 
-  def test_a_story_branch_named_twice_is_matched_by_either_prefix
+  def test_branches_under_either_of_two_story_prefixes_count
     with_repo do |repo|
       repo.branch_from_main('abc-12-second-layer')
       repo.commit_locally('fix', 'Second layer')
+      repo.branch_from_main('zzz-9-third-layer')
+      repo.commit_locally('more', 'Third layer')
       repo.checkout('main')
       result = report(repo, '--story-branch', 'zzz-9-')
 
       assert_equal ['AGAINST'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'abc-12-second-layer'
+      assert_includes result.line_for('unpushed'), 'zzz-9-third-layer'
+    end
+  end
+
+  # A branch pushed to a second remote is still absent from the remote
+  # the report measures against, and --remote chooses which one that is.
+  def test_unpushed_is_measured_against_the_named_remote_alone
+    with_repo do |repo|
+      repo.add_remote('fork')
+      repo.push('main', remote: 'fork')
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.push('abc-12-fix-export', remote: 'fork')
+      repo.checkout('main')
+
+      assert_equal ['AGAINST'], report(repo).statuses['unpushed']
+      assert_equal ['ok'], report(repo, '--remote', 'fork').statuses['unpushed']
     end
   end
 
@@ -399,7 +504,32 @@ class LeaveReportTest < CliTestCase
 
       assert_equal 1, result.status
       assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'git ls-remote failed: '
       assert_equal ['ok'], result.statuses['working-tree']
+    end
+  end
+
+  # The default branch's remote-tracking ref is what "ahead" is measured
+  # from. A repository never fetched has none, and that is not zero.
+  def test_a_default_branch_never_fetched_leaves_unpushed_unchecked
+    with_repo do |repo|
+      repo.git('update-ref', '-d', 'refs/remotes/origin/main')
+      result = report(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'fetch origin first'
+    end
+  end
+
+  # Deleting the local default branch is ordinary, and leaves nothing of
+  # it to be ahead.
+  def test_no_local_default_branch_is_not_an_error
+    with_repo do |repo|
+      repo.branch_from_main('other-work')
+      repo.git('branch', '-D', 'main')
+
+      assert_equal ['ok'], report(repo).statuses['unpushed']
     end
   end
 
@@ -428,6 +558,19 @@ class LeaveReportTest < CliTestCase
     end
   end
 
+  # The subject git writes with HEAD detached, read from git itself.
+  def test_a_stash_made_with_head_detached_counts
+    with_repo do |repo|
+      repo.detach_head
+      repo.stash_change
+      repo.checkout('main')
+      result = report(repo)
+
+      assert_equal ['AGAINST'], result.statuses['stashes']
+      assert_includes result.line_for('stashes'), '(no branch)'
+    end
+  end
+
   def test_a_linked_worktree_with_changes_counts
     with_repo do |repo|
       path = repo.add_worktree('elsewhere', 'other-work')
@@ -436,7 +579,7 @@ class LeaveReportTest < CliTestCase
 
       assert_equal 1, result.status
       assert_equal ['AGAINST'], result.statuses['worktrees']
-      assert_includes result.line_for('worktrees'), 'elsewhere'
+      assert_includes result.line_for('worktrees'), 'elsewhere (on other-work, 1 uncommitted or untracked file)'
     end
   end
 
@@ -466,6 +609,7 @@ class LeaveReportTest < CliTestCase
 
       assert_equal 1, result.status
       assert_equal ['UNCHECKED'], result.statuses['worktrees']
+      assert_includes result.line_for('worktrees'), 'elsewhere'
     end
   end
 
@@ -475,15 +619,7 @@ class LeaveReportTest < CliTestCase
     with_repo do |repo|
       path = repo.add_worktree('elsewhere', 'other-work')
       repo.write('scratch', 'left in the main checkout')
-      result = with_repo_env(repo) do
-        status = 0
-        out, err = capture_io do
-          run_cli(['-C', path, '--story-branch', STORY])
-        rescue SystemExit => e
-          status = e.status
-        end
-        Report.new(status, out, err)
-      end
+      result = report_on(repo, ['-C', path, '--story-branch', STORY])
 
       assert_equal ['ok'], result.statuses['working-tree']
       assert_equal ['AGAINST'], result.statuses['worktrees']
@@ -492,17 +628,20 @@ class LeaveReportTest < CliTestCase
 
   # `git -C` does not override an inherited GIT_DIR, so without the
   # command unsetting it the report would describe another repository.
+  # The variable is set after the fixture's environment is applied,
+  # since that environment unsets it too.
   def test_an_ambient_git_dir_does_not_redirect_the_report
     with_repo do |repo|
       repo.write('draft.md', 'unsent')
       Dir.mktmpdir('safe-to-leave-decoy') do |decoy|
         result = with_repo_env(repo) do
           ENV['GIT_DIR'] = File.join(decoy, '.git')
-          report(repo)
+          run_report(['-C', repo.work, '--story-branch', STORY])
         ensure
           ENV.delete('GIT_DIR')
         end
 
+        assert_equal 1, result.status, result.stdout + result.stderr
         assert_includes result.line_for('working-tree'), 'draft.md'
       end
     end
@@ -513,15 +652,7 @@ class LeaveReportTest < CliTestCase
       repo.branch_from_main('other-work')
       repo.stash_change
       repo.checkout('main')
-      result = with_repo_env(repo) do
-        status = 0
-        out, err = capture_io do
-          run_cli(['-C', repo.work])
-        rescue SystemExit => e
-          status = e.status
-        end
-        Report.new(status, out, err)
-      end
+      result = report_on(repo, ['-C', repo.work])
 
       assert_equal 1, result.status
       assert_equal ['AGAINST'], result.statuses['stashes']
