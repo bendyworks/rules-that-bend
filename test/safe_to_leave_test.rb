@@ -384,6 +384,43 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # `status.showUntrackedFiles=no` hides untracked files from a plain
+  # `git status`, and the developer may have set it.
+  def test_an_untracked_file_counts_whatever_git_is_configured_to_show
+    with_repo do |repo|
+      repo.git('config', 'status.showUntrackedFiles', 'no')
+      repo.write('draft.md', 'unsent')
+
+      assert_equal ['AGAINST'], report(repo).statuses['working-tree']
+    end
+  end
+
+  def test_a_changed_submodule_counts_whatever_git_is_configured_to_ignore
+    with_repo do |repo|
+      repo.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', repo.origin, 'vendored')
+      repo.git('commit', '-qm', 'Add a submodule')
+      repo.push('main')
+      repo.git('config', 'diff.ignoreSubmodules', 'all')
+      File.write(File.join(repo.work, 'vendored', 'README'), "edited\n")
+
+      assert_equal ['AGAINST'], report(repo).statuses['working-tree']
+    end
+  end
+
+  # A tracked file whose timestamp changed and whose contents did not is
+  # what makes `git status` rewrite the index to record the new time.
+  def test_the_report_leaves_the_index_as_it_found_it
+    with_repo do |repo|
+      index = File.join(repo.work, '.git', 'index')
+      an_hour_ago = Time.now - 3600
+      File.utime(an_hour_ago, an_hour_ago, File.join(repo.work, 'README'))
+      before = File.binread(index)
+      report(repo)
+
+      assert_equal before, File.binread(index)
+    end
+  end
+
   # git quotes a path that holds a space and escapes one that holds a
   # non-ASCII letter. The developer has to be able to find the file, so
   # both must come back as written.

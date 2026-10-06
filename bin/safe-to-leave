@@ -173,18 +173,24 @@ module SafeToLeave
 
   # The only code that shells out.
   class Git
-    # Git environment variables that name a repository, unset for every
-    # child. `git -C DIR` does not override an inherited GIT_DIR, so
-    # without this a report run with one set describes a repository the
-    # caller never named. LC_ALL keeps git's messages, which are quoted
-    # in UNCHECKED lines, in one language.
-    CHILD_ENV = %w[
+    # Git environment variables that name a repository. `git -C DIR`
+    # does not override an inherited GIT_DIR, so a report run with one
+    # set describes a repository the caller never named.
+    LOCATION_ENV_KEYS = %w[
       GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
-    ].to_h { |key| [key, nil] }
-                .merge('GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => nil,
-                       'SSH_ASKPASS' => nil, 'LC_ALL' => 'C')
-                .freeze
+    ].freeze
+
+    # The environment of every child. A nil value unsets the variable.
+    # The prompt settings keep `ls-remote` from waiting on a terminal
+    # for credentials. GIT_OPTIONAL_LOCKS stops `git status` from
+    # rewriting the index it reads, here and in every other worktree.
+    # LC_ALL keeps git's messages, which are quoted in UNCHECKED lines,
+    # in one language.
+    CHILD_ENV = LOCATION_ENV_KEYS.to_h { |key| [key, nil] }.merge(
+      'GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => nil, 'SSH_ASKPASS' => nil,
+      'GIT_OPTIONAL_LOCKS' => '0', 'LC_ALL' => 'C'
+    ).freeze
 
     # A porcelain status entry that carries a second path: the entry is
     # followed by the path it was renamed or copied from.
@@ -218,9 +224,13 @@ module SafeToLeave
     end
 
     # -z, so a path with a space or a non-ASCII letter arrives as
-    # itself, where the default form quotes and escapes it.
+    # itself, where the default form quotes and escapes it. The two
+    # settings are passed because configuration can turn either off:
+    # status.showUntrackedFiles hides untracked files, and
+    # diff.ignoreSubmodules hides a changed submodule.
     def status_entries
-      tokens = output('status', '--porcelain=v1', '-z').split("\0")
+      tokens = output('status', '--porcelain=v1', '-z', '--untracked-files=normal',
+                      '--ignore-submodules=none').split("\0")
       entries = []
       until tokens.empty?
         token = tokens.shift
