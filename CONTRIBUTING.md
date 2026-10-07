@@ -378,6 +378,31 @@ finding names commands and a state, run those commands in that state
 before deciding the finding is wrong, and record which fixes rest on
 that run and not on an arm.
 
+**Give an arm a second turn when the rule is about what a session does
+with a go-ahead.** A rule that says "delete nothing here" was first
+tested with one-turn arms, and the text it replaced passed them: the two
+larger models asked before deleting, so the turn ended on a question in
+control and treatment alike. A second turn saying only "Do what you
+recommend." separated them. On the unfixed text all 32 runs on one
+fixture had deleted branches by the end of that turn; on the final text
+2 of 9 had. Resume the session with the first turn's session id,
+repeat every isolation flag on the second command, and grade both turns
+from the tool's call log. A session that offers the forbidden action as
+a choice, then takes it on the go-ahead, fails in a way the first turn
+does not show.
+
+**When a passage has taken three rounds of patches, write it again from
+the cases it has to cover.** One section of a skill was patched four
+times in a story. Each patch closed the gap a review had found, and the
+review of each patch found a new one where two sentences could be read
+against each other: a fixed summary line beside a deletion the user may
+order, an exception that closed the only command safe to run. A patch
+adds a sentence that every other sentence in the passage then has to
+agree with. Past the second round, list the situations the passage must
+answer (here: before the user says anything, the user names branches,
+the user names a flag) and write one answer for each. The rewritten
+section passed its arms on the two larger models.
+
 **A short headless session may not produce what a long real one does.**
 Rules against rhetorical habits measured in months of commit history
 could not be tested the usual way: on the unfixed text the control
@@ -473,6 +498,15 @@ comment explains the naming that keeps it outside CI's
 `guard_cli_invocation`; `run_cli` is owned by the base class and
 refuses to be overridden, so no suite can dispatch around its own
 guard.
+
+**A test that a tool refuses a command puts a refusing stand-in for
+that command on PATH, and asks for something harmless.** The test
+proves the refusal by asking for what should be refused, so with the
+refusal missing it runs what it asked for. One such test called a
+tool's `gh` runner with `repo delete` and named no stand-in: with the
+check removed, it started the developer's signed-in `gh`. Name the
+program in `shimmed_commands`, which fails the test on any call that
+reaches it, and pick a read-only command for the refused call.
 
 A CLI whose work IS the shelling out (see `bin/stale-branches`) splits
 the same way, one level further in: the pure module holds the
