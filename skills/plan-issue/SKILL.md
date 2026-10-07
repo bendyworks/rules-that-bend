@@ -1242,6 +1242,8 @@ via the Skill tool. It will:
   verification), and remove its `in progress` label once it is
   closed.
 - Verify sibling-audit follow-ups got filed.
+- Remove the session-history folders the story's headless dry runs
+  left, when the plan records a dry-run directory.
 - Clear completed tasks from the conversation task list.
 - Run a permission-prompt sweep (via the /fewer-permission-prompts
   built-in, when available), gating any settings-file write on the
