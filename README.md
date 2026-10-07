@@ -77,31 +77,38 @@ overriding, and troubleshooting.
 ## Requirements
 
 - Claude Code with plugin support.
+- A GitHub-hosted repository and the GitHub CLI (`gh`), installed and
+  authenticated. Everything that reads pull requests or GitHub issues
+  goes through `gh`: the commands the skills and guidance give a
+  session, `stale-branches`, and `gh-issue-sync`. `targeted-specs` uses
+  it only as a fallback when resolving a repo's default branch. A
+  GitHub Enterprise host counts, since `gh` reaches it through its own
+  host setting, though stacked pull requests may not be enabled there.
+  Linear and Shortcut are supported as issue trackers, and a project
+  tracked there still needs GitHub for its pull requests. A repository
+  hosted anywhere else is not supported;
+  [CONTRIBUTING.md](CONTRIBUTING.md#github-is-required) says what
+  supporting one would take.
 - The bundled CLIs (`linear`, `gh-issue-sync` used by `plan-issue`
   and `finished-issue-housekeeping` on GitHub-tracked repos, and
   `stale-branches`) require Ruby 3.x on your PATH (macOS and Linux; on
   Windows use WSL). The `linear` CLI also needs a `LINEAR_API_TOKEN`
-  environment variable; `gh-issue-sync` delegates auth to the GitHub
-  CLI (`gh`).
+  environment variable; `gh-issue-sync` delegates auth to `gh`.
 - `stale-branches` reports which local branches have already landed on
   the default branch, and deletes them with `--delete`. It needs git
   2.38 or newer for `merge-tree --write-tree`, the check that
   recognizes a squash-merged branch, and refuses to run on older git
   rather than reporting verdicts it could not reach. It also reads pull
-  requests through the GitHub CLI (`gh`), which is what keeps a branch
-  somebody still has open from being deleted. Without `gh` installed and
-  authenticated it says so in a warning and refuses `--delete` outright,
-  because the verdicts then cut both ways: a branch whose merge
-  conflicts is kept for want of an answer rather than because its work
-  is unlanded, and a branch whose work has already landed while its own
-  pull request is still open is marked DELETE. `--offline` is how you
-  ask for a sweep on local evidence alone and mean it.
+  requests through `gh`, which is what keeps a branch somebody still has
+  open from being deleted. When `gh` cannot read them it says so in a
+  warning and refuses `--delete` outright, because the verdicts then
+  cut both ways: a branch whose merge conflicts is kept for want of an
+  answer rather than because its work is unlanded, and a branch whose
+  work has already landed while its own pull request is still open is
+  marked DELETE. `--offline` is how you ask for a sweep on local
+  evidence alone and mean it.
 - `gauntlet` is tuned for Ruby on Rails projects (RSpec, RuboCop, Pundit).
   It runs elsewhere, but its audit prompts are Rails-flavored. It would be easy to re-focus a forked copy if you wish.
-- `gauntlet`, `dependabot-batch`, `finished-issue-housekeeping`,
-  `plan-issue`, and `stale-branches` lean on the GitHub CLI (`gh`) being
-  installed and authenticated. `targeted-specs` uses it only as a fallback when
-  resolving a repo's default branch.
 - `markdown-to-pdf` needs a Chromium-based browser or wkhtmltopdf, plus a
   markdown converter (kramdown gem, pandoc, or python-markdown).
 - `change-highlights` needs Ruby 2.6 or newer (the macOS system Ruby works)

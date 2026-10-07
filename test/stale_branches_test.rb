@@ -3089,6 +3089,31 @@ class ForgeTest < OracleTestCase
     end
   end
 
+  def test_every_question_is_a_call_the_tool_declares
+    with_flat_fixture('forge-declared') do |repo|
+      with_forge(repo) do
+        sweep(repo)
+
+        refute_empty served_invocations
+        undeclared = served_invocations.reject do |call|
+          StaleBranches::GH_CALLS.any? { |declared| call.start_with?("gh #{declared} ") }
+        end
+        assert_empty undeclared
+      end
+    end
+  end
+
+  def test_the_runner_refuses_a_call_the_tool_does_not_declare
+    with_flat_fixture('forge-undeclared') do |repo|
+      with_forge(repo) do
+        error = assert_raises(ArgumentError) { forge_in(repo).send(:gh, %w[repo view]) }
+
+        assert_match(/repo view/, error.message)
+        assert_empty served_invocations, 'the undeclared call reached gh'
+      end
+    end
+  end
+
   def test_a_second_question_about_one_branch_is_answered_from_the_first
     with_flat_fixture('forge-cache') do |repo|
       with_forge(repo) do
@@ -3305,6 +3330,21 @@ class DegradationTest < OracleTestCase
     end
   end
 
+  # Pull requests are read from GitHub and nowhere else, and the warning
+  # is where a user whose repository is hosted somewhere gh cannot read
+  # first meets that.
+  def test_the_warning_says_pull_requests_are_read_from_github
+    with_flat_fixture('degraded-github') do |repo|
+      warning = measure(repo).warnings.grep(/pull request/).first.to_s
+
+      assert_match(/could not read pull requests from GitHub/, warning)
+    end
+  end
+
+  def test_the_usage_text_says_the_repository_must_be_hosted_on_github
+    assert_match(/hosted on\s+GitHub/, StaleBranches::USAGE)
+  end
+
   # The caller has to be able to tell which way the verdicts below are
   # wrong, and they are wrong in both directions at once: a branch whose
   # work landed while its own pull request is open is marked DELETE
@@ -3441,11 +3481,14 @@ class OfflineTest < OracleTestCase
   def test_delete_is_refused_when_the_forge_could_not_be_read
     with_flat_fixture('offline-refusal') do |repo|
       with_forge(repo, failing: true) do
+        before = repo.local_refs
         message = abort_message(['-C', repo.work, '--delete'])
 
         assert_match(/not deleting/, message)
         assert_match(/--offline/, message, 'the refusal did not say how to proceed deliberately')
-        assert_includes repo.local_refs, 'refs/heads/p1-ancestor', 'it deleted anyway'
+        assert_match(/whose work has landed while its pull request is still open/, message,
+                     'the refusal named the flag without saying what it costs')
+        assert_equal before, repo.local_refs, 'it deleted anyway'
       end
     end
   end

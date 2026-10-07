@@ -389,6 +389,41 @@ real history (the same model on the same project, either side of the
 date the rule arrived), and say which rules rest on that count and which
 on the arms.
 
+## GitHub is required
+
+The plugin requires a GitHub-hosted repository, on github.com or a
+GitHub Enterprise host, and the GitHub CLI (`gh`) installed and
+authenticated. Everything that reads pull requests or GitHub issues goes
+through `gh`: the commands the skills and guidance give a session,
+`bin/stale-branches`, and `bin/gh-issue-sync`. Issue trackers are a
+separate matter: Linear and Shortcut are supported where the skills
+name them, and a project tracked there still needs GitHub for its pull
+requests.
+
+**Write a skill, a guidance file, or a tool for GitHub alone, and never
+add text saying what a rule means on another host.** That text cannot
+be tested here, and once it exists every later rule has to say what it
+means there too. A rule about where text is bound, such as the
+public-destinations guidance, is a different matter: the destination is
+not always the project's own repository.
+
+[`gh-calls.txt`](gh-calls.txt) lists every `gh` command the project
+runs or tells a session to run. Support for another host arrives one of
+two ways: as a `gh`-compatible command for that host that answers those
+commands, or as a change that adds an equivalent beside each call. A
+command of the first kind runs with the user's credentials and decides
+which branches the sweep deletes, so it has to be one the team trusts.
+`test/fixtures/stub_gh.rb` shows the one call `stale-branches` depends
+on, with the fields it reads.
+
+`test/gh_calls_test.rb` compares the list with the commands named under
+`skills/`, `guidance/`, and `bin/`, in both directions. Name a new `gh`
+command there and the test fails until the list has it; remove the last
+use of one and it fails until the line goes. A tool under `bin/` builds
+its `gh` arguments as a list the comparison cannot read, so it declares
+its calls in a `GH_CALLS` constant, and its runner refuses a call the
+constant lacks.
+
 ## Writing a new skill
 
 A skill is a folder under `skills/<name>/` with a `SKILL.md` and any

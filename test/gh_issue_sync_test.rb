@@ -813,6 +813,23 @@ class GuardsTest < Minitest::Test
   end
 end
 
+# The runner is the one place this tool starts gh, so a call it has not
+# declared is refused there, before anything runs.
+class DeclaredGhCallsTest < CliTestCase
+  # A runner that lost its check would start gh. The shim refuses the
+  # call and flunks the test, so it never reaches a signed-in gh.
+  def shimmed_commands
+    %w[gh]
+  end
+
+  def test_the_runner_refuses_a_call_the_tool_does_not_declare
+    error = assert_raises(ArgumentError) { GhIssueSync::CLI.new.send(:gh, %w[repo view], nil) }
+
+    assert_match(/repo view/, error.message)
+    assert_match(/GH_CALLS/, error.message)
+  end
+end
+
 # Tests that invoke CLI.run subclass CliTestCase for the abort capture
 # and env scrub; pure-helper tests stay on Minitest::Test.
 class CliArgumentRejectionTest < CliTestCase

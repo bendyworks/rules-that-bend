@@ -339,12 +339,11 @@ exit codes.
 
 ### Without native stacks
 
-A chain across forks, on another forge, or where `gh stack` exits 9
-("Stacked PRs are not enabled for this repository") gets no
-server-side cascade, and the invariant is held by hand. So does one
-where the gh-stack extension is not installed and the developer has
-not agreed to install it; installing an extension on their machine is
-theirs to decide:
+A chain across forks, or one where `gh stack` exits 9 ("Stacked PRs
+are not enabled for this repository"), gets no server-side cascade,
+and the invariant is held by hand. So does one where the gh-stack
+extension is not installed and the developer has not agreed to install
+it; installing an extension on their machine is theirs to decide:
 
 - **Deleting the merged PR's head branch triggers the retarget; the
   merge alone does not** ([pull request retargeting

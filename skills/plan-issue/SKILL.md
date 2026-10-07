@@ -1201,7 +1201,7 @@ default for a project that declares nothing.
 Then walk through these checks (the housekeeping skill will re-verify,
 but catching a "no" here lets you exit early before invoking it):
 
-1. **PR is merged to the default branch.** Verify with `gh pr view <PR#> --json state,mergedAt,mergeCommit` (or whichever forge the project uses).
+1. **PR is merged to the default branch.** Verify with `gh pr view <PR#> --json state,mergedAt,mergeCommit`.
 2. **The merged code is live in production.** Before taking any shortcut, confirm the premise: nothing after the merge can still fail or be skipped. A project whose merge *triggers* a deploy that can go red does not qualify however its rules read.
 
    With that premise confirmed, in Deploy-on-Merge Mode check 1 satisfies this one, because the merge *is* the deploy. Otherwise it is a project-specific check:

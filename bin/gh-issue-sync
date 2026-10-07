@@ -57,6 +57,11 @@ module GhIssueSync
   # conservative side for multibyte bodies.
   MAX_BODY_BYTES = 262_144
 
+  # The gh commands this tool runs, which CLI#gh checks each call
+  # against. gh-calls.txt lists them among the commands a replacement
+  # for gh would have to answer.
+  GH_CALLS = ['issue view', 'issue edit'].freeze
+
   TODO_LINE = /\A- \[(x| )\] \*\*(\d+)\.\*\* (.+)\z/
   # Checkbox-shaped only: a markdown link bullet ("- [text](url)") must
   # not read as a malformed checkbox.
@@ -723,6 +728,11 @@ module GhIssueSync
     end
 
     def gh(args, repo)
+      call = args.first(2).join(' ')
+      # ArgumentError, not Error: an undeclared call is a mistake in
+      # this file, and Error is what run reports to the user as theirs.
+      raise ArgumentError, "gh #{call} is not in GH_CALLS" unless GH_CALLS.include?(call)
+
       command = ['gh', *args]
       command += ['--repo', repo] if repo
       stdout, stderr, status = Open3.capture3(*command)
