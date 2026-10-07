@@ -54,12 +54,14 @@ cannot answer permission prompts, so pre-approve the tools the skill
 needs and no more, and pass `--setting-sources project` so the run
 leaves your own user-level files out. Read "Keep your own rules out of
 every arm" below before the first run: the flag needs Claude Code
-2.1.101 or later.
+2.1.101 or later. "Leave no session history behind" below covers the
+other two switches in the example.
 
 ```bash
 cd path/to/target-project
-claude --plugin-dir path/to/rules-that-bend \
-  --setting-sources project --model sonnet \
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
+  claude --plugin-dir path/to/rules-that-bend \
+  --setting-sources project --no-session-persistence --model sonnet \
   -p "Invoke the <name> skill from the bendyworks plugin on the current
       branch, following it exactly. Report what it produces." \
   --allowedTools "Bash(git diff *),Bash(git log *),Read,Grep,Glob"
@@ -97,7 +99,8 @@ the user-level files again, and an arm run with it started without:
 It still loads the project's own `CLAUDE.md` and `.claude/rules/`, the
 project's `.claude/settings.json` with its permission rules and hooks,
 any `CLAUDE.md` in a directory above the arm's, the `--plugin-dir`
-skills, and the arm directory's auto-memory.
+skills, and the arm directory's auto-memory, unless the arm disables
+it.
 
 **The flag needs Claude Code 2.1.101 or later.** Before that, a session
 run with it deleted conversation history older than 30 days, whatever
@@ -118,7 +121,10 @@ servers come from the same user source but are not checked. The
 session without the flag is a real one with your own settings: it runs
 your hooks and loads your plugins, though with no tools and no MCP
 servers, and each session makes one small model request. It starts no
-session at all on a build older than 2.1.101.
+session at all on a build older than 2.1.101. Both sessions run with
+the two switches from "Leave no session history behind" below. When one
+of them leaves a session-history folder anyway, the check reports and
+removes it, and exits 3 where it would have passed.
 "Cannot tell" comes with its reason. The three you are likeliest to
 see: an arm failed, and if it is the one with the flag, your sign-in may
 come from your user settings, which is the first case under "When the
@@ -200,8 +206,11 @@ and loaded the project's `CLAUDE.md` and no user-level file. The token
 is a credential for your account: never write it to a file, a script,
 or a settings file, and never paste it into a session. Claude Code
 writes session state into the directory, so delete it when the batch
-ends. `scripts/check-arm-isolation.sh` does not check this route; it
-tests the flag.
+ends. The session-history folders such an arm leaves go under that
+directory's `projects/` and not your own, so deleting the directory
+removes them too.
+`scripts/check-arm-isolation.sh` does not check this route; it tests
+the flag.
 
 **Never move your user-level files aside for a batch.** Every Claude
 Code session on your machine reads the one user-level `CLAUDE.md`. A
@@ -216,6 +225,75 @@ its sessions finish. When it finds one, it says which checkout and
 process took it, where the directory records one, and what to do next:
 the commands that put the file back, or, when a `CLAUDE.md` is also in
 place, to compare the two first.
+
+**Leave no session history behind.** Every headless run is a Claude
+Code session, and each one leaves a folder under the config directory's
+`projects/` (`~/.claude/projects/`, or under `CLAUDE_CONFIG_DIR` when
+that is set), named for the run's working directory. A story tested
+with a few hundred arms leaves a few hundred folders beside your real
+projects in every session picker. Run a single-turn arm with both
+`--no-session-persistence` on its command line and
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in its environment, as the example
+invocation above does. Seen on Claude Code 2.1.292, a one-word arm
+with no tools left:
+
+| Switches on the arm | Left under `projects/` |
+| --- | --- |
+| neither | a folder holding a session log and an empty `memory` directory |
+| `--no-session-persistence` | a folder holding an empty `memory` directory |
+| `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | a folder holding a session log |
+| both | nothing |
+
+Three kinds of arm still leave a folder:
+
+- A multi-turn arm resumes from its session log, so it runs without
+  `--no-session-persistence`. It still takes the variable: on 2.1.292 a
+  two-turn `--resume` arm run with it recalled its first turn.
+- An arm that tests memory behavior needs its memory directory, so it
+  runs without the variable ("Plant the memory directory" below).
+- An arm with both switches whose tool call returns a large result
+  leaves a folder holding `<session id>/tool-results/` and no log.
+
+So does every arm on a build where the switches have stopped working.
+**Keep every arm's working directory, whatever switches it takes,
+under one run directory made by `bin/dry-run-cleanup new`, outside
+every checkout, and record that directory in the story's plan file on
+a line of its own.**
+
+```bash
+mkdir -p ~/dry-runs
+TMPDIR=~/dry-runs bin/dry-run-cleanup new    # prints the run directory it made
+```
+
+```
+Dry-run directory: <the path it printed, whole>
+```
+
+`new` makes the directory under `TMPDIR`. Left as the system set it,
+that is the system's temporary directory, which the system empties on
+its own schedule (macOS removes what has gone unread for a few days).
+Once a run directory or its marker file is gone, `sweep` refuses it,
+and the folders its arms left have to be found by hand. Point `TMPDIR`
+at a directory that lasts unless the batch will be swept the same day.
+Keep the path plain and short: the finished-issue-housekeeping skill
+runs only a path made of ASCII letters, digits, `/`, `.`, `_`, and `-`,
+Claude Code cuts a folder name at 200 characters, and `new` refuses a
+directory too long to leave room. When a batch ends:
+
+```bash
+bin/dry-run-cleanup sweep <run directory>            # lists the folders its arms left
+bin/dry-run-cleanup sweep <run directory> --delete   # removes them, then the run directory
+```
+
+`--delete` removes the run directory with everything in it. Keep
+nothing there that should outlast the story, a grader's output
+included, and make a new run directory, with its own line in the plan,
+for a later batch. `--delete` removes nothing while anything there was
+written in the last ten minutes, and it keeps a folder whose `memory`
+directory holds a file. The README's Requirements section lists the
+rest of what it keeps and refuses. Once the story has shipped, the
+finished-issue-housekeeping skill reads the plan's `Dry-run directory:`
+lines and runs the same `--delete` on each, without asking.
 
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
@@ -238,11 +316,21 @@ one pass without paying for their execution.
 gets an auto-memory directory derived from its working directory:
 `~/.claude/projects/<path>/memory/`, where `<path>` is the absolute
 working directory with every character other than a letter or digit
-turned into `-`. To test how a skill handles memory, plant the
-`MEMORY.md` an arm needs at that path before the run, and remove the
-whole `~/.claude/projects/<path>` directory after it. An arm about a
-project with no auto-memory needs no `MEMORY.md` there. Give each arm
-its own working directory, so each gets its own memory directory.
+turned into `-`. Inside a git repository, `<path>` is the repository's
+root, whichever of its directories the session starts in (seen on
+Claude Code 2.1.292). To test how a skill handles memory, plant the
+`MEMORY.md` an arm needs at that path before the run (under
+`CLAUDE_CONFIG_DIR` when that is set). Such an arm runs without
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and leaves that folder behind, so
+its working directory belongs under the batch's run directory ("Leave
+no session history behind" above). `dry-run-cleanup` keeps a folder
+whose memory directory holds a file, so once the batch is graded, run
+`sweep` without `--delete`, and delete the files in the `memory`
+directory of each folder it lists as `keep` for that reason. That
+deletion is itself a write, so `--delete` removes nothing for the next
+ten minutes. An arm about a project with no auto-memory needs no
+`MEMORY.md` there. Give each arm its own working directory, so each
+gets its own memory directory.
 
 **Put a stopping rule in a bold lead, and re-test it on the weakest
 model.** A rule that makes a session stop and ask gets skipped when it

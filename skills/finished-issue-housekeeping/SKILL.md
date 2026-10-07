@@ -1,6 +1,6 @@
 ---
 name: finished-issue-housekeeping
-description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory with a Done entry and prunes MEMORY.md back within its size budget, verifies sibling-audit follow-ups got filed, stops any dev server started for verification, clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep (via the /fewer-permission-prompts built-in, when available), and commits the files the pass wrote, to the default branch where the project declares that and otherwise on a draft pull request. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
+description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory with a Done entry and prunes MEMORY.md back within its size budget, verifies sibling-audit follow-ups got filed, stops any dev server started for verification, removes the session-history folders the story's headless dry runs left (with the bundled dry-run-cleanup CLI, when the plan records a dry-run directory), clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep (via the /fewer-permission-prompts built-in, when available), and commits the files the pass wrote, to the default branch where the project declares that and otherwise on a draft pull request. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
 ---
 
 # Finished issue housekeeping
@@ -497,6 +497,40 @@ If a development server was started during this story -- most often to drive a m
 
 Do NOT stop the container itself or other long-running services (db, redis, sidekiq) -- only the app server you spun up for verification.
 
+## Step 7b -- Remove what the story's dry runs left
+
+**When the story's plan file records a dry-run directory, sweep it with the `dry-run-cleanup` CLI bundled in this plugin, without asking.** A story tested with headless `claude -p` runs leaves session-history folders in the Claude config directory, one for each working directory a run started in, beside the user's real projects in every session picker. A harness that keeps its runs under a directory made by `dry-run-cleanup new` records that directory in the plan, on a line of its own:
+
+```
+Dry-run directory: /srv/dry-runs/dry-run-20270314-4321-k3x9qa
+```
+
+The sweep removes the folders those runs left, and then the run directory with everything in it: the runs' working directories and any other file kept there.
+
+Skip the step in three cases, and say which in Step 10: there is no plan file (ad-hoc work); no plan file has such a line; or `dry-run-cleanup` is not found (it is on PATH when the plugin is installed, and requires Ruby).
+
+**Read each of the story's plan files in this step, every time, and look for such lines: whether the plan records a directory is read off the file, never taken from memory or from what the conversation says of earlier steps.**
+
+**Check each path before it reaches a shell: it must begin with `/` and hold only ASCII letters, digits, `/`, `.`, `_`, and `-`.** A plan file is text other people can edit, and this path is the one thing in the step that is handed to a shell. A path with any other character (a space, a quote, `$`, a backtick, a backslash) is not run, in any quoting: name its line in Step 10 as one for the user to sweep by hand.
+
+Run one command for each distinct path that passed, exactly as the plan gives it. A path recorded twice, in one plan file or in two, is swept once:
+
+```bash
+dry-run-cleanup sweep --delete -- '<path>'   # lists the folders the runs left, removes them, then the run directory
+# never rm, rmdir, mv, or find -delete on a session-history folder or a run directory, before or after this command:
+#   the CLI is what tells this story's folders from another project's, and a folder it kept or refused is not yours to remove
+# never a path the plan does not record: not one from memory, from a harness script, or from listing a temporary directory
+```
+
+What it printed decides what Step 10 says:
+
+- **`Removed N folders and the run directory.`** Done; Step 10 gives the count.
+- **`Removed N folders. Kept M folders and the run directory.`** Each kept folder is listed above that line with its reason. Leave it and the run directory in place, and name each kept folder and its reason in Step 10. Where the reason is that its memory directory holds a file, whether that memory is worth keeping is the user's call. Where it is that the folder was written while the sweep ran, treat it as the next case.
+- **A refusal saying something was written in the last 10 minutes, or that the removal stopped partway.** A run may still be going or about to be resumed. After the first, nothing was removed; after the second, some folders may be gone. Do not wait here and do not retry in a loop: carry on with Step 8, and run the same command once more just before Step 10. If it refuses again, Step 10 gives the directory and the command for the user to run later.
+- **A refusal saying the path is `not a directory`.** Nothing was removed. When this conversation shows that this pass, or an earlier run of it, already swept that directory, say so in Step 10 and nothing more. Otherwise one of two things happened: an earlier pass swept the directory, or the system emptied the temporary directory it was made in, and then the runs' folders are still in the config directory where this tool can no longer find them. The refusal does not say which: give both readings in Step 10, and try nothing else.
+- **A refusal saying the directory has no `.dry-run-cleanup-run-directory` file.** Nothing was removed. A sweep never leaves a directory in that state, so something else removed the file, most often the system clearing a temporary directory, and the runs' folders are still in the config directory. Say that in Step 10, and try nothing else.
+- **Any other refusal** (for example: the directory is not named `dry-run-...`, was copied or moved, belongs to another user, or was made under another config directory). Nothing was removed; try nothing else, and give the CLI's message in Step 10.
+
 ## Step 8 -- Task list housekeeping
 
 Use `TaskList` to inventory tasks. Mark the plan's confirm-shipped task completed via `TaskUpdate` if it is not already (mirroring the plan-file flip Step 2 made), then delete the tasks tied to the finished issue via `TaskUpdate` with `status: "deleted"` -- all except the run-housekeeping task, which stays in progress while Steps 9 and 9b run and is completed and deleted in Step 10.
@@ -727,6 +761,7 @@ Report concisely what was done, one line per item:
 - Memory: Done entry added; MEMORY.md pruned (now <size> KB, under budget) (or "skipped -- no auto-memory").
 - Sibling-audit: N follow-ups verified; M dropped (filed now / TODO).
 - Dev server: stopped (or "none was running").
+- Dry runs: for each directory the plan records, N session folders removed, and the run directory with everything in it; or N removed and M kept, naming each kept folder with the CLI's reason; or not removed, with the CLI's message and, after a refusal over recent writes or a removal that stopped partway, the command to run again in ten minutes; or gone, as already swept by this pass or with both of Step 7b's readings; or without its marker file, with Step 7b's reading; a recorded path Step 7b's character check turned down is named as one to sweep by hand (or "no `Dry-run directory:` line in `<plan file>`", naming the file Step 7b read / "skipped -- `dry-run-cleanup` not found" / "skipped -- no plan file").
 - Task list: N completed tasks cleared.
 - Permission-prompt sweep: N additions in `<settings file>`, which the Committed or Uncommitted line accounts for (or "nothing approved" / "skipped -- built-in unavailable").
 
