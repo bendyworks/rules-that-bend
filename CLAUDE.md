@@ -12,6 +12,41 @@ that name in the bendyworks org: GitHub redirects it here only while the
 name is free, and existing installers fetch the marketplace through that
 redirect.
 
+## Goals
+
+Every issue, rule, and skill here is weighed against these goals. A good
+idea that serves none of them is put to the maintainer as a question,
+saying so, and is not filed or built until the maintainer answers.
+
+1. **An elegant, efficient open source project.** A reader can copy one
+   skill or one guidance file without taking the rest, learn from how it
+   is written, and judge the maintainer's work by it. A skill someone can
+   read in one sitting is worth more than one that covers every case.
+2. **Fast checks.** The full suite runs in under three minutes, and a
+   gauntlet run is short enough that nobody plans around it. A test or a
+   check that slows either one has to be worth the time it adds to every
+   later story.
+3. **A shrinking issue list.** More issues close than open. A follow-up
+   is filed with care and implemented straight away, in the story that
+   found it or directly after. An idea not worth doing soon is dropped,
+   not filed.
+4. **Less, where less is better.** Work that cost more than it gave is
+   found, then simplified or removed. Removing something is an ordinary
+   outcome of a story.
+
+## How the work is divided
+
+The maintainer and a session write the issue and the plan together. The
+session then implements the plan alone: it makes the development
+decisions, writes and squashes the commits, and writes the pull request,
+title and body included. The maintainer reviews that pull request
+closely, and the review is where the session's decisions get overruled.
+
+A session's question about a development detail works against this
+division. So does a pull request the maintainer has to rewrite before
+reviewing it: the pull request is the session's deliverable, and its
+quality is judged as such.
+
 ## Deploy-on-Merge Mode
 
 This project uses Deploy-on-Merge Mode: merging to the default branch is the
