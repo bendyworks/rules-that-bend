@@ -552,11 +552,17 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
   # many times while the others look at it. A run that reads a lock in
   # the middle of being replaced must wait like the rest: every one
   # ends with the lock and status 0.
+  #
+  # A waiting run looks again once a second, and forty of them would
+  # take over a minute to get through. The stand-in for `sleep` has them
+  # look twenty times as often, which also has more of them looking
+  # while the lock is being replaced.
   def test_every_waiting_run_gets_the_lock_while_it_changes_hands
+    waiting = env.merge('PATH' => path_with('brief-sleep-bin', 'sleep' => 'exec /bin/sleep 0.05'))
     2.times do |round|
       pids = Array.new(40) do
-        Process.spawn(env, script(:checkout), '--wait', 'true', chdir: @scratch, unsetenv_others: true,
-                                                                err: File.join(@scratch, 'waiting.err'))
+        Process.spawn(waiting, script(:checkout), '--wait', 'true', chdir: @scratch, unsetenv_others: true,
+                                                                    err: File.join(@scratch, 'waiting.err'))
       end
       @holders.concat(pids)
       statuses = pids.map { |pid| wait_within(pid, 120)&.exitstatus }

@@ -194,8 +194,7 @@ class OracleTableTest < Minitest::Test
   private
 
   def assert_tables_agree(builder, table, label)
-    Dir.mktmpdir("stale-branches-#{label}") do |dir|
-      repo = builder.new(File.join(dir, label)).build
+    builder.with_copy(label) do |repo|
       built = repo.local_refs.map { |ref| ref.delete_prefix('refs/heads/') }.sort
       listed = Fixtures::Oracle.load(table).map(&:branch).sort
       # The table goes in the expected slot: it is the specification, so
@@ -302,7 +301,7 @@ class FixtureShapeTest < Minitest::Test
     rows = Fixtures::Oracle.load(BACKUP_FORGE_ORACLE).select { |row| graded.include?(row.reason) }
     assert_empty graded - rows.map(&:reason)
 
-    with_fixture(Fixtures::BackupRepo, 'backup') do |repo|
+    Fixtures::BackupRepo.with_copy('backup') do |repo|
       records = Fixtures::PullRequests.data(repo, records: Fixtures::PullRequests::BACKUP_RECORDS)
                                       .fetch(Fixtures::PullRequests::CWD)
       rows.each do |row|
@@ -319,7 +318,7 @@ class FixtureShapeTest < Minitest::Test
     declined = Fixtures::Oracle.load(BACKUP_FORGE_ORACLE)
                                .select { |row| row.reason == 'proof-a:tip-only' }.map(&:branch)
 
-    with_fixture(Fixtures::BackupRepo, 'backup') do |repo|
+    Fixtures::BackupRepo.with_copy('backup') do |repo|
       declined.each do |branch|
         story = Fixtures::BackupRepo::BACKUPS.fetch(branch)
         assert_equal repo.git('rev-parse', "refs/fixture/#{story}^{tree}"),
@@ -470,7 +469,7 @@ class FixtureShapeTest < Minitest::Test
     rows = Fixtures::Oracle.load(table).select { |row| EVIDENCE_REASONS.include?(row.reason) }
     refute_empty rows, "#{label}: no row states evidence at all"
 
-    with_fixture(builder, label) do |repo|
+    builder.with_copy(label) do |repo|
       default_tree = repo.git('rev-parse', "refs/heads/#{default}^{tree}").strip
       rows.each do |row|
         assert_equal row.reason, evidence_for(repo, row.branch, default, default_tree),
@@ -501,7 +500,7 @@ class FixtureShapeTest < Minitest::Test
     rows = Fixtures::Oracle.load(table).select { |row| FORGE_REASONS.include?(row.reason) }
     refute_empty rows, "#{label}: no row states a forge reason at all"
 
-    with_fixture(builder, label) do |repo|
+    builder.with_copy(label) do |repo|
       records = Fixtures::PullRequests.data(repo, records: record_set)
                                       .fetch(Fixtures::PullRequests::CWD)
       rows.each do |row|
@@ -602,17 +601,11 @@ class FixtureShapeTest < Minitest::Test
   end
 
   def with_flat(&block)
-    with_fixture(Fixtures::BranchRepo, 'flat', &block)
+    Fixtures::BranchRepo.with_copy('flat', &block)
   end
 
   def with_gitflow(&block)
-    with_fixture(Fixtures::GitflowRepo, 'gitflow', &block)
-  end
-
-  def with_fixture(builder, label)
-    Dir.mktmpdir("stale-branches-#{label}") do |dir|
-      yield builder.new(File.join(dir, label)).build
-    end
+    Fixtures::GitflowRepo.with_copy('gitflow', &block)
   end
 end
 
@@ -803,6 +796,8 @@ class RepoBuilderContainmentTest < Minitest::Test
 
   def test_a_build_refuses_a_root_outside_the_temp_directory
     outside = File.join(__dir__, 'stale-branches-guard-probe')
+    under_temp = Fixtures::RepoBuilder.under_tmpdir?(outside)
+    skip 'this checkout is under the temporary directory' if under_temp
     refute File.exist?(outside), 'the probe path existed before the test ran'
 
     error = assert_raises(Fixtures::RepoBuilder::Error) do
@@ -888,6 +883,207 @@ class RepoBuilderContainmentTest < Minitest::Test
     yield
   ensure
     saved.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
+end
+
+# Each fixture is built once per run and a test is handed a copy. git
+# records a repository's absolute path inside it, so a copy that kept
+# those records would have a remote and a worktree entry naming the
+# built original, and one test's deletions would change the repository
+# every later test is copied from.
+class FixtureCopyTest < Minitest::Test
+  BUILDERS = { 'flat' => Fixtures::BranchRepo, 'gitflow' => Fixtures::GitflowRepo,
+               'backup' => Fixtures::BackupRepo }.freeze
+
+  def test_every_path_a_copy_records_is_inside_the_copy
+    temp = [File.realpath(Dir.tmpdir), Dir.tmpdir].uniq.map(&:b)
+    recorded = %r{(?:#{Regexp.union(temp).source})/[^\s\0]*}n
+
+    each_copy do |label, repo|
+      inside = [File.realpath(repo.root), repo.root].map { |root| File.join(root, '').b }
+      outside = files_under(repo.root).flat_map do |path|
+        File.binread(path).scan(recorded).reject { |found| found.start_with?(*inside) }
+      end
+
+      assert_empty outside, "the #{label} copy records a path outside itself"
+    end
+  end
+
+  def test_a_copys_remote_is_the_bare_repository_beside_it
+    each_copy do |label, repo|
+      assert File.identical?(repo.git('remote', 'get-url', 'origin').strip, repo.origin),
+             "the #{label} copy's origin is not its own bare repository"
+    end
+  end
+
+  def test_a_copys_second_worktree_belongs_to_the_copy
+    Fixtures::BranchRepo.with_copy('flat') do |repo|
+      worktree = File.join(File.realpath(repo.root), 'wt')
+
+      assert_includes repo.git('worktree', 'list', '--porcelain'), "worktree #{worktree}\n"
+      assert File.identical?(repo.git('rev-parse', '--git-common-dir', dir: worktree).strip,
+                             File.join(repo.work, '.git')),
+             'the copied worktree is tied to a clone other than the one beside it'
+    end
+  end
+
+  def test_changing_one_copy_changes_no_later_copy
+    Fixtures::BranchRepo.with_copy('first') do |first|
+      before = refs_of(first)
+      first.git('worktree', 'remove', '--force', File.join(first.root, 'wt'))
+      first.git('branch', '-D', 'n-worktree')
+      first.git('push', '-q', 'origin', 'o-current:refs/heads/pushed-by-the-first-copy')
+      refute_equal before, refs_of(first), 'the changes to the first copy did not take'
+
+      Fixtures::BranchRepo.with_copy('second') do |second|
+        assert_equal before, refs_of(second)
+      end
+    end
+  end
+
+  def test_two_copies_cost_one_build
+    builder = stand_in_builder { self.class.builds += 1 }
+
+    2.times { builder.with_copy('counted') { |repo| assert_path_exists repo.root } }
+
+    assert_equal 1, builder.builds
+  end
+
+  # A build takes seconds and a copy a few hundredths of one.
+  def test_only_the_tests_of_the_builder_itself_build_a_fixture
+    building = nil
+    classes = File.readlines(__FILE__).filter_map do |line|
+      building = line[/\Aclass (\w+)/, 1] || building
+      # Written with a bracketed dot so that this line does not match.
+      building if line.match?(/[.]build\b/)
+    end
+
+    assert_equal ['RepoBuilderContainmentTest'], classes.uniq,
+                 'a test builds a fixture where it could take a copy with with_copy'
+  end
+
+  # git writes paths as bytes. A branch or a commit subject can put
+  # bytes beside one that are not text in the encoding the tests run
+  # in, and the temporary directory's own name need not be ASCII.
+  def test_a_recorded_path_is_rewritten_as_bytes
+    builder = stand_in_builder { File.binwrite(File.join(root, 'record'), "\xFF #{root}\n") }
+
+    under_a_temp_directory_named("tmp\u00e9") do
+      builder.with_copy('bytes') do |repo|
+        assert_equal "\xFF #{repo.root}\n".b, File.binread(File.join(repo.root, 'record'))
+      end
+    end
+  end
+
+  # A link's target is not in any file's contents, so a copy would keep
+  # a link into the original with nothing here able to see it.
+  def test_a_fixture_holding_a_link_to_its_own_path_is_refused
+    builder = stand_in_builder { File.symlink(root, File.join(root, 'link')) }
+
+    error = assert_raises(Fixtures::RepoBuilder::Error) { builder.with_copy('linked') { nil } }
+
+    assert_match(/symbolic link/, error.message)
+  end
+
+  # Only this process's directories are counted: another run of this
+  # file may be making and removing its own beside them.
+  def test_a_build_that_fails_leaves_no_directory_behind
+    kept = -> { Dir.glob(File.join(Dir.tmpdir, "stale-branches-built*-#{Process.pid}-*")) }
+    before = kept.call
+    builder = stand_in_builder { raise Fixtures::RepoBuilder::Error, 'the build failed' }
+
+    assert_raises(Fixtures::RepoBuilder::Error) { builder.with_copy('failed') { nil } }
+
+    assert_equal before, kept.call
+  end
+
+  # A fixture that cannot be built fails every test that wants a copy,
+  # and each of them would otherwise wait for a build of its own first.
+  def test_a_build_that_fails_is_not_tried_again
+    builder = stand_in_builder do
+      self.class.builds += 1
+      raise Fixtures::RepoBuilder::Error, 'the build failed'
+    end
+
+    errors = Array.new(2) do
+      assert_raises(Fixtures::RepoBuilder::Error) { builder.with_copy('failed') { nil } }
+    end
+
+    assert_equal 1, builder.builds
+    assert_equal ['the build failed'], errors.map(&:message).uniq
+  end
+
+  def test_a_copy_refuses_a_root_outside_the_temp_directory
+    outside = File.join(__dir__, 'stale-branches-copy-probe')
+    under_temp = Fixtures::RepoBuilder.under_tmpdir?(outside)
+    skip 'this checkout is under the temporary directory' if under_temp
+    refute File.exist?(outside), 'the probe path existed before the test ran'
+
+    begin
+      error = assert_raises(Fixtures::RepoBuilder::Error) { Fixtures::GitflowRepo.copy_to(outside) }
+
+      assert_match(/outside/i, error.message)
+      refute File.exist?(outside), 'a refused copy still created its root directory'
+    ensure
+      FileUtils.rm_rf(outside)
+    end
+  end
+
+  def test_a_copy_refuses_a_root_that_already_exists
+    Dir.mktmpdir('stale-branches-copy') do |dir|
+      error = assert_raises(Fixtures::RepoBuilder::Error) { Fixtures::GitflowRepo.copy_to(dir) }
+
+      assert_match(/already exists/, error.message)
+      assert_empty Dir.children(dir), 'a refused copy still wrote into the directory'
+    end
+  end
+
+  private
+
+  # Made by hand inside a directory mktmpdir names, since mktmpdir
+  # drops every character that is not ASCII from the name it is given.
+  def under_a_temp_directory_named(name)
+    Dir.mktmpdir('stale-branches-temp') do |holder|
+      saved = ENV.fetch('TMPDIR', nil)
+      ENV['TMPDIR'] = File.join(holder, name).tap { |temp| Dir.mkdir(temp) }
+      yield
+    ensure
+      ENV['TMPDIR'] = saved
+    end
+  end
+
+  def each_copy
+    BUILDERS.each { |label, builder| builder.with_copy(label) { |repo| yield label, repo } }
+  end
+
+  # A builder whose build is the block alone, run in the builder once
+  # its root exists. It runs no git, so a test of the copying itself
+  # does not pay for a repository.
+  def stand_in_builder(&step)
+    Class.new(Fixtures::RepoBuilder) do
+      singleton_class.attr_accessor :builds
+      self.builds = 0
+
+      define_method(:build) do
+        prepare_root
+        instance_exec(&step)
+        self
+      end
+    end
+  end
+
+  def files_under(root)
+    Dir.glob('**/*', File::FNM_DOTMATCH, base: root)
+       .map { |relative| File.join(root, relative) }
+       .select { |path| File.file?(path) }
+  end
+
+  # Both repositories, since a copy's clone could be whole while its
+  # pushes land in the original's bare repository.
+  def refs_of(repo)
+    [repo.work, repo.origin].map do |dir|
+      repo.git('for-each-ref', '--format=%(refname) %(objectname)', dir: dir)
+    end
   end
 end
 
@@ -1564,10 +1760,8 @@ class OracleTestCase < CliTestCase
     assert_empty complaints, "git reported errors during the sweep:\n#{complaints.join}"
   end
 
-  def with_flat_fixture(label)
-    Dir.mktmpdir("stale-branches-#{label}") do |dir|
-      yield Fixtures::BranchRepo.new(File.join(dir, 'flat')).build
-    end
+  def with_flat_fixture(label, &block)
+    Fixtures::BranchRepo.with_copy(label, &block)
   end
 
   # `git branch` will not make one of these, so the ref is written
@@ -1578,16 +1772,12 @@ class OracleTestCase < CliTestCase
     repo.git('update-ref', 'refs/heads/-D', repo.git('rev-parse', 'main').strip)
   end
 
-  def with_gitflow_fixture(label)
-    Dir.mktmpdir("stale-branches-gitflow-#{label}") do |dir|
-      yield Fixtures::GitflowRepo.new(File.join(dir, 'gf')).build
-    end
+  def with_gitflow_fixture(label, &block)
+    Fixtures::GitflowRepo.with_copy(label, &block)
   end
 
-  def with_backup_fixture(label)
-    Dir.mktmpdir("stale-branches-backup-#{label}") do |dir|
-      yield Fixtures::BackupRepo.new(File.join(dir, 'backup')).build
-    end
+  def with_backup_fixture(label, &block)
+    Fixtures::BackupRepo.with_copy(label, &block)
   end
 
   # Drives a sweep for its verdicts rather than its report, which is
@@ -2778,11 +2968,13 @@ end
 # are the developer's clone during a test run.
 class SweepTargetTest < Minitest::Test
   def test_a_target_outside_the_temp_directory_is_refused
+    skip_in_a_throwaway_checkout
     assert_match(/outside/i, refusal(['-C', Dir.pwd]),
                  'a sweep aimed at a working clone was allowed to run')
   end
 
   def test_no_target_at_all_is_refused_rather_than_falling_back_to_the_working_directory
+    skip_in_a_throwaway_checkout
     assert_match(/outside/i, refusal([]),
                  'a sweep with no -C ran against whatever directory the suite started in')
   end
@@ -2804,6 +2996,15 @@ class SweepTargetTest < Minitest::Test
   end
 
   private
+
+  # The two refusal tests aim the sweep at the directory the suite runs
+  # in, which is outside the temporary directory unless the checkout is
+  # itself a throwaway under it.
+  def skip_in_a_throwaway_checkout
+    return unless Fixtures::RepoBuilder.under_tmpdir?(Dir.pwd)
+
+    skip 'this checkout is under the temporary directory'
+  end
 
   def refusal(target)
     result = run_probe(target)

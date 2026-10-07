@@ -6,8 +6,8 @@ module Fixtures
   # A throwaway repository holding backups of story branches that were
   # squashed and merged, one per clause of the sweep's backup rule. It
   # is a fixture of its own rather than more rows in BranchRepo because
-  # nearly every test builds that one, and these branches would be paid
-  # for by all of them while being read by a handful.
+  # nearly every test sweeps a copy of that one, and these branches
+  # would be swept by all of them while being read by a handful.
   #
   # The default branch is main, and HEAD is left on it.
   class BackupRepo < RepoBuilder
