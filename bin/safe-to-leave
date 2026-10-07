@@ -200,21 +200,37 @@ module SafeToLeave
   end
 
   # What a command wrote and how it ended, as [stdout, stderr, status],
-  # or nil when it was still going after `seconds`. A command that takes
-  # a connection and never gets an answer would otherwise hold the
+  # or nil when `seconds` passed first. A command that takes a
+  # connection and never gets an answer would otherwise hold the
   # report, and the session running it, for as long as it liked. The
-  # command runs in a process group of its own so that whatever it
-  # started is stopped with it.
+  # limit is on the command ending and on its output being read to the
+  # end, since something it started can hold that output open after it
+  # ends. The command runs in a process group of its own so that
+  # whatever it started is stopped with it.
   def self.capture_within(seconds, env, command, **options)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
     Open3.popen3(env, *command, pgroup: true, **options) do |stdin, stdout, stderr, child|
       stdin.close
       readers = [stdout, stderr].map { |stream| Thread.new { stream.read } }
-      if child.join(seconds).nil?
-        Process.kill('KILL', -child.pid)
-        return nil
+      waited_for = [child, *readers].all? do |thread|
+        thread.join([deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0].max)
       end
-      [utf8(readers.first.value), utf8(readers.last.value), child.value]
+      next [utf8(readers.first.value), utf8(readers.last.value), child.value] if waited_for
+
+      stop(child.pid, readers)
+      nil
     end
+  end
+
+  # The readers are stopped before popen3 closes the streams they are
+  # reading, which would otherwise end each with an error Ruby prints.
+  # By now the group may already be gone.
+  def self.stop(group, readers)
+    Process.kill('KILL', -group)
+  rescue Errno::ESRCH, Errno::EPERM
+    nil
+  ensure
+    readers.each(&:kill).each(&:join)
   end
 
   # What each check concludes, as functions of gathered facts. Nothing
@@ -237,6 +253,10 @@ module SafeToLeave
     # result. Any other conclusion of a finished attempt counts, one
     # GitHub adds later included.
     PASSING_CONCLUSIONS = %w[success skipped neutral].freeze
+
+    # How the detail starts when no run that could count was found. In
+    # the seconds after a merge GitHub has not created the run yet.
+    NO_RUN_FOUND = 'no run found since the merge'
 
     PUSH = 'push'
     COMPLETED = 'completed'
@@ -428,7 +448,7 @@ module SafeToLeave
       lines = counted_run_lines(on_merge, unplaced) + other_run_lines(elsewhere, cut_short)
       return lines unless on_merge.empty? && unplaced.empty?
 
-      [Line.new('workflow-runs', LISTED, "no run on #{quoted(default)} since the merge was found")] + lines
+      [Line.new('workflow-runs', LISTED, "#{NO_RUN_FOUND} on #{quoted(default)}")] + lines
     end
 
     def counted_run_lines(on_merge, unplaced)
@@ -480,10 +500,11 @@ module SafeToLeave
     end
 
     def describe_run(run)
-      where = run.branch.nil? ? 'no branch' : quoted(run.branch)
+      workflow = run.workflow.to_s.empty? ? 'unnamed workflow' : quoted(run.workflow)
+      where = run.branch.to_s.empty? ? 'no branch' : quoted(run.branch)
       where = "#{where}, #{run.event}" unless run.event == PUSH
       attempts = failed_attempts(run)
-      "#{quoted(run.workflow)} run #{run.id} on #{where}#{" (#{attempts.join(', ')})" unless attempts.empty?}"
+      "#{workflow} run #{run.id} on #{where}#{" (#{attempts.join(', ')})" unless attempts.empty?}"
     end
 
     # Every issue or pull request number the plan mentions. One the
@@ -1248,10 +1269,15 @@ module SafeToLeave
     end
 
     # The last line is where a reader takes the answer from, so it names
-    # the checks that were never made for want of a flag.
+    # the checks that were never made for want of a flag, and says when
+    # no workflow run was there to read.
     def not_looked_for(lines)
       skipped = lines.select { |line| line.detail.start_with?(NOT_LOOKED_FOR) }.map(&:check)
-      skipped.empty? ? '' : "; not looked for: #{skipped.join(', ')}"
+      notes = []
+      notes << "not looked for: #{skipped.join(', ')}" unless skipped.empty?
+      no_run = lines.any? { |line| line.detail.start_with?(Checks::NO_RUN_FOUND) }
+      notes << 'no workflow run found since the merge' if no_run
+      notes.map { |note| "; #{note}" }.join
     end
 
     # File names, stash subjects, worktree paths, and git's messages can

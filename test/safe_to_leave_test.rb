@@ -48,6 +48,44 @@ class SiblingCommandTest < Minitest::Test
   end
 end
 
+# The time limit on a command is on everything the report waits for:
+# the command ending, and its output being read to the end.
+class CaptureWithinTest < Minitest::Test
+  def elapsed
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    result = yield
+    [result, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start]
+  end
+
+  def test_a_command_that_finishes_in_time_is_answered_with_what_it_wrote
+    stdout, stderr, status = SafeToLeave.capture_within(5, {}, ['sh', '-c', 'echo out; echo err >&2; exit 3'])
+
+    assert_equal ["out\n", "err\n", 3], [stdout, stderr, status.exitstatus]
+  end
+
+  def test_a_command_still_going_at_the_limit_is_stopped_and_answered_with_nil
+    result, seconds = elapsed { SafeToLeave.capture_within(1, {}, %w[sleep 30]) }
+
+    assert_nil result
+    assert_operator seconds, :<, 5
+  end
+
+  # A command can end and leave something it started holding its
+  # output open.
+  def test_output_still_held_open_at_the_limit_is_not_waited_for
+    result, seconds = elapsed { SafeToLeave.capture_within(1, {}, ['sh', '-c', 'sleep 30 & exit 0']) }
+
+    assert_nil result
+    assert_operator seconds, :<, 5
+  end
+
+  def test_stopping_a_command_writes_nothing_to_stderr
+    _out, err = capture_subprocess_io { SafeToLeave.capture_within(1, {}, %w[sleep 30]) }
+
+    assert_empty err
+  end
+end
+
 class WorkingTreeDecisionTest < Minitest::Test
   def test_no_entries_is_one_clean_line
     lines = SafeToLeave::Checks.working_tree([])
@@ -474,7 +512,7 @@ class WorkflowRunDecisionTest < Minitest::Test
     result = lines([])
 
     assert_equal ['listed'], result.map(&:status)
-    assert_match(/no run on "main"/, result.first.detail)
+    assert_equal 'no run found since the merge on "main"', result.first.detail
   end
 
   def test_a_passing_run_on_a_commit_containing_the_merge_is_clean
@@ -589,6 +627,14 @@ class WorkflowRunDecisionTest < Minitest::Test
     result = lines([run_record(500, ['failure'], workflow: "#{'w' * 80}), run 7 on main")])
 
     assert_includes result.first.detail, "\"#{'w' * 80}\" (+16 characters) run 500"
+  end
+
+  # gh gives an empty string where a run has no branch, and no name
+  # for a workflow a ruleset requires.
+  def test_a_run_with_an_empty_branch_and_workflow_name_says_so
+    result = lines([run_record(500, ['failure'], workflow: '', branch: '')])
+
+    assert_equal 'failed: unnamed workflow run 500 on no branch (attempt 1 failure)', result.first.detail
   end
 
   def test_a_run_with_no_branch_says_so
@@ -2103,6 +2149,7 @@ class LeaveReportTest < LeaveCliTestCase
       assert_equal ['UNCHECKED'], result.statuses['pull-requests']
       assert_includes result.line_for('pull-requests'), 'gh pr list did not answer within 1s'
       assert_equal ['ok'], result.statuses['unpushed']
+      assert_empty result.stderr
     end
   end
 
@@ -2133,6 +2180,15 @@ class LeaveReportTest < LeaveCliTestCase
     with_repo do |repo|
       assert_equal "safe-to-leave: nothing counts against leaving; not looked for: issues, workflow-runs\n",
                    report(repo).stdout.lines.last
+    end
+  end
+
+  # No run yet is what GitHub shows in the seconds after a merge, so
+  # the last line says none was read.
+  def test_the_closing_line_says_when_no_workflow_run_was_found
+    with_repo do |repo|
+      assert_equal "safe-to-leave: nothing counts against leaving; no workflow run found since the merge\n",
+                   report_since_merge(repo, '--issue', '12').stdout.lines.last
     end
   end
 
