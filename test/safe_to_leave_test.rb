@@ -526,28 +526,6 @@ class PlanMentionTest < Minitest::Test
   end
 end
 
-class RemoteHostTest < Minitest::Test
-  def host(url)
-    SafeToLeave::Checks.host_of(url)
-  end
-
-  def test_each_remote_url_form_names_its_host
-    assert_equal 'github.com', host('git@github.com:owner/project.git')
-    assert_equal 'github.com', host('https://github.com/owner/project.git')
-    assert_equal 'gitlab.example.com', host('ssh://git@gitlab.example.com:2222/owner/project.git')
-    assert_equal 'gitlab.example.com', host('https://user@gitlab.example.com/owner/project')
-    assert_equal 'github.com', host('GIT@GitHub.com:owner/project.git')
-  end
-
-  # A path on this machine is hosted nowhere, so nothing can be said
-  # about who hosts it.
-  def test_a_local_path_names_no_host
-    assert_nil host('/srv/git/project.git')
-    assert_nil host('../project.git')
-    assert_nil host('file:///srv/git/project.git')
-  end
-end
-
 # What both CLI suites share: the entry point, the refusal to report on
 # anything outside the temporary directory, and one way to run a report.
 class LeaveCliTestCase < CliTestCase
@@ -2101,79 +2079,6 @@ class LeaveReportTest < LeaveCliTestCase
       report(repo)
 
       assert_empty served_invocations.grep(/run list/)
-    end
-  end
-
-  # The remote is aimed at a name that resolves nowhere, so asking it
-  # for its default branch fails as well; these tests read the three
-  # code-host lines and leave the unpushed line to its own.
-  def host_remote(repo, url)
-    repo.git('remote', 'set-url', 'origin', url)
-  end
-
-  HOST_LINES = %w[pull-requests issues check-runs].freeze
-
-  # GitLab, Bitbucket, a self-hosted server: gh has nothing to say
-  # about any of them, on any day. Counting that against leaving would
-  # make every session on such a project unsafe for good, so the lines
-  # say they were not checked and are left out of the answer.
-  def test_on_a_host_gh_does_not_read_the_code_host_lines_are_named_and_not_counted
-    with_repo do |repo|
-      serve(repo)
-      host_remote(repo, 'https://gitlab.invalid/owner/project.git')
-      ENV['STUB_GH_AUTH_HOSTS'] = 'github.com'
-      result = report_since_merge(repo, '--issue', '12')
-
-      HOST_LINES.each do |check|
-        assert_equal ['listed'], result.statuses[check], check
-        assert_includes result.line_for(check), 'gitlab.invalid'
-      end
-      assert_empty served_invocations.grep(/ list /), 'nothing may be asked of a host gh does not read'
-    end
-  end
-
-  def test_on_a_host_gh_is_signed_in_to_the_code_host_is_asked
-    with_repo do |repo|
-      serve(repo)
-      host_remote(repo, 'https://github.invalid/owner/project.git')
-      ENV['STUB_GH_AUTH_HOSTS'] = 'github.com,github.invalid'
-      result = report(repo, '--issue', '12')
-
-      assert_equal ['ok'], result.statuses['pull-requests']
-      refute_empty served_invocations.grep(/pr list/)
-    end
-  end
-
-  # github.com is a host gh reads, so a gh that is signed out or
-  # offline there is a question left unanswered, and still counts.
-  def test_on_github_a_failing_gh_still_counts
-    with_repo do |repo|
-      serve(repo)
-      host_remote(repo, 'git@github.com:owner/project.git')
-      ENV['STUB_GH_FAIL'] = '1'
-      result = report(repo, '--issue', '12')
-
-      assert_equal ['UNCHECKED'], result.statuses['pull-requests']
-      assert_empty served_invocations.grep(/auth status/)
-    end
-  end
-
-  def test_a_named_repo_on_another_host_decides_the_host
-    with_repo do |repo|
-      serve(repo)
-      ENV['STUB_GH_AUTH_HOSTS'] = 'github.com'
-      result = report(repo, '--repo', 'gitlab.invalid/owner/project')
-
-      assert_equal ['listed'], result.statuses['pull-requests']
-    end
-  end
-
-  def test_a_remote_on_this_machine_is_asked_about_as_before
-    with_repo do |repo|
-      report(repo)
-
-      assert_empty served_invocations.grep(/auth status/)
-      refute_empty served_invocations.grep(/pr list/)
     end
   end
 end

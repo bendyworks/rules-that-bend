@@ -121,10 +121,6 @@ module SafeToLeave
 
     The worktrees check needs git 2.36 or newer.
 
-    On a project whose remote is hosted where gh cannot read, such as
-    GitLab or Bitbucket, the pull request, issue, and workflow-run lines
-    say they were not checked, and do not count.
-
     Exit status: 0 nothing counts against leaving, 1 something does (an
     UNCHECKED line included), 2 the report could not be made.
   TXT
@@ -370,22 +366,6 @@ module SafeToLeave
       lines.empty? ? [Line.new('issues', OK, 'none open for this story')] : lines
     end
 
-    # The host a remote URL names, or nil for a path on this machine.
-    # Three forms: scheme://[user@]host[:port]/path, the scp-like
-    # [user@]host:path, and a bare path.
-    def host_of(url)
-      host = url[%r{\A[a-z][a-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)}i, 1] unless url.start_with?('file:')
-      host ||= url[%r{\A(?:[^@/:]+@)?([^/:]+):(?!//)}, 1] unless url.include?('://')
-      host&.downcase
-    end
-
-    # The one line each code-host check gets on a project gh cannot
-    # read. It is listed and not counted: nothing about it will change
-    # by asking again.
-    def unread_host(check, host)
-      [Line.new(check, LISTED, "not checked: #{host} is not a host gh reads")]
-    end
-
     # The conclusions that mean an attempt did not pass. `skipped` and
     # `neutral` are a workflow deciding not to judge.
     FAILED_CONCLUSIONS = %w[failure cancelled timed_out startup_failure].freeze
@@ -540,12 +520,6 @@ module SafeToLeave
     # branch is renamed.
     def default_branch
       advertised.default
-    end
-
-    # nil when the remote has no URL to read.
-    def remote_url
-      stdout, _stderr, status = capture('remote', 'get-url', @remote)
-      status.success? ? stdout.strip : nil
     end
 
     # Committer time, which for a merge commit is when it landed.
@@ -825,26 +799,6 @@ module SafeToLeave
       @repo = repo
     end
 
-    GITHUB = 'github.com'
-
-    # Whether gh can answer for a project on `host`. github.com is one
-    # it reads whether or not it is signed in today. Any other host is
-    # GitHub Enterprise when gh is signed in to it, and otherwise
-    # another service entirely.
-    def reads?(host)
-      return true if host == GITHUB
-
-      Open3.capture3(CHILD_ENV, 'gh', 'auth', 'status', '--hostname', host, chdir: @dir).last.success?
-    rescue Errno::ENOENT, Errno::EACCES
-      false
-    end
-
-    # The host a --repo of the form HOST/OWNER/NAME names.
-    def named_host
-      segments = @repo.to_s.split('/')
-      segments.length == 3 ? segments.first.downcase : nil
-    end
-
     OPEN = %w[--state open].freeze
     RUN_FIELDS = %w[databaseId workflowName status conclusion headSha headBranch event attempt].freeze
 
@@ -900,7 +854,8 @@ module SafeToLeave
     end
 
     def host_env
-      named_host ? CHILD_ENV.merge('GH_HOST' => named_host) : CHILD_ENV
+      segments = @repo.to_s.split('/')
+      segments.length == 3 ? CHILD_ENV.merge('GH_HOST' => segments.first) : CHILD_ENV
     end
 
     def run(what, command, env = CHILD_ENV)
@@ -943,11 +898,11 @@ module SafeToLeave
         checked('unpushed') { unpushed },
         checked('stashes') { Checks.stashes(@git.stashes, @prefixes) },
         checked('worktrees') { Checks.worktrees(@git.other_worktrees(@here), @prefixes) },
-        on_host('pull-requests') do
+        checked('pull-requests') do
           Checks.pull_requests(@host.open_pull_requests, prefixes: @prefixes, issue: @issue)
         end,
-        on_host('issues') { issues },
-        on_host('check-runs') { Checks.check_runs(runs_since_merge) }
+        checked('issues') { issues },
+        checked('check-runs') { Checks.check_runs(runs_since_merge) }
       ].flatten
     end
 
@@ -957,20 +912,6 @@ module SafeToLeave
       yield
     rescue Error => e
       [Line.new(check, UNCHECKED, e.message)]
-    end
-
-    def on_host(check, &)
-      unread_host ? Checks.unread_host(check, unread_host) : checked(check, &)
-    end
-
-    # The project's host when gh cannot read it, and nil when it can or
-    # when the remote is a path on this machine. A --repo that names a
-    # host decides it, since that is the project the questions go to.
-    def unread_host
-      return @unread_host if defined?(@unread_host)
-
-      host = @host.named_host || @git.remote_url&.then { |url| Checks.host_of(url) }
-      @unread_host = host && !@host.reads?(host) ? host : nil
     end
 
     def issues
