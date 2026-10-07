@@ -343,6 +343,29 @@ class ParallelCheckoutSuiteLockTest < Minitest::Test
     assert_empty Dir.glob("#{lock_dir}*")
   end
 
+  # A project's documented suite command may run through the lock, and
+  # whoever runs it may wrap it again. The inner call is already under
+  # the lock, whichever worktree's copy of the script it is.
+  def test_a_command_started_under_the_lock_passes_straight_through_it
+    inner = "#{script(:nested).shellescape} --wait echo ran"
+    out, err, status = run_lock(:checkout, 'sh', '-c', "#{inner}; echo after", within: 10)
+    assert_predicate status, :success?, err
+    assert_equal "ran\nafter\n", out
+    assert_equal "sh -c #{inner}; echo after", File.read(holder_file).split("\n").last
+    assert_took_the_lock(run_lock(:checkout, script(:outside), 'echo', 'ran', within: 10),
+                         "#{script(:outside)} echo ran")
+  end
+
+  # The mark a holder leaves in its environment is believed only while
+  # that process holds this lock.
+  def test_a_run_carrying_another_holders_mark_is_refused
+    pid = hold(:checkout)
+    lock = File.realpath(lock_dir)
+    ["#{dead_pid} #{lock}", "#{pid} #{lock}-elsewhere", "#{Process.pid} #{lock}", pid.to_s].each do |mark|
+      assert_refused(run_lock(:checkout, *mark_ran, vars: { 'SUITE_LOCK_HELD_BY' => mark }), "process #{pid}")
+    end
+  end
+
   def test_every_readable_layout_of_one_checkout_shares_the_lock
     hold(:outside)
     %i[checkout subdirectory nested crlf relative absolute_common crlf_common].each do |name|

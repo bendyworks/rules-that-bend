@@ -31,6 +31,13 @@
 # cannot tell whether the holder is gone, and is refused, with `--wait`
 # too, until the owner runs again or removes the lock.
 #
+# A command that itself runs bin/suite-lock, from this worktree or
+# another of the same checkout, is under the lock already and passes
+# straight through: the holder exports SUITE_LOCK_HELD_BY, its process ID
+# and the lock's path, and an inner call that finds that process still
+# holding that lock runs its command at once. So a project's own suite
+# command can take the lock, and whoever runs it can wrap it again.
+#
 # A lock whose holder is gone is taken over inside a second directory lock,
 # so that of several runs arriving together one takes it and the rest are
 # refused. A takeover directory left behind by a run killed in that step is
@@ -323,6 +330,24 @@ refuse() {
   exit 75
 }
 
+# The lock's path with symbolic links resolved, which is the same text
+# from every worktree of the checkout.
+lock_id="$(CDPATH='' cd -- "$common" && pwd -P)/suite-lock"
+
+# This run was started by the run that holds the lock: its environment
+# names a process and a lock, that lock is this one, and that process
+# is its holder and is still going. An environment that outlived its
+# holder, or came from another checkout, names something else.
+started_by_the_holder() {
+  [ -n "${SUITE_LOCK_HELD_BY:-}" ] || return 1
+  read_holder || return 1
+  [ "$SUITE_LOCK_HELD_BY" = "$holder_pid $lock_id" ] && holder_alive
+}
+
+if started_by_the_holder; then
+  exec -- "$@"
+fi
+
 held_reason=""
 until try_take; do
   if [ -z "$wait_for_lock" ] || [ "$held_reason" = abandoned ] || [ "$held_reason" = unreadable ]; then
@@ -331,4 +356,5 @@ until try_take; do
   sleep 1
 done
 
+export SUITE_LOCK_HELD_BY="$$ $lock_id"
 exec -- "$@"
