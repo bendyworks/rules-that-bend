@@ -69,6 +69,12 @@ module StaleBranches
       --delete        delete the branches marked DELETE
       -h, --help      print this message
 
+    Pull requests are read through the gh command, so the repository
+    must be hosted on GitHub. Where gh cannot read them the report says
+    so, and --delete is refused. --offline --delete deletes on the local
+    evidence alone, including a branch whose work has landed while its
+    pull request is still open.
+
     A branch is kept unless the evidence positively says its work has
     landed. Unpushed work and an unanswerable question both end in a
     keep, and verdicts are always measured against what the remote had
@@ -1074,7 +1080,8 @@ module StaleBranches
     end
 
     def unreachable_warning
-      "could not ask gh about pull requests (#{@forge.failure}); #{scope_of_the_gap} a " \
+      "could not read pull requests from GitHub through gh (#{@forge.failure}); " \
+        "#{scope_of_the_gap} a " \
         'branch whose work has landed while its own pull request is still open is marked ' \
         'DELETE here, and a branch whose merge conflicts is kept for want of an answer ' \
         'rather than because its work is unlanded'
@@ -1431,8 +1438,9 @@ module StaleBranches
       return if forge.available? || forge.offline?
 
       raise Error, 'not deleting: pull requests could not be read, so nothing above is ' \
-                   'protected by an open one. Re-run with --offline to delete on the ' \
-                   'local evidence alone.'
+                   'protected by an open one. Deleting on the local evidence alone ' \
+                   'takes --offline, and --offline also deletes a branch whose work ' \
+                   'has landed while its pull request is still open.'
     end
 
     # The object name goes out with each line because it is the only

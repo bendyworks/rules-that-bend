@@ -3330,6 +3330,21 @@ class DegradationTest < OracleTestCase
     end
   end
 
+  # Pull requests are read from GitHub and nowhere else, and the warning
+  # is where a user whose repository is hosted somewhere gh cannot read
+  # first meets that.
+  def test_the_warning_says_pull_requests_are_read_from_github
+    with_flat_fixture('degraded-github') do |repo|
+      warning = measure(repo).warnings.grep(/pull request/).first.to_s
+
+      assert_match(/could not read pull requests from GitHub/, warning)
+    end
+  end
+
+  def test_the_usage_text_says_the_repository_must_be_hosted_on_github
+    assert_match(/hosted on\s+GitHub/, StaleBranches::USAGE)
+  end
+
   # The caller has to be able to tell which way the verdicts below are
   # wrong, and they are wrong in both directions at once: a branch whose
   # work landed while its own pull request is open is marked DELETE
@@ -3466,11 +3481,14 @@ class OfflineTest < OracleTestCase
   def test_delete_is_refused_when_the_forge_could_not_be_read
     with_flat_fixture('offline-refusal') do |repo|
       with_forge(repo, failing: true) do
+        before = repo.local_refs
         message = abort_message(['-C', repo.work, '--delete'])
 
         assert_match(/not deleting/, message)
         assert_match(/--offline/, message, 'the refusal did not say how to proceed deliberately')
-        assert_includes repo.local_refs, 'refs/heads/p1-ancestor', 'it deleted anyway'
+        assert_match(/whose work has landed while its pull request is still open/, message,
+                     'the refusal named the flag without saying what it costs')
+        assert_equal before, repo.local_refs, 'it deleted anyway'
       end
     end
   end
