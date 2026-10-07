@@ -318,6 +318,12 @@ fault that read as a finding. Match subcommands the way the real tool
 parses them, and run each command the skill under test newly relies on
 once through the stub before the batch.
 
+**Test a shell snippet a skill ships by lifting it from the skill file
+as written, never from a copy typed into the test.** A filter shipped
+inside single quotes held an apostrophe in a comment, which ended the
+quote; a retyped copy would not have had the comment, and would have
+passed.
+
 **Trace the tool calls before rewording a rule that never fires.** A
 rule keyed on an event ("a line added because the test failed without
 it") cannot fire for a session that never has the event. In one guidance
