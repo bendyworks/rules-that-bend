@@ -499,6 +499,15 @@ comment explains the naming that keeps it outside CI's
 refuses to be overridden, so no suite can dispatch around its own
 guard.
 
+**A test that a tool refuses a command puts a refusing stand-in for
+that command on PATH, and asks for something harmless.** The test
+proves the refusal by asking for what should be refused, so with the
+refusal missing it runs what it asked for. One such test called a
+tool's `gh` runner with `repo delete` and named no stand-in: with the
+check removed, it started the developer's signed-in `gh`. Name the
+program in `shimmed_commands`, which fails the test on any call that
+reaches it, and pick a read-only command for the refused call.
+
 A CLI whose work IS the shelling out (see `bin/stale-branches`) splits
 the same way, one level further in: the pure module holds the
 decisions that are a function of gathered facts, a command class is
