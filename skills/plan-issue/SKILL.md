@@ -1427,6 +1427,9 @@ via the Skill tool. It will:
   verification), and remove its `in progress` label once it is
   closed.
 - Verify sibling-audit follow-ups got filed.
+- On GitHub, where the project has priority labels, count the open
+  issues waiting for a priority and, past a threshold, offer to label
+  the oldest.
 - Clear completed tasks from the conversation task list.
 - Run a permission-prompt sweep (via the /fewer-permission-prompts
   built-in, when available), gating any settings-file write on the
