@@ -3089,6 +3089,31 @@ class ForgeTest < OracleTestCase
     end
   end
 
+  def test_every_question_is_a_call_the_tool_declares
+    with_flat_fixture('forge-declared') do |repo|
+      with_forge(repo) do
+        sweep(repo)
+
+        refute_empty served_invocations
+        undeclared = served_invocations.reject do |call|
+          StaleBranches::GH_CALLS.any? { |declared| call.start_with?("gh #{declared} ") }
+        end
+        assert_empty undeclared
+      end
+    end
+  end
+
+  def test_the_runner_refuses_a_call_the_tool_does_not_declare
+    with_flat_fixture('forge-undeclared') do |repo|
+      with_forge(repo) do
+        error = assert_raises(ArgumentError) { forge_in(repo).send(:gh, %w[repo view]) }
+
+        assert_match(/repo view/, error.message)
+        assert_empty served_invocations, 'the undeclared call reached gh'
+      end
+    end
+  end
+
   def test_a_second_question_about_one_branch_is_answered_from_the_first
     with_flat_fixture('forge-cache') do |repo|
       with_forge(repo) do

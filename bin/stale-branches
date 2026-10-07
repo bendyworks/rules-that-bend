@@ -246,6 +246,11 @@ module StaleBranches
   # worth refusing rather than forwarding.
   REPO_NAME = %r{\A[\w.-]+/[\w.-]+(?:/[\w.-]+)?\z}
 
+  # The gh commands this tool runs, which Forge#gh checks each call
+  # against. gh-calls.txt lists them among the commands a replacement
+  # for gh would have to answer.
+  GH_CALLS = ['pr list'].freeze
+
   module_function
 
   # Parsed here rather than in the CLI class below because nothing about
@@ -910,7 +915,7 @@ module StaleBranches
     # still has a content check to run, so both degrade like any other
     # failure to answer.
     def ask_about(branch)
-      stdout, stderr, status = Open3.capture3(FORGE_ENV, 'gh', *query_for(branch), chdir: @dir)
+      stdout, stderr, status = gh(query_for(branch))
       return unavailable(first_line(stderr)) unless status.success?
 
       answered(records_from(JSON.parse(stdout), branch))
@@ -935,6 +940,16 @@ module StaleBranches
         parsed.all?(Hash)
 
       parsed.select { |record| record['headRefName'] == branch }
+    end
+
+    # The one place gh is started. An undeclared call is a mistake in
+    # this file and not a failure to answer, so it raises where a gh
+    # that could not be run degrades.
+    def gh(args)
+      call = args.first(2).join(' ')
+      raise ArgumentError, "gh #{call} is not in GH_CALLS" unless GH_CALLS.include?(call)
+
+      Open3.capture3(FORGE_ENV, 'gh', *args, chdir: @dir)
     end
 
     # gh's failures run to several lines and carry their own advice
