@@ -5,8 +5,10 @@
 # repository, so the developer can see it before closing the session.
 #
 # It prints one or more lines per check and changes nothing: it reads
-# the working tree, the commits the remote does not have, the stashes,
-# and the linked worktrees. The remote is asked, in one request, which
+# the working tree, whether a rebase, merge, cherry-pick, revert, or
+# bisect was left unfinished there, the commits the remote does not
+# have, the stashes, and the linked worktrees. The remote is asked, in
+# one request, which
 # branch is its default and where each of its branches is, and that is
 # the one use of the network. Each line of a check carries one of four
 # words:
@@ -72,7 +74,9 @@ module SafeToLeave
       -h, --help      print this message
 
     These count whatever the prefix: uncommitted files in the working
-    tree or in any other worktree, commits on the default branch that
+    tree or in any other worktree, a rebase, merge, cherry-pick, revert,
+    or bisect left unfinished in the working tree, commits on the
+    default branch that
     the remote does not have, a stash that names no branch, commits on a
     detached HEAD that are on no branch, and every UNCHECKED line.
 
@@ -166,6 +170,14 @@ module SafeToLeave
 
       [Line.new('working-tree', AGAINST,
                 "#{count(entries.length, 'uncommitted or untracked file')}: #{entries.join(', ')}")]
+    end
+
+    # `operations` names what was started and not finished in the
+    # working tree: "a rebase", "a merge".
+    def in_progress(operations)
+      return [Line.new('in-progress', OK, 'none')] if operations.empty?
+
+      [Line.new('in-progress', AGAINST, operations.join(', '))]
     end
 
     # A stash that names no branch counts: it may be the story's, and
@@ -287,6 +299,13 @@ module SafeToLeave
       'GIT_OPTIONAL_LOCKS' => '0', 'GIT_NO_REPLACE_OBJECTS' => '1', 'LC_ALL' => 'C'
     ).freeze
 
+    # The file or directory git keeps while each operation is under way,
+    # by the name the report gives the operation.
+    OPERATION_MARKERS = {
+      'rebase-merge' => 'a rebase', 'rebase-apply' => 'a rebase', 'MERGE_HEAD' => 'a merge',
+      'CHERRY_PICK_HEAD' => 'a cherry-pick', 'REVERT_HEAD' => 'a revert', 'BISECT_LOG' => 'a bisect'
+    }.freeze
+
     # A porcelain status entry that carries a second path: the entry is
     # followed by the path it was renamed or copied from.
     TWO_PATH_STATUS = /\A.?[RC]/
@@ -330,6 +349,18 @@ module SafeToLeave
         entries << token[3..]
       end
       entries
+    end
+
+    # What was started in this working tree and not finished. A rebase
+    # stopped partway or a bisect can leave the tree clean, so status
+    # does not show it. `--git-path` answers with a path relative to the
+    # directory git was run in.
+    def operations_in_progress
+      flags = OPERATION_MARKERS.keys.flat_map { |marker| ['--git-path', marker] }
+      paths = output('rev-parse', *flags).lines(chomp: true)
+      OPERATION_MARKERS.values.zip(paths).filter_map do |name, path|
+        name if File.exist?(File.expand_path(path, @dir))
+      end.uniq
     end
 
     # Asked of the remote. refs/remotes/<remote>/HEAD is a local record
@@ -542,6 +573,7 @@ module SafeToLeave
     def lines
       [
         checked('working-tree') { Checks.working_tree(@git.status_entries) },
+        checked('in-progress') { Checks.in_progress(@git.operations_in_progress) },
         checked('unpushed') { unpushed },
         checked('stashes') { Checks.stashes(@git.stashes, @prefixes) },
         checked('worktrees') { Checks.worktrees(@git.other_worktrees(@here), @prefixes) }

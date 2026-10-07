@@ -43,6 +43,20 @@ class WorkingTreeDecisionTest < Minitest::Test
   end
 end
 
+class InProgressDecisionTest < Minitest::Test
+  def test_no_operation_is_one_clean_line
+    lines = SafeToLeave::Checks.in_progress([])
+
+    assert_equal [%w[in-progress ok none]], lines.map { |line| [line.check, line.status, line.detail] }
+  end
+
+  def test_each_operation_is_named
+    lines = SafeToLeave::Checks.in_progress(['a rebase', 'a bisect'])
+
+    assert_equal [['AGAINST', 'a rebase, a bisect']], lines.map { |line| [line.status, line.detail] }
+  end
+end
+
 class StashDecisionTest < Minitest::Test
   PREFIXES = ['abc-12-'].freeze
 
@@ -568,8 +582,8 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo)
 
       assert_equal 0, result.status, result.stdout + result.stderr
-      assert_equal({ 'working-tree' => ['ok'], 'unpushed' => ['ok'], 'stashes' => ['ok'], 'worktrees' => ['ok'] },
-                   result.statuses)
+      assert_equal({ 'working-tree' => ['ok'], 'in-progress' => ['ok'], 'unpushed' => ['ok'], 'stashes' => ['ok'],
+                     'worktrees' => ['ok'] }, result.statuses)
       assert_match(/nothing counts against leaving/, result.stdout.lines.last)
     end
   end
@@ -781,6 +795,30 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: README.md',
                    report(repo).line_for('working-tree')
+    end
+  end
+
+  # A bisect leaves the tree clean and HEAD wherever it was, so no other
+  # check shows it.
+  def test_a_bisect_in_progress_counts
+    with_repo do |repo|
+      repo.git('bisect', 'start')
+      result = report(repo)
+
+      assert_equal 1, result.status
+      assert_equal ['ok'], result.statuses['working-tree']
+      assert_equal '  AGAINST   in-progress: a bisect', result.line_for('in-progress')
+    end
+  end
+
+  def test_a_merge_stopped_before_its_commit_counts
+    with_repo do |repo|
+      repo.branch_from_main('other-work')
+      repo.commit_locally('other', 'Other work')
+      repo.checkout('main')
+      repo.git('merge', '-q', '--no-ff', '--no-commit', 'other-work')
+
+      assert_equal '  AGAINST   in-progress: a merge', report(repo).line_for('in-progress')
     end
   end
 
@@ -1038,7 +1076,7 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo, '--remote', 'café'.b)
 
       assert_equal 1, result.status, result.stdout + result.stderr
-      assert_equal %w[working-tree unpushed stashes worktrees], result.statuses.keys
+      assert_equal %w[working-tree in-progress unpushed stashes worktrees], result.statuses.keys
       assert_includes result.line_for('unpushed'), 'no such remote: café (configured: origin)'
     end
   end
