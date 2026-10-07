@@ -101,9 +101,9 @@ module SafeToLeave
                       is UNCHECKED while it is still going or while its
                       commit is one this clone has not fetched. Any other
                       run that failed, a pull request's among them, is
-                      listed for you to judge. The commit has to be on the
-                      default branch as of your last fetch. Without it no
-                      runs are looked for
+                      listed for you to judge. The commit has to be on a
+                      remote's default branch as of your last fetch.
+                      Without it no runs are looked for
       --repo [HOST/]OWNER/NAME
                       the GitHub repository to ask (default: whichever one
                       gh resolves from DIR). Name it in a clone of a fork,
@@ -226,23 +226,25 @@ module SafeToLeave
       end
       ended_in_time ? [utf8(readers.first.value), utf8(readers.last.value), child.value] : nil
     ensure
-      stop_group(child.pid, readers) if readers&.any?(&:alive?) || child.alive?
+      stop_group(child, readers) if readers&.any?(&:alive?) || child.alive?
     end
   end
 
   # The readers are stopped before popen3 closes the streams they are
   # reading, which would otherwise end each with an error Ruby prints.
   # ESRCH says the group is already gone, and EPERM that it is no
-  # longer this process's to signal. The command itself is signalled
-  # too, since popen3 waits for it and it may have left its group.
-  def self.stop_group(pid, readers)
-    [-pid, pid].each do |target|
+  # longer this process's to signal. A command still going is
+  # signalled itself too, since popen3 waits for it and it may have
+  # left its group. One that has ended is not: its id may by now be
+  # another process's.
+  def self.stop_group(child, readers)
+    [-child.pid, (child.pid if child.alive?)].compact.each do |target|
       Process.kill('KILL', target)
     rescue Errno::ESRCH, Errno::EPERM
       nil
     end
   ensure
-    readers.each(&:kill).each(&:join)
+    Array(readers).each(&:kill).each(&:join)
   end
   private_class_method :stop_group
 
@@ -468,7 +470,7 @@ module SafeToLeave
       return lines unless holding_merge.empty? && unfetched.empty?
 
       # In the seconds after a merge GitHub has not created the run yet.
-      found = "not counted, no push run on #{quoted(default)} found since the merge"
+      found = "not counted, no push run on #{quoted(default)} containing the merge was found"
       [Line.new('workflow-runs', LISTED, found, :no_run)] + lines
     end
 
@@ -478,7 +480,8 @@ module SafeToLeave
       lines = []
       unless unfetched.empty?
         lines << Line.new('workflow-runs', UNCHECKED,
-                          "on commits this clone does not have, fetch and ask again: #{describe_runs(unfetched)}")
+                          'on commits this clone does not have or cannot place, fetch and ask again ' \
+                          "(git fetch --unshallow in a shallow clone): #{describe_runs(unfetched)}")
       end
       unless unfinished.empty?
         lines << Line.new('workflow-runs', UNCHECKED,
@@ -513,7 +516,7 @@ module SafeToLeave
       run.conclusions.each_with_index.filter_map do |conclusion, index|
         next if conclusion.nil? || PASSING_CONCLUSIONS.include?(conclusion)
 
-        "attempt #{index + 1} #{word(conclusion).tr('_', ' ')}"
+        "attempt #{index + 1} #{word(conclusion, spaced: true)}"
       end
     end
 
@@ -544,8 +547,11 @@ module SafeToLeave
       "\"#{shown}\"#{" (+#{count(cut, 'character')})" if cut.positive?}"
     end
 
-    def word(value)
-      value.is_a?(String) && value.match?(PLAIN_WORD) ? value : quoted(value)
+    # `spaced` prints a plain word's underscores as spaces.
+    def word(value, spaced: false)
+      return quoted(value) unless value.is_a?(String) && value.match?(PLAIN_WORD)
+
+      spaced ? value.tr('_', ' ') : value
     end
 
     def count(number, noun)
@@ -672,24 +678,30 @@ module SafeToLeave
     end
 
     # Whether `sha` contains `commit`: true, false, or nil when this
-    # clone cannot say. It cannot when it does not have `sha`, and when
-    # it is a shallow clone and git answers no: past the boundary of
-    # what was fetched git has no history to follow.
+    # clone cannot say. It cannot when it does not have `sha`. In a
+    # shallow clone git has no history to follow past the boundary of
+    # what was fetched, and answers no. There a no stands only when
+    # `commit` contains `sha`, which git can see.
     def holds_commit(sha, commit)
       return nil unless capture('cat-file', '-e', "#{sha}^{commit}").last.success?
 
       _stdout, stderr, status = capture('merge-base', '--is-ancestor', commit, sha)
       return true if status.success?
-      return (shallow? ? nil : false) if status.exitstatus == 1
+      return placed_before?(sha, commit) ? false : nil if status.exitstatus == 1
 
       raise Error, "git merge-base --is-ancestor failed: #{complaint(stderr)}"
     end
 
-    # Whether `commit` is on `branch` as of the last fetch, and nil when
-    # there is no tracking ref to ask or the clone cannot say.
+    # Whether `commit` is on `branch` of any remote as of the last
+    # fetch, and nil when no remote has a tracking ref of that name or
+    # the clone cannot say. Any remote, since in a clone of a fork the
+    # merge lands on the repository it was forked from.
     def on_remote_branch(commit, branch)
-      tracking = "refs/remotes/#{@remote}/#{branch}"
-      holds_commit(output('rev-parse', tracking).strip, commit) if ref?(tracking)
+      pattern = "refs/remotes/*/#{branch}"
+      return nil if output('for-each-ref', '--format=%(refname)', pattern).empty?
+      return true unless output('for-each-ref', '--contains', commit, '--format=%(refname)', pattern).empty?
+
+      shallow? ? nil : false
     end
 
     # The remote-tracking refs that are where the remote's branches are
@@ -851,7 +863,14 @@ module SafeToLeave
     end
 
     def shallow?
-      output('rev-parse', '--is-shallow-repository').strip == 'true'
+      @shallow = output('rev-parse', '--is-shallow-repository').strip == 'true' if @shallow.nil?
+      @shallow
+    end
+
+    # Whether a no from `merge-base --is-ancestor commit sha` can be
+    # taken as one.
+    def placed_before?(sha, commit)
+      !shallow? || capture('merge-base', '--is-ancestor', sha, commit).last.success?
     end
 
     def ref?(name)
@@ -1108,7 +1127,7 @@ module SafeToLeave
       merge = @git.full_sha(@merge_commit)
       default = @git.default_branch
       if @git.on_remote_branch(merge, default) == false
-        raise Error, "commit #{@merge_commit} is not on #{Checks.quoted(default)} as of the last fetch"
+        raise Error, "commit #{@merge_commit} is not on any remote's #{Checks.quoted(default)} as of the last fetch"
       end
 
       stamp = @git.commit_time(merge)

@@ -522,7 +522,7 @@ class WorkflowRunDecisionTest < Minitest::Test
     result = lines([])
 
     assert_equal ['listed'], result.map(&:status)
-    assert_equal 'not counted, no push run on "main" found since the merge', result.first.detail
+    assert_equal 'not counted, no push run on "main" containing the merge was found', result.first.detail
     assert_equal :no_run, result.first.note
   end
 
@@ -596,6 +596,10 @@ class WorkflowRunDecisionTest < Minitest::Test
 
   # An event is one of GitHub's own words. Anything else is printed as
   # text someone wrote.
+  def test_a_conclusion_that_is_not_a_plain_word_is_quoted_as_it_is
+    assert_includes lines([run_record(500, ['Timed_Out x'])]).first.detail, 'attempt 1 "Timed_Out x"'
+  end
+
   def test_an_event_that_is_not_a_plain_word_is_quoted
     result = lines([run_record(1, ['success'])], [run_record(500, ['failure'], event: 'x", run 9')])
 
@@ -2429,26 +2433,47 @@ class LeaveReportTest < LeaveCliTestCase
       result = report(repo, '--merge-commit', repo.sha)
 
       assert_includes result.statuses['workflow-runs'], 'UNCHECKED'
-      assert_includes result.line_for('workflow-runs'), 'is not on "main"'
+      assert_includes result.line_for('workflow-runs'), %(is not on any remote's "main")
       assert_empty served_invocations.grep(/run list/)
     end
   end
 
   # Past a shallow clone's boundary git answers that one commit does not
-  # contain another when it does.
+  # contain another when it does. Within what was fetched, a commit
+  # that the other contains is a plain no.
   def test_in_a_shallow_clone_a_commit_is_not_said_to_be_free_of_the_merge
     with_repo do |repo|
       merge = repo.sha
       repo.commit_locally('later', 'A later change')
+      parent = repo.sha
+      repo.commit_locally('latest', 'The latest change')
       repo.push('main')
       clone = File.join(repo.root, 'shallow')
       origin = "file://#{repo.origin}"
       repo.git('init', '-q', clone, dir: repo.root)
       repo.git('fetch', '-q', origin, merge, dir: clone)
-      repo.git('fetch', '-q', '--depth', '1', origin, 'main', dir: clone)
+      repo.git('fetch', '-q', '--depth', '2', origin, 'main', dir: clone)
       git = SafeToLeave::Git.new(dir: clone, remote: 'origin', remote_timeout: 5)
 
-      assert_nil(with_repo_env(repo) { git.holds_commit(repo.sha, merge) })
+      with_repo_env(repo) do
+        assert_nil git.holds_commit(repo.sha, merge)
+        assert_equal false, git.holds_commit(parent, repo.sha)
+      end
+    end
+  end
+
+  # In a clone of a fork the remote unpushed commits are measured
+  # against is the fork, and the merge landed on the repository it was
+  # forked from.
+  def test_a_merge_commit_on_another_remotes_default_branch_is_read
+    with_repo do |repo|
+      repo.add_remote('upstream')
+      repo.commit_locally('landed', 'Landed upstream')
+      repo.push('main', remote: 'upstream')
+      result = report(repo, '--merge-commit', repo.sha)
+
+      assert_equal ['listed'], result.statuses['workflow-runs'], result.stdout
+      refute_empty served_invocations.grep(/run list/)
     end
   end
 
