@@ -65,6 +65,16 @@ claude --plugin-dir path/to/rules-that-bend \
   --allowedTools "Bash(git diff *),Bash(git log *),Read,Grep,Glob"
 ```
 
+**Models.** Run arms on Opus and Sonnet, the two models the plugin
+supports (the README's Requirements section names them), and on no
+smaller one. Text is never reworded to suit a model the plugin does not
+support. When both pass a scenario on the text as it stood before your
+change, that scenario gives no reason to add a rule: drop the rule, or
+find the scenario where one of them fails. A fix to text that says
+something wrong is a different case, which "A control that passes does
+not clear the text" below covers. After rewording text that arms
+already cover, re-run those arms on Sonnet.
+
 Keep the prompt neutral -- do not tell the session what outcome you
 expect, or the run stops being a test. Decide the expected answer
 beforehand from your own reading of the project's state, then grade the
@@ -244,24 +254,6 @@ whole `~/.claude/projects/<path>` directory after it. An arm about a
 project with no auto-memory needs no `MEMORY.md` there. Give each arm
 its own working directory, so each gets its own memory directory.
 
-**Put a stopping rule in a bold lead, and re-test it on the weakest
-model.** A rule that makes a session stop and ask gets skipped when it
-sits among trailing bullets. In one skill, an approval rule placed third
-of six bullets after the list it governed let Haiku pick a destination
-from the list and write without asking in one run of three; moving the
-rule into the list's bold lead made it wait in three of three. After
-any rewording of such a rule, re-run the weakest model's arms.
-
-**Nest a rule under the case it belongs to.** A rule meant for one case
-that sits beside the bullets around it gets read as applying to all of
-them. In one skill, three bullets about a skill drafted for another
-repository sat as siblings of the general bullets on saving a skill.
-Haiku wrote a draft file and offered a working copy for a skill bound
-for the user's own directory in two runs of two, and a bolded "Only a
-skill bound for ..." lead did not change that. Nested under the bullet
-that names the case, with one sentence saying they apply to nothing
-else, it did so in none of five runs.
-
 **Give an approval rule a turn that approves.** A rule that makes a
 session propose and wait ends a two-turn arm at the proposal, in the
 control and the treatment alike, so a grader that reads writes sees
@@ -272,25 +264,6 @@ and read the writes as attempted tool calls in the stream rather than
 files on disk, since a headless run is denied writes outside its
 working directory. The same neutral turn shows whether a session takes
 one "yes" as the answer to two questions.
-
-**A scripted approval needs something left to approve.** When the
-scripted answer before it already tells the session where to write, a
-weaker model writes in that turn, and the bare "Approved, go ahead."
-that follows reads as approval of the next action it can think of. In
-one story that was a commit: seven of seventeen arms on the smallest
-model committed during a step whose text forbade it, against one of
-seventeen before the answer named the file. Check after each turn
-whether the thing the next turn approves is already done, and skip that
-turn when it is.
-
-**Put a step's prohibition beside its own commands.** When one step
-points back at another for its rules, a weaker model copies commands
-from the section it was pointed at, including ones the pointing step
-must never run. In one skill, a step that pointed back at an earlier
-step's rules led Haiku to run that step's `gh label create` in two runs
-of six; a comment in the later step's own code block ("never run gh
-label create here") made it six of six. A command a step must not run
-belongs in that step's block, not only in prose elsewhere.
 
 **Read an arm the grader failed before counting it.** A grader that
 looks for approval-seeking wording ("approve", "should I", a closing
@@ -327,8 +300,8 @@ passed.
 **Trace the tool calls before rewording a rule that never fires.** A
 rule keyed on an event ("a line added because the test failed without
 it") cannot fire for a session that never has the event. In one guidance
-story Haiku ignored such a rule in every run, and its tool calls showed
-why: it wrote the line into the test's first draft, copied from a
+story one model ignored such a rule in every run, and its tool calls
+showed why: it wrote the line into the test's first draft, copied from a
 neighboring test, so the test never failed. The rule was rewritten to
 key on what the line does, however it got there. When a rule scores the
 same on control and treatment, print each run's tool calls in order from
@@ -357,8 +330,7 @@ seeing results is reported as changed, with both figures.
 
 **Run the control again beside every treatment batch, and never compare
 wordings on six runs.** The same brief, byte for byte, caught a planted
-error in 3 of 6 runs in one batch and 0 of 6 in the next, on the
-smallest model. Three rewordings scored 0 of 6, 2 of 6 and 1 of 10 in
+error in 3 of 6 runs in one batch and 0 of 6 in the next. Three rewordings scored 0 of 6, 2 of 6 and 1 of 10 in
 between, and each read as a regression until the unchanged text scored
 inside that spread. A rate that low needs at least twenty runs per arm
 before two wordings can be told apart. With fewer, report the spread,
@@ -386,12 +358,12 @@ that run and not on an arm.
 
 **Give an arm a second turn when the rule is about what a session does
 with a go-ahead.** A rule that says "delete nothing here" was first
-tested with one-turn arms, and the text it replaced passed them: the two
-larger models asked before deleting, so the turn ended on a question in
+tested with one-turn arms, and the text it replaced passed them: Opus and
+Sonnet asked before deleting, so the turn ended on a question in
 control and treatment alike. A second turn saying only "Do what you
-recommend." separated them. On the unfixed text all 32 runs on one
+recommend." separated them. On the unfixed text all 20 runs on one
 fixture had deleted branches by the end of that turn; on the final text
-2 of 9 had. Resume the session with the first turn's session id,
+none of 6 had. Resume the session with the first turn's session id,
 repeat every isolation flag on the second command, and grade both turns
 from the tool's call log. A session that offers the forbidden action as
 a choice, then takes it on the go-ahead, fails in a way the first turn
@@ -407,7 +379,7 @@ adds a sentence that every other sentence in the passage then has to
 agree with. Past the second round, list the situations the passage must
 answer (here: before the user says anything, the user names branches,
 the user names a flag) and write one answer for each. The rewritten
-section passed its arms on the two larger models.
+section passed its arms.
 
 **A short headless session may not produce what a long real one does.**
 Rules against rhetorical habits measured in months of commit history
