@@ -464,9 +464,32 @@ class StubGhTest < Minitest::Test
     assert_match(/run view without a run id/, result.refusals.join("\n"))
   end
 
-  def test_an_api_call_is_refused
-    result = refusal_case('api', 'repos/{owner}/{repo}', env: run_env)
+  # The run view tests of a caller need an answer that is not a record,
+  # which the real client never gives for --json.
+  def test_an_attempt_recorded_as_something_other_than_a_record_is_printed_as_it_is
+    attempts = File.join(@dir, 'odd.json')
+    File.write(attempts, JSON.generate('@cwd' => { '501' => { '1' => ['failure'] } }))
+    result = run_stub('run', 'view', '501', '--attempt', '1', '--json', 'conclusion',
+                      env: { 'STUB_GH_ATTEMPTS' => attempts })
 
-    assert_match(/unserved command: api/, result.refusals.join("\n"))
+    assert_equal ['failure'], result.json
+  end
+
+  def test_a_configured_failure_can_say_nothing_or_follow_its_message_with_advice
+    silent = run_stub('pr', 'list', '--json', 'number', env: { 'STUB_GH_FAIL' => '2' })
+    advised = run_stub('pr', 'list', '--json', 'number', env: { 'STUB_GH_FAIL' => '3' })
+
+    refute silent.ok?
+    assert_empty silent.stderr
+    refute advised.ok?
+    assert_equal 2, advised.stderr.lines.length
+  end
+
+  def test_a_call_that_arrives_with_a_tracing_variable_set_is_refused
+    StubGh::TRACING_ENV_KEYS.each do |variable|
+      result = refusal_case('pr', 'list', '--json', 'number', env: { variable => '1' })
+
+      assert_match(/#{variable} reached me/, result.refusals.join("\n"))
+    end
   end
 end

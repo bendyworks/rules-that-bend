@@ -51,7 +51,8 @@ module SafeToLeave
   USAGE = <<~TXT
     Usage: safe-to-leave [-C DIR] [--remote NAME] [--remote-timeout SECONDS]
                          [--story-branch PREFIX]... [--issue NUMBER]
-                         [--plan FILE] [--merge-commit SHA] [--repo OWNER/NAME]
+                         [--plan FILE] [--merge-commit SHA]
+                         [--repo [HOST/]OWNER/NAME]
 
     Reports what a finished story has left behind in a repository and on
     GitHub, in one or more lines per check. Nothing is changed. Each line
@@ -82,7 +83,8 @@ module SafeToLeave
                       carries a prefix, and for a prefix shaped like
                       "abc-123-" also when its title starts with ABC-123.
                       With no prefix given, a pull request counts only by
-                      closing the --issue
+                      closing the --issue, and with neither given no pull
+                      requests are looked for
       --issue NUMBER  the story's GitHub issue. It counts if it is still
                       open, and so does an open pull request that closes
                       it, or another open issue whose title or body names
@@ -97,10 +99,11 @@ module SafeToLeave
                       on the default branch, on a commit containing the
                       merge, counts if any attempt of it did not pass, and
                       is UNCHECKED while it is still going or while its
-                      commit is one this clone has not fetched. A failed
-                      run anywhere else, a pull request's among them, is
-                      listed for you to judge. Without it no runs are
-                      looked for
+                      commit is one this clone has not fetched. Any other
+                      run that failed, a pull request's among them, is
+                      listed for you to judge. The commit has to be on the
+                      default branch as of your last fetch. Without it no
+                      runs are looked for
       --repo [HOST/]OWNER/NAME
                       the GitHub repository to ask (default: whichever one
                       gh resolves from DIR). Name it in a clone of a fork,
@@ -128,8 +131,10 @@ module SafeToLeave
 
     The pull request, issue, and workflow-run lines are asked of gh.
     Each is UNCHECKED when gh is missing, is not signed in, or does not
-    answer. The last line of the report names any of them that was not
-    looked for.
+    answer, and the workflow-run line also when the remote cannot be
+    asked for its default branch. The last line of the report names any
+    of the three that was not looked for, and says when no workflow run
+    was found since the merge.
 
     Exit status: 0 nothing counts against leaving, 1 something does (an
     UNCHECKED line included), 2 the report could not be made.
@@ -144,7 +149,10 @@ module SafeToLeave
   # name: the stashes that count and the stashes that are only listed
   # are separate lines, so that a reader scanning for AGAINST finds
   # exactly the things that are.
-  Line = Struct.new(:check, :status, :detail) do
+  # `note` marks a line the last line of the report has to mention:
+  # :not_looked_for for a check skipped for want of a flag, :no_run when
+  # no workflow run that could count was found.
+  Line = Struct.new(:check, :status, :detail, :note) do
     def against?
       [AGAINST, UNCHECKED].include?(status)
     end
@@ -164,7 +172,7 @@ module SafeToLeave
   # oldest first, nil for an attempt that has not finished.
   # `holds_merge` is true when the run's commit contains the merge
   # commit, false when it does not, and nil when this clone does not
-  # have the run's commit to ask about, or nobody asked.
+  # have the run's commit to ask about, or the run cannot count.
   Run = Struct.new(:id, :workflow, :branch, :event, :status, :conclusions, :holds_merge, keyword_init: true)
 
   # What the remote said when asked: the name of its default branch,
@@ -201,37 +209,42 @@ module SafeToLeave
 
   # What a command wrote and how it ended, as [stdout, stderr, status],
   # or nil when `seconds` passed first. A command that takes a
-  # connection and never gets an answer would otherwise hold the
-  # report, and the session running it, for as long as it liked. The
-  # limit is on the command ending and on its output being read to the
-  # end, since something it started can hold that output open after it
-  # ends. The command runs in a process group of its own so that
-  # whatever it started is stopped with it.
+  # connection and never gets an answer would otherwise hold the report
+  # and the session running it. The limit is on the command ending and
+  # on its output being read to the end, since something it started can
+  # hold that output open after it ends. The command runs in a process
+  # group of its own so that whatever it started is stopped with it,
+  # and it is stopped however this method is left: at the limit, or by
+  # a signal that ends the report.
   def self.capture_within(seconds, env, command, **options)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
     Open3.popen3(env, *command, pgroup: true, **options) do |stdin, stdout, stderr, child|
       stdin.close
       readers = [stdout, stderr].map { |stream| Thread.new { stream.read } }
-      waited_for = [child, *readers].all? do |thread|
+      ended_in_time = [child, *readers].all? do |thread|
         thread.join([deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0].max)
       end
-      next [utf8(readers.first.value), utf8(readers.last.value), child.value] if waited_for
-
-      stop(child.pid, readers)
-      nil
+      ended_in_time ? [utf8(readers.first.value), utf8(readers.last.value), child.value] : nil
+    ensure
+      stop_group(child.pid, readers) if readers&.any?(&:alive?) || child.alive?
     end
   end
 
   # The readers are stopped before popen3 closes the streams they are
   # reading, which would otherwise end each with an error Ruby prints.
-  # By now the group may already be gone.
-  def self.stop(group, readers)
-    Process.kill('KILL', -group)
-  rescue Errno::ESRCH, Errno::EPERM
-    nil
+  # ESRCH says the group is already gone, and EPERM that it is no
+  # longer this process's to signal. The command itself is signalled
+  # too, since popen3 waits for it and it may have left its group.
+  def self.stop_group(pid, readers)
+    [-pid, pid].each do |target|
+      Process.kill('KILL', target)
+    rescue Errno::ESRCH, Errno::EPERM
+      nil
+    end
   ensure
     readers.each(&:kill).each(&:join)
   end
+  private_class_method :stop_group
 
   # What each check concludes, as functions of gathered facts. Nothing
   # here runs a command.
@@ -254,12 +267,12 @@ module SafeToLeave
     # GitHub adds later included.
     PASSING_CONCLUSIONS = %w[success skipped neutral].freeze
 
-    # How the detail starts when no run that could count was found. In
-    # the seconds after a merge GitHub has not created the run yet.
-    NO_RUN_FOUND = 'no run found since the merge'
-
     PUSH = 'push'
     COMPLETED = 'completed'
+
+    # A word of GitHub's own, such as an event or a conclusion. Anything
+    # else in such a field is printed as text someone wrote.
+    PLAIN_WORD = /\A[a-z_]+\z/
 
     # How much of a title or a name is printed.
     QUOTE_LIMIT = 80
@@ -388,20 +401,18 @@ module SafeToLeave
       [Line.new('pull-requests', AGAINST, "open: #{counted.map { |record| titled(record) }.join(', ')}")]
     end
 
+    def story_keys(prefixes)
+      prefixes.filter_map { |prefix| prefix[KEYED_PREFIX, 1] }
+    end
+
     def closes?(pull_request, issue)
       return false if issue.nil?
 
       Array(pull_request['closingIssuesReferences']).any? { |reference| reference['number'] == issue }
     end
 
-    def story_keys(prefixes)
-      prefixes.filter_map { |prefix| prefix[KEYED_PREFIX, 1] }
-    end
-
     # `plan_numbers` holds the issue numbers the story's plan mentions.
     def issues(open_issues, issue:, prefixes:, plan_numbers:)
-      return [Line.new('issues', LISTED, 'not looked for: no --issue given')] if issue.nil?
-
       own, others = open_issues.partition { |record| record['number'] == issue }
       keys = story_keys(prefixes)
       naming = others.select do |record|
@@ -409,7 +420,7 @@ module SafeToLeave
         names_issue?(text, issue) || names_key?(text, keys)
       end
       known, unknown = naming.partition { |record| plan_numbers.include?(record['number']) }
-      counted = own.map { |record| "#{titled(record)} is still open" } +
+      counted = own.map { |record| "#{titled(record)}, the story's own issue" } +
                 unknown.map { |record| "#{titled(record)} names this story" }
       lines = []
       lines << Line.new('issues', AGAINST, "open: #{counted.join(', ')}") unless counted.empty?
@@ -432,45 +443,56 @@ module SafeToLeave
       keys.any? { |key| text.match?(/(?<![\w-])#{Regexp.escape(key)}(?!\d)/i) }
     end
 
-    # `on_default` holds the runs a push triggered on the default
-    # branch since the merge, and is nil when no merge commit was named.
-    # One of them on a commit containing the merge counts: there the
-    # merged code is all that was tested. `elsewhere` holds the other
-    # runs since the merge. A pull request's run, or a push to a branch
-    # someone rebased, tests its own changes on top, so its failure is
-    # listed, for a reader who knows what the story touched.
-    # `cut_short` says the listing behind `elsewhere` filled its limit.
-    def workflow_runs(on_default, elsewhere, default:, cut_short:)
-      return [Line.new('workflow-runs', LISTED, 'not looked for: no --merge-commit given')] if on_default.nil?
-
-      on_merge = on_default.select { |run| run.holds_merge == true }
-      unplaced = on_default.select { |run| run.holds_merge.nil? }
-      lines = counted_run_lines(on_merge, unplaced) + other_run_lines(elsewhere, cut_short)
-      return lines unless on_merge.empty? && unplaced.empty?
-
-      [Line.new('workflow-runs', LISTED, "#{NO_RUN_FOUND} on #{quoted(default)}")] + lines
+    # Every issue or pull request number the plan mentions. One the
+    # plan names is one the developer already knows about, whatever
+    # words surround it: a plan names its follow-ups in a sentence, not
+    # in a fixed phrase.
+    def plan_numbers(plan)
+      plan.scan(%r{(?<![\w/#-])#(\d+)(?!\w)}).flatten.map(&:to_i).uniq
     end
 
-    def counted_run_lines(on_merge, unplaced)
-      unfinished = on_merge.reject { |run| run.status == COMPLETED }
-      failed = on_merge.select { |run| failed?(run) }
+    # `on_default` holds the runs a push triggered on the default
+    # branch since the merge. One of them on a commit containing the
+    # merge counts: the merged code is in what it tested. `elsewhere`
+    # holds the other runs since the merge. A pull request's run, or a
+    # push to a branch someone rebased, tests its own changes on top, so
+    # its failure is listed, for a reader who knows what the story
+    # touched. So is the failure of a default-branch run on a commit
+    # from before the merge. `cut_short` says the listing behind
+    # `elsewhere` filled its limit.
+    def workflow_runs(on_default, elsewhere, default:, cut_short:)
+      holding_merge = on_default.select { |run| run.holds_merge == true }
+      unfetched = on_default.select { |run| run.holds_merge.nil? }
+      before_merge = on_default.select { |run| run.holds_merge == false }
+      lines = counted_run_lines(holding_merge, unfetched) + other_run_lines(elsewhere + before_merge, cut_short)
+      return lines unless holding_merge.empty? && unfetched.empty?
+
+      # In the seconds after a merge GitHub has not created the run yet.
+      found = "not counted, no push run on #{quoted(default)} found since the merge"
+      [Line.new('workflow-runs', LISTED, found, :no_run)] + lines
+    end
+
+    def counted_run_lines(holding_merge, unfetched)
+      unfinished = holding_merge.reject { |run| run.status == COMPLETED }
+      failed = holding_merge.select { |run| failed?(run) }
       lines = []
-      unless unplaced.empty?
+      unless unfetched.empty?
         lines << Line.new('workflow-runs', UNCHECKED,
-                          "on commits this clone does not have, fetch and ask again: #{describe_runs(unplaced)}")
+                          "on commits this clone does not have, fetch and ask again: #{describe_runs(unfetched)}")
       end
       unless unfinished.empty?
         lines << Line.new('workflow-runs', UNCHECKED,
                           "still going, ask again when finished: #{describe_runs(unfinished)}")
       end
       lines << Line.new('workflow-runs', AGAINST, "failed: #{describe_runs(failed)}") unless failed.empty?
-      return lines if on_merge.empty? || !lines.empty?
+      return lines if holding_merge.empty? || !lines.empty?
 
-      [Line.new('workflow-runs', OK, "#{count(on_merge.length, 'run')} on commits containing the merge, none failed")]
+      held = count(holding_merge.length, 'run')
+      [Line.new('workflow-runs', OK, "#{held} on commits containing the merge, none failed")]
     end
 
-    def other_run_lines(elsewhere, cut_short)
-      failed = elsewhere.select { |run| failed?(run) }
+    def other_run_lines(others, cut_short)
+      failed = others.select { |run| failed?(run) }
       lines = []
       unless failed.empty?
         lines << Line.new('workflow-runs', LISTED,
@@ -478,20 +500,20 @@ module SafeToLeave
       end
       if cut_short
         lines << Line.new('workflow-runs', LISTED,
-                          'not counted, the listing of runs elsewhere was cut short at its limit')
+                          'not counted, runs elsewhere since the merge: more than the listing holds, so not all were read')
       end
       lines
     end
 
     def failed?(run)
-      !failed_attempts(run).empty?
+      failed_attempts(run).any?
     end
 
     def failed_attempts(run)
       run.conclusions.each_with_index.filter_map do |conclusion, index|
         next if conclusion.nil? || PASSING_CONCLUSIONS.include?(conclusion)
 
-        "attempt #{index + 1} #{conclusion.to_s.tr('_', ' ')}"
+        "attempt #{index + 1} #{word(conclusion).tr('_', ' ')}"
       end
     end
 
@@ -502,17 +524,9 @@ module SafeToLeave
     def describe_run(run)
       workflow = run.workflow.to_s.empty? ? 'unnamed workflow' : quoted(run.workflow)
       where = run.branch.to_s.empty? ? 'no branch' : quoted(run.branch)
-      where = "#{where}, #{run.event}" unless run.event == PUSH
+      where = "#{where}, #{word(run.event)}" unless run.event == PUSH
       attempts = failed_attempts(run)
       "#{workflow} run #{run.id} on #{where}#{" (#{attempts.join(', ')})" unless attempts.empty?}"
-    end
-
-    # Every issue or pull request number the plan mentions. One the
-    # plan names is one the developer already knows about, whatever
-    # words surround it: a plan names its follow-ups in a sentence, not
-    # in a fixed phrase.
-    def plan_numbers(plan)
-      plan.scan(%r{(?<![\w/#-])#(\d+)(?!\w)}).flatten.map(&:to_i).uniq
     end
 
     def titled(record)
@@ -525,9 +539,13 @@ module SafeToLeave
     # at QUOTE_LIMIT characters.
     def quoted(text)
       text = text.to_s
-      kept = text[0, QUOTE_LIMIT].gsub(/["\\]/) { |character| "\\#{character}" }
-      more = text.length - QUOTE_LIMIT
-      "\"#{kept}\"#{" (+#{more} characters)" if more.positive?}"
+      shown = text[0, QUOTE_LIMIT].gsub(/["\\]/) { |character| "\\#{character}" }
+      cut = text.length - QUOTE_LIMIT
+      "\"#{shown}\"#{" (+#{count(cut, 'character')})" if cut.positive?}"
+    end
+
+    def word(value)
+      value.is_a?(String) && value.match?(PLAIN_WORD) ? value : quoted(value)
     end
 
     def count(number, noun)
@@ -654,15 +672,24 @@ module SafeToLeave
     end
 
     # Whether `sha` contains `commit`: true, false, or nil when this
-    # clone does not have `sha` to ask about.
+    # clone cannot say. It cannot when it does not have `sha`, and when
+    # it is a shallow clone and git answers no: past the boundary of
+    # what was fetched git has no history to follow.
     def holds_commit(sha, commit)
       return nil unless capture('cat-file', '-e', "#{sha}^{commit}").last.success?
 
       _stdout, stderr, status = capture('merge-base', '--is-ancestor', commit, sha)
       return true if status.success?
-      return false if status.exitstatus == 1
+      return (shallow? ? nil : false) if status.exitstatus == 1
 
       raise Error, "git merge-base --is-ancestor failed: #{complaint(stderr)}"
+    end
+
+    # Whether `commit` is on `branch` as of the last fetch, and nil when
+    # there is no tracking ref to ask or the clone cannot say.
+    def on_remote_branch(commit, branch)
+      tracking = "refs/remotes/#{@remote}/#{branch}"
+      holds_commit(output('rev-parse', tracking).strip, commit) if ref?(tracking)
     end
 
     # The remote-tracking refs that are where the remote's branches are
@@ -776,11 +803,7 @@ module SafeToLeave
       Advertised.new(default.first.delete_prefix('ref: refs/heads/'), heads)
     end
 
-    # `ls-remote`, given `@remote_timeout` seconds. A remote that takes
-    # the connection and never answers would otherwise hold the report,
-    # and the session running it, for as long as it liked. git runs in a
-    # process group of its own so that the transport it started is
-    # stopped with it.
+    # `ls-remote`, given `@remote_timeout` seconds.
     def remote_answer
       command = ['git', '-C', @dir, 'ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*']
       stdout, stderr, status = SafeToLeave.capture_within(@remote_timeout, CHILD_ENV, command)
@@ -825,6 +848,10 @@ module SafeToLeave
 
       known = configured.empty? ? 'this repository has none' : "configured: #{configured.join(', ')}"
       raise Error, "no such remote: #{@remote} (#{known})"
+    end
+
+    def shallow?
+      output('rev-parse', '--is-shallow-repository').strip == 'true'
     end
 
     def ref?(name)
@@ -916,8 +943,8 @@ module SafeToLeave
     # saying so.
     LIMIT = 1000
 
-    # The most earlier attempts of one run that are read, one call to gh
-    # each.
+    # At most this many earlier attempts of one run are read, one call
+    # to gh each.
     ATTEMPT_LIMIT = 20
 
     OPEN = %w[--state open].freeze
@@ -930,24 +957,25 @@ module SafeToLeave
     end
 
     def open_pull_requests
-      list('pr', %w[number title headRefName closingIssuesReferences], OPEN)
+      numbered(list('pr', %w[number title headRefName closingIssuesReferences], OPEN), 'gh pr list')
     end
 
     def open_issues
-      list('issue', %w[number title body], OPEN)
+      numbered(list('issue', %w[number title body], OPEN), 'gh issue list')
     end
 
     # The runs a push to `branch` triggered since `stamp`, an ISO 8601
     # time. The listing shows a rerun run by its latest attempt alone.
     def push_runs_since(stamp, branch)
-      runs(list('run', RUN_FIELDS, ['--event', Checks::PUSH, '--branch', branch, '--created', ">=#{stamp}"]))
+      require_run_fields(list('run', RUN_FIELDS,
+                              ['--event', Checks::PUSH, '--branch', branch, '--created', ">=#{stamp}"]))
     end
 
     # Every run since `stamp`, newest first, and whether the listing
     # filled its limit and so may have been cut short.
     def runs_since(stamp)
-      records = runs(list('run', RUN_FIELDS, ['--created', ">=#{stamp}"], cut_short: :allowed))
-      [records, records.length >= LIMIT]
+      records = require_run_fields(list('run', RUN_FIELDS, ['--created', ">=#{stamp}"], refuse_full: false))
+      [records, full?(records)]
     end
 
     # The conclusion of one earlier attempt of a run, which no listing
@@ -962,39 +990,53 @@ module SafeToLeave
 
     private
 
-    def list(kind, fields, filter, cut_short: :refused)
+    def list(kind, fields, filter, refuse_full: true)
       what = "gh #{kind} list"
       records = answer(what, ['gh', kind, 'list', *filter, '--limit', LIMIT.to_s, '--json', fields.join(',')])
       unless records.is_a?(Array) && records.all?(Hash)
         raise Error, "#{what} answered with something that is not a list of records"
       end
-      if records.length >= LIMIT && cut_short == :refused
+      if full?(records) && refuse_full
         raise Error, "#{what} returned #{LIMIT} records, its limit, so the list may be cut short"
       end
 
       records
     end
 
+    def full?(records)
+      records.length >= LIMIT
+    end
+
+    # A number is printed as one, and compared with the story's.
+    def numbered(records, what)
+      odd = records.find { |record| !record['number'].is_a?(Integer) }
+      raise Error, "#{what} answered with a record whose number is #{odd['number'].inspect}" if odd
+
+      records
+    end
+
     # A run's id, its attempt number, and its commit go on to gh and to
-    # git as arguments, so each has to be what it is said to be.
-    def runs(records)
+    # git as arguments, so each has to be what it is said to be. A SHA
+    # is 40 hex digits, or 64 in a SHA-256 repository.
+    def require_run_fields(records)
       records.each do |record|
         shapes = { 'databaseId' => record['databaseId'].is_a?(Integer) && record['databaseId'].positive?,
                    'attempt' => record['attempt'].is_a?(Integer) && record['attempt'].positive?,
-                   'headSha' => record['headSha'].to_s.match?(/\A\h{40,64}\z/) }
-        field = shapes.key(false)
+                   'headSha' => record['headSha'].to_s.match?(/\A(?:\h{40}|\h{64})\z/) }
+        field, = shapes.find { |_field, shaped| !shaped }
         raise Error, "gh run list answered with a run whose #{field} is #{record[field].inspect}" if field
       end
+      records
     end
 
     def answer(what, command)
       command += ['--repo', @repo] if @repo
-      JSON.parse(run(what, command))
+      JSON.parse(output(what, command))
     rescue JSON::ParserError
       raise Error, "#{what} answered with something that is not JSON"
     end
 
-    def run(what, command)
+    def output(what, command)
       stdout, stderr, status = SafeToLeave.capture_within(@timeout, CHILD_ENV, command, chdir: @dir)
       raise Error, "#{what} did not answer within #{@timeout}s" if status.nil?
       raise Error, "#{what} failed: #{complaint(stderr)}" unless status.success?
@@ -1049,41 +1091,49 @@ module SafeToLeave
     # With neither a prefix nor an issue there is nothing to tell the
     # story's pull requests by, and gh is not asked.
     def pull_requests
-      if @prefixes.empty? && @issue.nil?
-        return [Line.new('pull-requests', LISTED, 'not looked for: no --story-branch and no --issue given')]
-      end
+      return not_looked_for('pull-requests', '--story-branch and no --issue') if @prefixes.empty? && @issue.nil?
 
       Checks.pull_requests(@host.open_pull_requests, prefixes: @prefixes, issue: @issue)
     end
 
     def issues
-      open_issues = @issue ? @host.open_issues : nil
-      Checks.issues(open_issues, issue: @issue, prefixes: @prefixes, plan_numbers: @plan_numbers)
+      return not_looked_for('issues', '--issue') if @issue.nil?
+
+      Checks.issues(@host.open_issues, issue: @issue, prefixes: @prefixes, plan_numbers: @plan_numbers)
     end
 
     def workflow_runs
-      return Checks.workflow_runs(nil, [], default: nil, cut_short: false) if @merge_commit.nil?
+      return not_looked_for('workflow-runs', '--merge-commit') if @merge_commit.nil?
 
       merge = @git.full_sha(@merge_commit)
-      stamp = @git.commit_time(merge)
       default = @git.default_branch
+      if @git.on_remote_branch(merge, default) == false
+        raise Error, "commit #{@merge_commit} is not on #{Checks.quoted(default)} as of the last fetch"
+      end
+
+      stamp = @git.commit_time(merge)
       on_default = @host.push_runs_since(stamp, default).map { |record| counted_run(record, merge) }
       others, cut_short = @host.runs_since(stamp)
-      elsewhere = others.reject { |record| on_default.any? { |run| run.id == record['databaseId'] } }
+      listed_already = on_default.map(&:id)
+      elsewhere = others.reject { |record| listed_already.include?(record['databaseId']) }
                         .map { |record| run_from(record, [latest_conclusion(record)], nil) }
       Checks.workflow_runs(on_default, elsewhere, default: default, cut_short: cut_short)
+    end
+
+    def not_looked_for(check, flags)
+      [Line.new(check, LISTED, "not looked for: no #{flags} given", :not_looked_for)]
     end
 
     # A run that can count has every attempt read, and its commit
     # compared with the merge. The listing carries the latest attempt.
     def counted_run(record, merge)
-      earlier = record['attempt'] - 1
-      if earlier > Host::ATTEMPT_LIMIT
-        raise Error, "run #{record['databaseId']} has #{record['attempt']} attempts, " \
-                     "and no more than #{Host::ATTEMPT_LIMIT} earlier ones are read"
+      earlier_attempts = record['attempt'] - 1
+      if earlier_attempts > Host::ATTEMPT_LIMIT
+        raise Error, "run #{record['databaseId']} has #{record['attempt']} attempts, and no more than " \
+                     "#{Host::ATTEMPT_LIMIT} earlier ones are read; look at it on GitHub"
       end
 
-      conclusions = (1..earlier).map do |attempt|
+      conclusions = (1..earlier_attempts).map do |attempt|
         finished(@host.attempt_conclusion(record['databaseId'], attempt))
       end
       run_from(record, conclusions + [latest_conclusion(record)], @git.holds_commit(record['headSha'], merge))
@@ -1101,7 +1151,7 @@ module SafeToLeave
 
     # A finished attempt that carries no conclusion did not pass.
     def finished(conclusion)
-      conclusion.to_s.empty? ? 'no conclusion' : conclusion.to_s
+      conclusion.to_s.empty? ? 'no_conclusion' : conclusion
     end
 
     # How far ahead the default branch is can be unknown while the other
@@ -1143,10 +1193,6 @@ module SafeToLeave
     # Far more than a plan holds.
     PLAN_SIZE_LIMIT = 1_048_576
 
-    # How the detail of a check that was skipped for want of a flag
-    # starts.
-    NOT_LOOKED_FOR = 'not looked for: '
-
     def self.run(argv)
       new.run(argv)
     end
@@ -1159,7 +1205,7 @@ module SafeToLeave
       host = Host.new(dir: options[:dir], repo: options[:repo], timeout: options[:remote_timeout])
       here = git.toplevel
       lines = Report.new(git: git, host: host, here: here, prefixes: options[:prefixes], issue: options[:issue],
-                         plan_numbers: plan_numbers(options[:plan]),
+                         plan_numbers: read_plan_numbers(options[:plan]),
                          merge_commit: options[:merge_commit]).lines
       print_report(here, lines)
       exit 1 if lines.any?(&:against?)
@@ -1210,16 +1256,18 @@ module SafeToLeave
         end
         o.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
         o.on('--issue NUMBER', VALUE_NOT_FLAG) do |number|
-          shaped(number, ISSUE_NUMBER, '--issue takes an issue number, without the #')
+          require_shape(number, ISSUE_NUMBER, '--issue takes an issue number, without the #')
           set_once(options, :issue, '--issue', Integer(number))
         end
         o.on('--plan FILE', VALUE_NOT_FLAG) { |file| set_once(options, :plan, '--plan', file) }
         o.on('--merge-commit SHA', VALUE_NOT_FLAG) do |sha|
-          shaped(sha, COMMIT_SHA, '--merge-commit takes a commit SHA of 7 or more hex digits')
+          require_shape(sha, COMMIT_SHA, '--merge-commit takes a commit SHA of 7 or more hex digits')
           set_once(options, :merge_commit, '--merge-commit', sha)
         end
-        o.on('--repo [HOST/]OWNER/NAME', VALUE_NOT_FLAG) do |repo|
-          shaped(repo, REPOSITORY, '--repo takes [HOST/]OWNER/NAME')
+        # Named REPOSITORY here because OptionParser reads a name that
+        # starts with a bracket as a value that may be left out.
+        o.on('--repo REPOSITORY', VALUE_NOT_FLAG) do |repo|
+          require_shape(repo, REPOSITORY, '--repo takes [HOST/]OWNER/NAME')
           set_once(options, :repo, '--repo', repo)
         end
         o.on('-h', '--help') { options[:help] = true }
@@ -1237,19 +1285,25 @@ module SafeToLeave
       options[key] = value
     end
 
-    def shaped(value, pattern, message)
+    def require_shape(value, pattern, message)
       raise Error, "invalid argument: #{message}" unless value.match?(pattern)
     end
 
     # The numbers the plan file mentions, and none when no plan was
     # named. A FIFO or a device would be read without end, so only a
-    # regular file of a plan's size is read.
-    def plan_numbers(plan)
+    # regular file is read, and no more of it than a plan holds. The
+    # file is opened once, so that what was checked is what is read.
+    def read_plan_numbers(plan)
       return [] if plan.nil?
-      raise Error, "the plan file is not a regular file: #{plan}" unless File.file?(plan)
-      raise Error, "the plan file is larger than #{PLAN_SIZE_LIMIT} bytes: #{plan}" if File.size(plan) > PLAN_SIZE_LIMIT
 
-      Checks.plan_numbers(SafeToLeave.utf8(File.binread(plan)))
+      text = File.open(plan, File::RDONLY | File::NONBLOCK) do |file|
+        raise Error, "the plan file is not a regular file: #{plan}" unless file.stat.file?
+
+        file.read(PLAN_SIZE_LIMIT + 1).to_s
+      end
+      raise Error, "the plan file is larger than #{PLAN_SIZE_LIMIT} bytes: #{plan}" if text.bytesize > PLAN_SIZE_LIMIT
+
+      Checks.plan_numbers(SafeToLeave.utf8(text))
     rescue SystemCallError => e
       raise Error, "could not read the plan file: #{e.message}"
     end
@@ -1261,22 +1315,22 @@ module SafeToLeave
                                                            detail: printable(line.detail))
       end
       against = lines.count(&:against?)
-      if against.zero?
-        puts "safe-to-leave: nothing counts against leaving#{not_looked_for(lines)}"
-      else
-        puts "safe-to-leave: #{against} #{against == 1 ? 'line counts' : 'lines count'} against leaving"
-      end
+      verdict = if against.zero?
+                  'nothing counts'
+                else
+                  "#{against} #{against == 1 ? 'line counts' : 'lines count'}"
+                end
+      puts "safe-to-leave: #{verdict} against leaving#{closing_notes(lines)}"
     end
 
     # The last line is where a reader takes the answer from, so it names
     # the checks that were never made for want of a flag, and says when
     # no workflow run was there to read.
-    def not_looked_for(lines)
-      skipped = lines.select { |line| line.detail.start_with?(NOT_LOOKED_FOR) }.map(&:check)
+    def closing_notes(lines)
+      skipped = lines.select { |line| line.note == :not_looked_for }.map(&:check)
       notes = []
       notes << "not looked for: #{skipped.join(', ')}" unless skipped.empty?
-      no_run = lines.any? { |line| line.detail.start_with?(Checks::NO_RUN_FOUND) }
-      notes << 'no workflow run found since the merge' if no_run
+      notes << 'no workflow run found since the merge' if lines.any? { |line| line.note == :no_run }
       notes.map { |note| "; #{note}" }.join
     end
 

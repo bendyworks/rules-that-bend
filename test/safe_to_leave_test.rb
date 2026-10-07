@@ -64,7 +64,7 @@ class CaptureWithinTest < Minitest::Test
   end
 
   def test_a_command_still_going_at_the_limit_is_stopped_and_answered_with_nil
-    result, seconds = elapsed { SafeToLeave.capture_within(1, {}, %w[sleep 30]) }
+    result, seconds = elapsed { SafeToLeave.capture_within(0.2, {}, %w[sleep 30]) }
 
     assert_nil result
     assert_operator seconds, :<, 5
@@ -73,14 +73,31 @@ class CaptureWithinTest < Minitest::Test
   # A command can end and leave something it started holding its
   # output open.
   def test_output_still_held_open_at_the_limit_is_not_waited_for
-    result, seconds = elapsed { SafeToLeave.capture_within(1, {}, ['sh', '-c', 'sleep 30 & exit 0']) }
+    result, seconds = elapsed { SafeToLeave.capture_within(0.2, {}, ['sh', '-c', 'sleep 30 & exit 0']) }
 
     assert_nil result
     assert_operator seconds, :<, 5
   end
 
+  def test_what_a_command_started_is_stopped_with_it
+    Dir.mktmpdir('safe-to-leave-group') do |dir|
+      pid_file = File.join(dir, 'pid')
+      SafeToLeave.capture_within(0.5, {}, ['sh', '-c', "sleep 30 & echo $! > #{pid_file}; wait"])
+      started = Integer(File.read(pid_file))
+      gone = 20.times.any? do
+        sleep 0.1
+        Process.kill(0, started)
+        false
+      rescue Errno::ESRCH
+        true
+      end
+
+      assert gone, "the command's own child, #{started}, is still running"
+    end
+  end
+
   def test_stopping_a_command_writes_nothing_to_stderr
-    _out, err = capture_subprocess_io { SafeToLeave.capture_within(1, {}, %w[sleep 30]) }
+    _out, err = capture_subprocess_io { SafeToLeave.capture_within(0.2, {}, %w[sleep 30]) }
 
     assert_empty err
   end
@@ -368,6 +385,12 @@ class PullRequestDecisionTest < Minitest::Test
     assert_equal 'open: #45 "x\\"), #232 (\\"Filed"', result.first.detail
   end
 
+  def test_a_title_one_character_over_says_so_in_the_singular
+    result = lines([pull_request(45, 'a' * 81, 'abc-12-steady-export-test')])
+
+    assert_includes result.first.detail, '(+1 character)'
+  end
+
   def test_a_long_title_is_cut_and_says_by_how_much
     result = lines([pull_request(45, 'a' * 200, 'abc-12-steady-export-test')])
 
@@ -447,7 +470,7 @@ class IssueDecisionTest < Minitest::Test
 
     assert_equal ['AGAINST'], result.map(&:status)
     assert_includes result.first.detail, '#12'
-    assert_includes result.first.detail, 'still open'
+    assert_equal 'open: #12 "Fix the export", the story\'s own issue', result.first.detail
   end
 
   def test_an_open_issue_whose_body_names_the_story_by_number_counts
@@ -480,12 +503,6 @@ class IssueDecisionTest < Minitest::Test
     assert_equal ['ok'], lines([{ 'number' => 31, 'title' => 'Other', 'body' => nil }]).map(&:status)
   end
 
-  def test_with_no_story_issue_named_none_are_looked_for
-    result = SafeToLeave::Checks.issues(nil, issue: nil, prefixes: PREFIXES, plan_numbers: [])
-
-    assert_equal ['listed'], result.map(&:status)
-    assert_match(/no --issue/, result.first.detail)
-  end
 end
 
 class WorkflowRunDecisionTest < Minitest::Test
@@ -499,20 +516,14 @@ class WorkflowRunDecisionTest < Minitest::Test
     SafeToLeave::Checks.workflow_runs(on_default, elsewhere, default: 'main', cut_short: cut_short)
   end
 
-  def test_with_no_merge_commit_named_none_are_looked_for
-    result = lines(nil)
-
-    assert_equal ['listed'], result.map(&:status)
-    assert_match(/no --merge-commit/, result.first.detail)
-  end
-
   # Seconds after a merge the run has not been created yet, and "none
   # failed" would be an answer about nothing.
   def test_no_run_on_the_default_branch_since_the_merge_is_listed_not_clean
     result = lines([])
 
     assert_equal ['listed'], result.map(&:status)
-    assert_equal 'no run found since the merge on "main"', result.first.detail
+    assert_equal 'not counted, no push run on "main" found since the merge', result.first.detail
+    assert_equal :no_run, result.first.note
   end
 
   def test_a_passing_run_on_a_commit_containing_the_merge_is_clean
@@ -543,7 +554,7 @@ class WorkflowRunDecisionTest < Minitest::Test
   # A conclusion GitHub adds later is not one this command can call a
   # pass.
   def test_a_finished_attempt_with_any_other_conclusion_counts
-    ['action_required', 'stale', 'no conclusion', 'one added later'].each do |conclusion|
+    %w[action_required stale no_conclusion one_added_later].each do |conclusion|
       assert_equal ['AGAINST'], lines([run_record(500, [conclusion])]).map(&:status), conclusion
     end
   end
@@ -574,11 +585,21 @@ class WorkflowRunDecisionTest < Minitest::Test
     assert_match(/fetch.*run 500/, result.first.detail)
   end
 
-  def test_a_run_on_a_commit_from_before_the_merge_is_not_mentioned
+  # It cannot be the story's doing, and it is a failure someone may
+  # want to know about.
+  def test_a_failed_run_on_a_commit_from_before_the_merge_is_listed_and_does_not_count
     result = lines([run_record(500, ['failure'], holds_merge: false), run_record(501, ['success'])])
 
-    assert_equal ['ok'], result.map(&:status)
-    refute_includes result.first.detail, '500'
+    assert_equal %w[ok listed], result.map(&:status)
+    assert_includes result.last.detail, 'run 500'
+  end
+
+  # An event is one of GitHub's own words. Anything else is printed as
+  # text someone wrote.
+  def test_an_event_that_is_not_a_plain_word_is_quoted
+    result = lines([run_record(1, ['success'])], [run_record(500, ['failure'], event: 'x", run 9')])
+
+    assert_includes result.last.detail, 'on "main", "x\\", run 9"'
   end
 
   # A pull request's run tests that pull request's own changes on top
@@ -618,7 +639,7 @@ class WorkflowRunDecisionTest < Minitest::Test
     result = lines([run_record(1, ['success'])], [], cut_short: true)
 
     assert_equal %w[ok listed], result.map(&:status)
-    assert_match(/cut short/, result.last.detail)
+    assert_match(/not all were read/, result.last.detail)
   end
 
   # A workflow's name and a branch's are text a fork's pull request
@@ -761,11 +782,23 @@ class LeaveArgumentTest < LeaveCliTestCase
   end
 
   def test_a_story_flag_given_twice_is_a_usage_error
+    { '--issue' => '12', '--plan' => 'plan.md', '--merge-commit' => 'abcdef0',
+      '--repo' => 'owner/name' }.each do |flag, value|
+      in_empty_directory do |dir|
+        result = run_report(['-C', dir, flag, value, flag, value])
+
+        assert_equal 2, result.status, flag
+        assert_match(/duplicate #{flag}/, result.stderr)
+      end
+    end
+  end
+
+  def test_a_repo_flag_with_no_value_is_a_usage_error
     in_empty_directory do |dir|
-      result = run_report(['-C', dir, '--issue', '12', '--issue', '13'])
+      result = run_report(['-C', dir, '--repo'])
 
       assert_equal 2, result.status
-      assert_match(/duplicate --issue/, result.stderr)
+      assert_match(/missing argument: --repo/, result.stderr)
     end
   end
 
@@ -982,7 +1015,7 @@ class LeaveReportTest < LeaveCliTestCase
   end
 
   def extra_scrubbed_env_keys
-    StubGh::ENV_KEYS + SafeToLeave::Host::REDIRECTING_ENV_KEYS + SafeToLeave::Host::TRACING_ENV_KEYS
+    StubGh::ENV_KEYS + StubGh::REDIRECTING_ENV_KEYS + StubGh::TRACING_ENV_KEYS
   end
 
   def with_repo
@@ -2095,7 +2128,7 @@ class LeaveReportTest < LeaveCliTestCase
   # real gh would answer about another project, colour its JSON, or
   # write a trace of its requests to the stderr this command quotes.
   def test_a_variable_that_would_change_ghs_answer_does_not_reach_it
-    (SafeToLeave::Host::REDIRECTING_ENV_KEYS + SafeToLeave::Host::TRACING_ENV_KEYS).each do |variable|
+    (StubGh::REDIRECTING_ENV_KEYS + StubGh::TRACING_ENV_KEYS).each do |variable|
       with_repo do |repo|
         serve(repo)
         ENV[variable] = 'someone/elsewhere'
@@ -2189,6 +2222,15 @@ class LeaveReportTest < LeaveCliTestCase
     with_repo do |repo|
       assert_equal "safe-to-leave: nothing counts against leaving; no workflow run found since the merge\n",
                    report_since_merge(repo, '--issue', '12').stdout.lines.last
+    end
+  end
+
+  def test_the_closing_line_names_the_checks_not_looked_for_when_something_counts_too
+    with_repo do |repo|
+      repo.write('draft.md', 'unsent')
+
+      assert_equal "safe-to-leave: 1 line counts against leaving; not looked for: issues, workflow-runs\n",
+                   report(repo).stdout.lines.last
     end
   end
 
@@ -2294,7 +2336,7 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
-  def test_a_failed_run_on_a_commit_from_before_the_merge_is_not_mentioned
+  def test_a_failed_run_on_a_commit_from_before_the_merge_is_listed
     with_repo do |repo|
       before = repo.sha
       repo.commit_locally('story', 'The story')
@@ -2303,7 +2345,7 @@ class LeaveReportTest < LeaveCliTestCase
       result = report_since_merge(repo)
 
       assert_equal 0, result.status, result.stdout
-      assert_equal ['ok'], result.statuses['workflow-runs']
+      assert_equal %w[ok listed], result.statuses['workflow-runs']
     end
   end
 
@@ -2332,14 +2374,93 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
-  # What gh says a run's commit is goes to git as a revision.
-  def test_a_run_whose_commit_is_not_a_sha_is_unchecked
+  # What gh says a run's id, attempt, and commit are goes on to gh and
+  # to git as arguments.
+  def test_a_run_whose_id_attempt_or_commit_is_not_what_it_should_be_is_unchecked
+    { 'databaseId' => '500 --web', 'attempt' => 0, 'headSha' => '--all' }.each do |field, value|
+      with_repo do |repo|
+        serve(repo, runs: [workflow_run(500, repo.sha).merge(field => value)])
+        result = report_since_merge(repo)
+
+        assert_equal ['UNCHECKED'], result.statuses['workflow-runs'], field
+        assert_includes result.line_for('workflow-runs'), field
+      end
+    end
+  end
+
+  # 41 hex digits are no commit's id, and could be a ref's name.
+  def test_a_run_whose_commit_has_a_length_no_sha_has_is_unchecked
     with_repo do |repo|
-      serve(repo, runs: [workflow_run(500, '--all')])
+      serve(repo, runs: [workflow_run(500, 'a' * 41)])
+
+      assert_includes report_since_merge(repo).line_for('workflow-runs'), 'headSha'
+    end
+  end
+
+  def test_a_pull_request_whose_number_is_not_a_number_is_unchecked
+    with_repo do |repo|
+      serve(repo, pull_requests: [open_pull_request('45), #46 (x', 'Other', 'abc-12-x')])
+      result = report(repo)
+
+      assert_equal ['UNCHECKED'], result.statuses['pull-requests']
+      assert_includes result.line_for('pull-requests'), 'number'
+    end
+  end
+
+  # A fork's pull request can come from its own branch of the default
+  # branch's name.
+  def test_a_failed_pull_request_run_from_a_branch_named_as_the_default_is_listed
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(501, '0' * 40, conclusion: 'failure', event: 'pull_request'),
+                         workflow_run(500, repo.sha)])
       result = report_since_merge(repo)
 
-      assert_equal ['UNCHECKED'], result.statuses['workflow-runs']
-      assert_includes result.line_for('workflow-runs'), 'headSha'
+      assert_equal 0, result.status, result.stdout
+      assert_equal %w[ok listed], result.statuses['workflow-runs']
+    end
+  end
+
+  # A branch's tip after a squash merge is on no commit the default
+  # branch has, and every run would read as from before it.
+  def test_a_merge_commit_that_is_not_on_the_default_branch_is_unchecked
+    with_repo do |repo|
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('story', 'The story')
+      result = report(repo, '--merge-commit', repo.sha)
+
+      assert_includes result.statuses['workflow-runs'], 'UNCHECKED'
+      assert_includes result.line_for('workflow-runs'), 'is not on "main"'
+      assert_empty served_invocations.grep(/run list/)
+    end
+  end
+
+  # Past a shallow clone's boundary git answers that one commit does not
+  # contain another when it does.
+  def test_in_a_shallow_clone_a_commit_is_not_said_to_be_free_of_the_merge
+    with_repo do |repo|
+      merge = repo.sha
+      repo.commit_locally('later', 'A later change')
+      repo.push('main')
+      clone = File.join(repo.root, 'shallow')
+      origin = "file://#{repo.origin}"
+      repo.git('init', '-q', clone, dir: repo.root)
+      repo.git('fetch', '-q', origin, merge, dir: clone)
+      repo.git('fetch', '-q', '--depth', '1', origin, 'main', dir: clone)
+      git = SafeToLeave::Git.new(dir: clone, remote: 'origin', remote_timeout: 5)
+
+      assert_nil(with_repo_env(repo) { git.holds_commit(repo.sha, merge) })
+    end
+  end
+
+  def test_a_run_with_as_many_earlier_attempts_as_are_read_has_each_one_read
+    with_repo do |repo|
+      limit = SafeToLeave::Host::ATTEMPT_LIMIT
+      serve(repo, runs: [workflow_run(500, repo.sha, attempt: limit + 1)],
+                  attempts: { 500 => (1..limit).to_h { |attempt| [attempt, { 'conclusion' => 'success' }] } })
+      result = report_since_merge(repo)
+
+      assert_equal ['ok'], result.statuses['workflow-runs'], result.stdout
+      assert_equal limit, served_invocations.grep(/run view/).length
     end
   end
 
@@ -2385,7 +2506,7 @@ class LeaveReportTest < LeaveCliTestCase
 
       assert_equal 0, result.status, result.stdout
       assert_equal %w[ok listed], result.statuses['workflow-runs']
-      assert_includes result.line_for('workflow-runs'), 'cut short'
+      assert_includes result.line_for('workflow-runs'), 'not all were read'
     end
   end
 
@@ -2459,10 +2580,13 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
-  def test_a_merge_commit_named_by_a_short_sha_is_read_by_its_full_one
+  def test_a_merge_commit_named_by_a_short_sha_in_either_case_is_accepted
     with_repo do |repo|
+      repo.git('commit', '-q', '--allow-empty', '-m', 'Find a SHA with a letter in its first seven') until
+        repo.sha[0, 7].match?(/[a-f]/)
+      repo.push('main')
       serve(repo, runs: [workflow_run(500, repo.sha)])
-      result = report(repo, '--merge-commit', repo.sha('origin/main')[0, 7])
+      result = report(repo, '--merge-commit', repo.sha('origin/main')[0, 7].upcase)
 
       assert_equal ['ok'], result.statuses['workflow-runs'], result.stdout
     end

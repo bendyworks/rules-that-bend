@@ -3,9 +3,9 @@
 
 # Stand-in for the GitHub CLI, serving canned pull-request data to the
 # sweep's forge tests, and canned pull requests, issues, workflow runs,
-# and single attempts of a run to the safe-to-leave tests. Installed onto PATH under the name `gh` by
-# CliTestCase's serving-stub seam, which also names the two logs it
-# reports through.
+# and single attempts of a run to the safe-to-leave tests. Installed
+# onto PATH under the name `gh` by CliTestCase's serving-stub seam,
+# which also names the two logs it reports through.
 #
 # This file lives under test/fixtures/ rather than test/ so CI's
 # test/*_test.rb glob does not run it as a suite of its own. Its own
@@ -22,8 +22,7 @@
 #   --state defaults to open, so a sweep that forgets --state all sees
 #   no merged pull request at all and keeps everything.
 #
-#   --limit defaults to 30, or 20 for `run list`, and truncates in
-#   silence.
+#   --limit defaults to 30 and truncates in silence.
 #
 #   A query that matches nothing is an empty array and exit 0. A
 #   failure is a message on stderr and exit 1 -- the shape the sweep
@@ -67,7 +66,6 @@ module StubGh
   # flag must see what it would really see.
   DEFAULT_STATE = 'open'
   DEFAULT_LIMIT = 30
-  RUN_DEFAULT_LIMIT = 20
 
   module_function
 
@@ -95,9 +93,9 @@ module StubGh
     command = argv.take(2).join(' ')
     rest = argv.drop(2)
     case command
-    when 'pr list' then list_pull_requests(parse(rest, refused: RUN_ONLY_FLAGS, command: command))
+    when 'pr list' then list_pull_requests(parse(rest))
     when 'issue list' then list_issues(parse(rest, refused: ISSUE_REFUSED_FLAGS, command: command))
-    when 'run list' then list_runs(parse(rest, refused: RUN_LIST_REFUSED_FLAGS, command: command))
+    when 'run list' then list_runs(parse(rest, refused: RUN_REFUSED_FLAGS, command: command))
     when 'run view' then view_run(rest)
     else refuse("unserved command: #{command.empty? ? '(none)' : command}")
     end
@@ -132,13 +130,6 @@ module StubGh
     sleep 60 if ENV['STUB_GH_HANG'] == '1'
   end
 
-  # The unauthenticated / offline / not-a-GitHub-remote case. It is a
-  # served answer rather than a refusal: the sweep is required to
-  # degrade on it, so a test asking for it is exercising the CLI, not
-  # missing a stub.
-  # STUB_GH_FAIL=1 fails with a message; =2 fails saying nothing at all,
-  # which a caller quoting gh's stderr has to have something to say
-  # about; =3 follows the message with a line of advice, as gh does.
   # Answers normally for the first N calls and fails from then on: the
   # rate limit reached mid-sweep, the network dropping between branches.
   # Counted from the log this already writes, which is one line per
@@ -152,6 +143,13 @@ module StubGh
     exit 1
   end
 
+  # The unauthenticated / offline / not-a-GitHub-remote case. It is a
+  # served answer rather than a refusal: the sweep is required to
+  # degrade on it, so a test asking for it is exercising the CLI, not
+  # missing a stub.
+  # STUB_GH_FAIL=1 fails with a message; =2 fails saying nothing at all,
+  # which a caller quoting gh's stderr has to have something to say
+  # about; =3 follows the message with a line of advice, as gh does.
   def fail_as_configured
     mode = ENV.fetch('STUB_GH_FAIL', nil)
     return unless %w[1 2 3].include?(mode)
@@ -221,18 +219,12 @@ module StubGh
     '--attempt' => :attempt
   }.freeze
 
-  # Flags only a run command takes.
-  RUN_ONLY_FLAGS = %w[--event --branch --attempt].freeze
-
   # Flags `gh issue list` does not take. The real client rejects them,
   # so a caller that sent one would be answered by nothing.
-  ISSUE_REFUSED_FLAGS = (%w[--head -H --created] + RUN_ONLY_FLAGS).freeze
+  ISSUE_REFUSED_FLAGS = %w[--head -H --created].freeze
 
   # `gh run list` filters on --status, and has no --state or --head.
-  RUN_LIST_REFUSED_FLAGS = %w[--head -H --state --attempt].freeze
-
-  # `gh run view` names one run and takes none of the listing filters.
-  RUN_VIEW_REFUSED_FLAGS = %w[--head -H --state --limit --created --event --branch].freeze
+  RUN_REFUSED_FLAGS = %w[--head -H --state].freeze
 
   def parse(argv, refused: [], command: nil)
     options = { state: DEFAULT_STATE, limit: DEFAULT_LIMIT }
@@ -291,8 +283,7 @@ module StubGh
         (options[:event].nil? || record.fetch('event') == options[:event]) &&
         (options[:branch].nil? || record.fetch('headBranch') == options[:branch])
     end
-    limit = options[:limit] == DEFAULT_LIMIT ? RUN_DEFAULT_LIMIT : limit_of(options)
-    puts JSON.generate(matched.first(limit).map { |record| project(record, fields, 'run') })
+    puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields, 'run') })
   end
 
   # The one --created form the callers send. The real client takes
@@ -315,12 +306,15 @@ module StubGh
     id = argv.shift
     refuse('run view without a run id') unless id.to_s.match?(/\A\d+\z/)
 
-    options = parse(argv, refused: RUN_VIEW_REFUSED_FLAGS, command: 'run view')
+    options = parse(argv)
     fields = requested_fields(options, 'run view')
     refuse('run view without --attempt') if options[:attempt].nil?
 
     record = records_for(options[:repo], 'STUB_GH_ATTEMPTS').dig(id, options[:attempt])
     refuse("no data for run #{id}, attempt #{options[:attempt]}") if record.nil?
+    # The real client never answers --json with anything but a record.
+    # A data file can hold something else, so that a caller's handling
+    # of such an answer has a subject.
     return puts(JSON.generate(record)) unless record.is_a?(Hash)
 
     puts JSON.generate(project(record, fields, 'run attempt'))
