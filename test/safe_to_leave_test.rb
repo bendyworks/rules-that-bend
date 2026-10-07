@@ -2348,6 +2348,61 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # git reads a ref's name ahead of an abbreviated commit.
+  def test_a_merge_commit_value_that_names_a_tag_is_refused
+    with_repo do |repo|
+      repo.commit_locally('later', 'A later change')
+      repo.git('tag', 'abcdef0', 'origin/main')
+      result = report(repo, '--merge-commit', 'abcdef0')
+
+      assert_equal ['UNCHECKED'], result.statuses['workflow-runs']
+      assert_includes result.line_for('workflow-runs'), 'abcdef0 names a branch or a tag here'
+      assert_empty served_invocations.grep(/run list/)
+    end
+  end
+
+  def test_a_finished_run_with_no_conclusion_counts
+    with_repo do |repo|
+      serve(repo, runs: [workflow_run(500, repo.sha, conclusion: '')])
+      result = report_since_merge(repo)
+
+      assert_equal ['AGAINST'], result.statuses['workflow-runs']
+      assert_includes result.line_for('workflow-runs'), 'attempt 1 no conclusion'
+    end
+  end
+
+  def test_with_no_issue_named_a_pull_request_that_closes_one_is_not_the_storys
+    with_repo do |repo|
+      serve(repo, pull_requests: [open_pull_request(45, 'Another go', 'retry', closes: [12])])
+
+      assert_equal ['ok'], report(repo).statuses['pull-requests']
+    end
+  end
+
+  def test_a_plan_larger_than_a_plan_is_an_error_not_a_verdict
+    with_repo do |repo|
+      plan = File.join(repo.root, 'plan.md')
+      File.write(plan, '#' * (SafeToLeave::CLI::PLAN_SIZE_LIMIT + 1))
+      result = report(repo, '--issue', '12', '--plan', plan)
+
+      assert_equal 2, result.status
+      assert_match(/larger than/, result.stderr)
+    end
+  end
+
+  def test_a_plan_that_may_not_be_read_is_an_error_not_a_verdict
+    skip 'root reads any file' if Process.uid.zero?
+    with_repo do |repo|
+      plan = File.join(repo.root, 'plan.md')
+      File.write(plan, 'Follow-up #31.')
+      File.chmod(0o000, plan)
+      result = report(repo, '--issue', '12', '--plan', plan)
+
+      assert_equal 2, result.status
+      assert_match(/could not read the plan file/, result.stderr)
+    end
+  end
+
   def test_a_merge_commit_named_by_a_short_sha_is_read_by_its_full_one
     with_repo do |repo|
       serve(repo, runs: [workflow_run(500, repo.sha)])
