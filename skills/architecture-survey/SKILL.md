@@ -281,6 +281,93 @@ to that epic as a comment.
    and decide whether any earns permanent CI/rake integration; file an
    issue if so.
 
+**On GitHub Issues, where the project has priority labels, every issue
+steps 2 to 5 create is shown first as a draft -- the epic, each
+first-batch child, the parked issue, and step 5's tooling issue -- with
+one proposed priority label and a one-line reason under its title, and
+nothing is created until the user answers. Where it has none, say
+nothing about priority.** Read the repository's labels with a limit
+before drafting:
+
+```bash
+gh label list --limit 200 --json name,description
+```
+
+Without `--limit`, `gh label list` returns 30 labels, oldest first, and
+a priority scale added later is not among them. A read that returns
+exactly 200 may have been cut short the same way: raise the limit and
+read again. Then take the first of these that fits:
+
+- **The project declines them** in its checked-in CLAUDE.md (or a rules
+  file every session loads), with a statement that the project does not
+  use priority labels on its GitHub issues. It has none, even when the
+  repository has some. Prose about priorities in general ("we don't fuss
+  about priority here") is not a decline, and neither is anything said
+  in conversation.
+- **Otherwise, the project states its set** in those files: which labels
+  are its priority levels, and which one means nobody has judged the
+  issue yet. Use the stated labels the read returned, and tell the user
+  of any stated label the repository does not have. With fewer than two
+  levels among them, the project has none, and the name test is not
+  tried: the project has said its labels are others.
+- **Otherwise, the name test:** the labels whose names start with
+  `priority` followed by the same separator (`:`, `/`, `-`, or a space;
+  spaces around a `:`, `/`, or `-` do not matter), in any case. Among
+  them, one whose value is `untriaged`, `triage`, or `needs triage` is
+  the not-yet-judged label, in any case and with its words joined by a
+  space, a hyphen, or an underscore (`needs-triage`), and the rest are
+  the levels. Two or more levels make a scale, and fewer make none.
+- **Otherwise, the project has none.** Never offer to create priority
+  labels, and never propose or apply a lone `priority: high`, or a label
+  the name test does not match (`P1`, `urgent`), as a priority, whatever
+  is said about such labels in conversation.
+
+Where the project has them, show all the drafts in one message, each as
+its title, then `Priority: <label> -- <one-line reason>`, then its body,
+and stop:
+
+- **One level per issue, never two candidates, and never the
+  not-yet-judged label.** Choose each from the labels' own descriptions,
+  or from their names where a description is empty, and the survey's
+  evidence for that candidate, so the project's meanings decide; this
+  skill carries no scale of its own. Where the descriptions and names do
+  not say which end of the scale is the higher (`priority: 1`,
+  `priority: 2`, no descriptions), ask before proposing, and create
+  nothing in that turn.
+- **The epic proposes the highest level proposed for any of its
+  children**, since the children's evidence is the epic's. It is a
+  proposal like the rest: a change to a child's level in the answer does
+  not change the epic's.
+- **The parked issue proposes the project's lowest level.** Parking is a
+  judgment, and the not-yet-judged label says nobody has made one.
+- **Never run `gh issue create` in the turn that drafts the issues.** A
+  level applied before the user has seen it is a judgment made for them.
+  Approving the drafts confirms each label: create each issue from its
+  body, without its `Priority:` line, with exactly its label (`--label
+  "<label>"`). A different level in the answer replaces that issue's,
+  and an answer that changes some levels and objects to nothing else
+  confirms the rest. Approval of the proposal document under an approval
+  gate is not this answer: the drafts are shown after it.
+- **The user does not want to judge one now:** create it with the
+  not-yet-judged label. Where the project has levels and no such label,
+  create it with no priority label and say so.
+- **After each `gh issue create`, read the new issue's labels back**
+  (`gh issue view <number> --json labels`). A filer without permission
+  to label can get the issue without its labels and no error. When a
+  priority label was passed and is not on the issue, put the proposal at
+  the top of the issue's body: `gh issue edit <number> --body-file
+  <file>` replaces the whole body, so the file holds the draft's
+  `Priority:` line, a blank line, and then the body as created. Say that
+  the label did not land.
+
+On a GitHub project with no priority labels, step 3's "proposed
+priority" and step 4's "lowest / no priority" have nothing to carry
+them: write no priority into an issue's body or the reply, and apply no
+label for one. Those two phrases stay as written for a tracker with a
+priority field of its own, such as Linear. The plan-issue skill (bundled
+in this plugin) owns the reasoning and the rarer cases in its "Priority
+label" section.
+
 **Process observations are NOT code candidates.** A survey routinely surfaces
 organizational costs -- merge/deploy gatekeeping, interrupt-driven priority
 churn, unfilled ownership roles. These are real and worth surfacing, but they
