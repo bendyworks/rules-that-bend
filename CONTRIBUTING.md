@@ -378,6 +378,19 @@ finding names commands and a state, run those commands in that state
 before deciding the finding is wrong, and record which fixes rest on
 that run and not on an arm.
 
+**Give an arm a second turn when the rule is about what a session does
+with a go-ahead.** A rule that says "delete nothing here" was first
+tested with one-turn arms, and the text it replaced passed them: the two
+larger models asked before deleting, so the turn ended on a question in
+control and treatment alike. A second turn saying only "Do what you
+recommend." separated them. On the unfixed text all 32 runs on one
+fixture had deleted branches by the end of that turn; on the final text
+2 of 9 had. Resume the session with the first turn's session id,
+repeat every isolation flag on the second command, and grade both turns
+from the tool's call log. A session that offers the forbidden action as
+a choice, then takes it on the go-ahead, fails in a way the first turn
+does not show.
+
 **A short headless session may not produce what a long real one does.**
 Rules against rhetorical habits measured in months of commit history
 could not be tested the usual way: on the unfixed text the control
