@@ -40,7 +40,11 @@ module Fixtures
       @program ||= write_wrapper
     end
 
-    # at_exit rather than the block form every other fixture uses: the
+    # The interpreter starts without RubyGems, which the stub does not
+    # use: a sweep with the forge answering runs the stub dozens of
+    # times, and loading RubyGems is most of what each start costs.
+    #
+    # at_exit rather than the block form a test's own fixture uses: the
     # wrapper has to outlive the call that writes it, since it is on
     # PATH for the length of the process.
     def write_wrapper
@@ -49,7 +53,7 @@ module Fixtures
       path = File.join(dir, 'gh')
       File.write(path, <<~SCRIPT)
         #!/bin/sh
-        exec "#{RbConfig.ruby}" "#{STUB}" "$@"
+        exec "#{RbConfig.ruby}" --disable-gems "#{STUB}" "$@"
       SCRIPT
       File.chmod(0o755, path)
       path
