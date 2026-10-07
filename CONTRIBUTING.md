@@ -499,6 +499,30 @@ same reason as the scaffolding; `test/fixtures/repo_builder.rb`
 documents the three properties that keep a build inside the directory
 it created.
 
+**A test that needs a fixture repository takes a copy of one, and
+never builds one.** A build runs a few hundred git commands and takes
+one to four seconds; `Fixtures::BranchRepo.with_copy(label)` builds the
+fixture once per run and hands each caller a copy in a few hundredths
+of a second. Before fixtures were copied, `test/stale_branches_test.rb`
+built one per test and ran for over seven minutes. To write a new
+`stale-branches` test:
+
+- Ask first whether the test needs a repository. A verdict that is a
+  function of gathered facts is tested against the pure module with no
+  repository, the way `ProtectionTest` and `PullRequestVerdictTest` are.
+- Where it does, take the copy through `with_flat_fixture`,
+  `with_gitflow_fixture` or `with_backup_fixture`. The copy belongs to
+  the test, which may move HEAD, add a remote or delete branches in it.
+- Where it needs a repository no fixture builds, change the copy inside
+  the test. Add a branch to a fixture only when a row of its oracle
+  table needs one, since every test then pays for it in each sweep.
+- Call `build` only to test the builder itself. A test in the file
+  fails when any other class does.
+
+`ruby test/stale_branches_test.rb -v` prints each test's time. The full
+suite is meant to run in under three minutes ([CLAUDE.md](CLAUDE.md),
+Goals), so measure before and after adding a test that sweeps.
+
 A skill can also ship **templates**: files it copies into the project
 it is working on rather than running itself (see
 `skills/parallel-checkouts/templates/`). They live in the skill's own
