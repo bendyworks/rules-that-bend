@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# parallel-checkouts template v2 (bendyworks/rules-that-bend)
+# parallel-checkouts template v1 (bendyworks/rules-that-bend)
 #
 # Run a full lint+test suite while holding this checkout's suite lock:
 #
