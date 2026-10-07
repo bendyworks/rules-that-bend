@@ -4,7 +4,8 @@
 # graded against. Subclasses define #build and the branches they need.
 #
 # Every repository built here is a throwaway, created under a temporary
-# directory and deleted when the test ends. No branch name any fixture
+# directory. A test's own is deleted when the test ends, and the build
+# that .copy_to copies from when the process does. No branch name any fixture
 # mentions is a branch of the repository this file is checked into, and
 # nothing here reads or writes it.
 #
@@ -47,15 +48,19 @@
 #    defaulting to `master` the bare repo's HEAD names a branch that is
 #    never created and the first push fails outright.
 #
-# 3. A built fixture is used where it was built, never copied or moved.
-#    `git worktree add` records absolute paths, so a copied fixture's
-#    worktree entry still points at the original, and the row that depends
-#    on it would pass because the gitdir file is prunable rather than
-#    because the branch is in use.
+# 3. A built fixture is copied only through .copy_to, and never moved.
+#    git records a repository's absolute path in its remote URL and in
+#    the files that tie a second worktree to its clone, so a plain copy
+#    fetches from and pushes to the original's bare repository, and the
+#    row that depends on the worktree passes because git finds the
+#    original's and not because the copy has one. BuiltFixture gives a
+#    copy its own path in each of those files.
 
 require 'fileutils'
 require 'open3'
 require 'tmpdir'
+
+require_relative 'built_fixture'
 
 module Fixtures
   class RepoBuilder
@@ -122,12 +127,38 @@ module Fixtures
     def initialize(root)
       @root = File.expand_path(root)
       unless self.class.under_tmpdir?(@root)
-        raise Error, "refusing to build a fixture outside #{Dir.tmpdir}: #{@root}"
+        raise Error, "refusing to put a fixture outside #{Dir.tmpdir}: #{@root}"
       end
 
       @origin = File.join(@root, 'origin.git')
       @work = File.join(@root, 'work')
     end
+
+    # Yields a copy of this fixture in a temporary directory of its own,
+    # removed when the block returns.
+    def self.with_copy(label)
+      Dir.mktmpdir("stale-branches-#{label}") { |dir| yield copy_to(File.join(dir, label)) }
+    end
+
+    # A copy of this fixture as #build leaves it, at `root`. The fixture
+    # is built on the first call and every later call copies that build.
+    def self.copy_to(root)
+      copy = new(root)
+      built.copy_to(copy.root)
+      copy
+    end
+
+    # A build that raised is not tried again: every later call raises
+    # what it raised, without waiting for another build first.
+    def self.built
+      raise @build_failure if @build_failure
+
+      @built ||= BuiltFixture.new(self)
+    rescue StandardError => e
+      @build_failure = e
+      raise
+    end
+    private_class_method :built
 
     # Both spellings of the temporary directory are accepted because
     # macOS reports two: Dir.tmpdir and Dir.mktmpdir hand back /var/...
