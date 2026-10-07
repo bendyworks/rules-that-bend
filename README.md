@@ -77,6 +77,9 @@ overriding, and troubleshooting.
 ## Requirements
 
 - Claude Code with plugin support.
+- Claude Opus or Claude Sonnet as the session's model. The skills and
+  guidance are written for those two and dry-run on them. Nothing here
+  is tested on a smaller model.
 - A GitHub-hosted repository and the GitHub CLI (`gh`), installed and
   authenticated. Everything that reads pull requests or GitHub issues
   goes through `gh`: the commands the skills and guidance give a
