@@ -556,11 +556,25 @@ module SafeToLeave
       [Line.new(check, UNCHECKED, e.message)]
     end
 
+    # How far ahead the default branch is can be unknown while the other
+    # branches are still measured, as when its tracking ref is behind
+    # the remote. That is an UNCHECKED line of its own, beside whatever
+    # the branches show.
     def unpushed
       default = @git.default_branch
       branches = (@git.local_branches - [default]).to_h { |branch| [branch, @git.unpushed_on(branch)] }
-      Checks.unpushed(default: default, default_ahead: @git.default_ahead(default),
-                      detached: @git.detached_commits, branches: branches, prefixes: @prefixes)
+      ahead, unknown = default_ahead(default)
+      lines = Checks.unpushed(default: default, default_ahead: ahead, detached: @git.detached_commits,
+                              branches: branches, prefixes: @prefixes)
+      return lines if unknown.nil?
+
+      [Line.new('unpushed', UNCHECKED, unknown)] + lines.reject { |line| line.status == OK }
+    end
+
+    def default_ahead(default)
+      [@git.default_ahead(default), nil]
+    rescue Error => e
+      [0, e.message]
     end
   end
 

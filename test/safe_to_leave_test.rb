@@ -880,6 +880,25 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # Anyone merging to the default branch since the last fetch leaves its
+  # tracking ref behind. The story's own branches are still measured.
+  def test_a_default_branch_the_remote_has_moved_leaves_the_branch_counts_standing
+    with_repo do |repo|
+      start = repo.git('rev-parse', 'main').strip
+      repo.commit_locally('notes', 'Add notes')
+      repo.push('main')
+      repo.git('update-ref', 'refs/heads/main', start, dir: repo.origin)
+      repo.branch_from_main('abc-12-fix-export')
+      repo.commit_locally('fix', 'Fix the export')
+      repo.checkout('main')
+      result = report(repo)
+
+      assert_equal %w[UNCHECKED AGAINST], result.statuses['unpushed'], result.stdout
+      assert_includes result.line_for('unpushed'), 'fetch origin first'
+      assert_includes result.line_for('unpushed'), 'abc-12-fix-export'
+    end
+  end
+
   # A replace ref makes git read one commit as another. Here the commit
   # the remote has is read as a child of the story branch's tip, which
   # puts the story's commit among those the remote has.
