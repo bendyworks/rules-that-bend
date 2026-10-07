@@ -40,9 +40,22 @@ class CheckArmIsolationTest < Minitest::Test
   # from, the way a launcher that picks a build by directory would.
   # STUB_SPACED puts a space after each colon in the payload,
   # STUB_SLEEP holds the arm open for that many seconds, and STUB_PARK
-  # names a directory an arm creates while it runs.
+  # names a directory an arm creates while it runs. STUB_LEAVES has
+  # each arm leave a session-history folder in the config directory,
+  # named for its working directory the way Claude Code names one;
+  # `cut` gives it the form a name longer than 200 characters takes,
+  # `locked` then takes write permission off the projects directory, so
+  # the folder cannot be removed. `file` leaves a file under the
+  # folder's name, `link` a link to a directory elsewhere, `empty` a
+  # folder with nothing in it, and `escape` one whose file has an
+  # escape character in its name. The folder is there before STUB_SLEEP
+  # begins, except with `late`, which leaves it half a second after the
+  # arm is told to stop. STUB_SIBLING also leaves a folder whose name
+  # goes on from the arm's own, and STUB_IGNORES_TERM has the arm
+  # ignore the signal that stops it.
   STUB = <<~'RUBY'
     #!/usr/bin/env ruby
+    require 'fileutils'
     require 'json'
     if ARGV == ['--version']
       old_outside = ENV['STUB_NEW_ONLY_IN'] && Dir.pwd != ENV['STUB_NEW_ONLY_IN']
@@ -56,7 +69,43 @@ class CheckArmIsolationTest < Minitest::Test
       log.puts JSON.generate('argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid, 'settings' => settings,
                              'settings_mode' => mode,
                              'project_file' => File.exist?('CLAUDE.md'),
-                             'auto_memory_off' => ENV['CLAUDE_CODE_DISABLE_AUTO_MEMORY'])
+                             'auto_memory_off' => ENV['CLAUDE_CODE_DISABLE_AUTO_MEMORY'],
+                             'config' => ENV['CLAUDE_CONFIG_DIR'],
+                             'fd9' => File.exist?('/dev/fd/9'))
+    end
+    leave = lambda do
+      config = ENV['CLAUDE_CONFIG_DIR'] || File.join(ENV.fetch('HOME'), '.claude')
+      name = Dir.pwd.gsub(/[^A-Za-z0-9]/, '-')
+      name = "#{name[0, 200]}-k3x9qa" if ENV['STUB_LEAVES'] == 'cut'
+      folder = File.join(config, 'projects', name)
+      FileUtils.mkdir_p(File.join(config, 'projects'))
+      case ENV['STUB_LEAVES']
+      when 'file' then File.write(folder, "{}\n")
+      when 'empty' then FileUtils.mkdir_p(folder)
+      when 'link'
+        FileUtils.mkdir_p(File.join(config, 'elsewhere'))
+        File.write(File.join(config, 'elsewhere', 'keep.txt'), "kept\n")
+        begin
+          File.symlink(File.join(config, 'elsewhere'), folder)
+        rescue Errno::EEXIST
+          nil # the other arm made it first
+        end
+      else
+        FileUtils.mkdir_p(folder)
+        File.write(File.join(folder, ENV['STUB_LEAVES'] == 'escape' ? "a\eb.jsonl" : 'session.jsonl'), "{}\n")
+      end
+      FileUtils.mkdir_p("#{folder}-worktrees") if ENV['STUB_SIBLING']
+      File.chmod(0o555, File.join(config, 'projects')) if ENV['STUB_LEAVES'] == 'locked'
+    end
+    trap('TERM', 'IGNORE') if ENV['STUB_IGNORES_TERM']
+    if ENV['STUB_LEAVES'] == 'late'
+      trap('TERM') do
+        sleep 0.5
+        leave.call
+        exit!(1)
+      end
+    elsif ENV['STUB_LEAVES']
+      leave.call
     end
     sleep Integer(ENV['STUB_SLEEP']) if ENV['STUB_SLEEP']
     Dir.mkdir(ENV['STUB_PARK']) if ENV['STUB_PARK'] && !Dir.exist?(ENV['STUB_PARK'])
@@ -1076,6 +1125,328 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 2, status.exitstatus, err
     assert_includes err, %(rmdir "#{config}/CLAUDE.md.park-lock")
+  end
+
+  # --- a session-history folder left by an arm ---
+
+  def session_folders(config = @tmp)
+    Dir.children(File.join(config, 'projects')).sort
+  end
+
+  def folder_name(path)
+    path.gsub(/[^A-Za-z0-9]/, '-')
+  end
+
+  def test_fails_when_an_arm_leaves_a_session_history_folder
+    out, err, status = check(STUB_LEAVES: '1')
+
+    assert_equal 3, status.exitstatus, out + err
+    assert_match(/left a session-history folder/, err)
+    assert_match(%r{~/projects/\S*-check-arm-isolation-\w+-arm, holding:$}, err)
+    assert_includes err, '--no-session-persistence'
+    assert_includes err, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY=1'
+    assert_includes err, '  session.jsonl'
+    assert_match(/The folder is removed/, err)
+    assert_includes err, 'bin/dry-run-cleanup new'
+    assert_match(/isolates an arm on 9\.9\.9.*no pass/, err)
+    assert_empty out
+  end
+
+  def test_reports_a_file_under_the_folders_name_without_listing_it
+    _out, err, status = check(STUB_LEAVES: 'file')
+
+    assert_equal 3, status.exitstatus, err
+    assert_match(/not a directory/, err)
+    refute_includes err, "#{@tmp}/projects"
+    assert_empty session_folders
+  end
+
+  def test_reports_a_link_under_the_folders_name_without_listing_its_target
+    _out, err, status = check(STUB_LEAVES: 'link')
+
+    assert_equal 3, status.exitstatus, err
+    assert_match(/not a directory/, err)
+    refute_includes err, 'keep.txt'
+    assert_empty session_folders
+    assert_path_exists File.join(@tmp, 'elsewhere', 'keep.txt')
+  end
+
+  def test_says_when_the_folder_held_nothing
+    _out, err, status = check(STUB_LEAVES: 'empty')
+
+    assert_equal 3, status.exitstatus, err
+    assert_includes err, '  (nothing)'
+  end
+
+  def test_prints_no_escape_character_from_a_file_name
+    _out, err, status = check(STUB_LEAVES: 'escape')
+
+    assert_equal 3, status.exitstatus, err
+    assert_includes err, '  a?b.jsonl'
+    refute_includes err, "\e"
+  end
+
+  def test_leaves_the_arms_no_copy_of_its_stderr
+    check
+
+    assert_equal [false], calls.map { |call| call['fd9'] }.uniq
+  end
+
+  def test_sets_no_config_directory_for_the_arms_when_none_was_set
+    check(CLAUDE_CONFIG_DIR: nil)
+
+    assert_equal [nil], calls.map { |call| call['config'] }.uniq
+  end
+
+  # Starts the check with arms that sleep, stops it once ready says so,
+  # and returns what it wrote to stderr.
+  def stopped_check(ready: -> { true }, **options)
+    log = File.join(@tmp, 'stderr')
+    script = Process.spawn(check_env(STUB_SLEEP: '30', **options), 'bash', SCRIPT, out: File::NULL, err: log)
+    Timeout.timeout(10) { sleep 0.05 until File.exist?(@calls) && calls.size == 2 }
+    arms = calls.map { |call| call['pid'] }
+    Timeout.timeout(10) { sleep 0.05 until ready.call }
+    Process.kill('TERM', script)
+    Timeout.timeout(20) { Process.wait(script) }
+    yield arms if block_given?
+    File.read(log)
+  ensure
+    arms&.each { |pid| Process.kill('KILL', pid) if alive?(pid) }
+  end
+
+  def folder_left
+    -> { Dir.exist?(File.join(@tmp, 'projects')) && session_folders.any? }
+  end
+
+  def test_reports_and_removes_the_folder_when_the_check_is_stopped
+    err = stopped_check(ready: folder_left, STUB_LEAVES: '1')
+
+    assert_empty session_folders
+    assert_match(/was stopped while its arms ran/, err)
+    assert_match(/The folder is removed/, err)
+    refute_match(/they may not/, err)
+    assert_empty scratch_leftovers
+  end
+
+  def test_waits_for_the_arms_it_stopped_before_it_looks
+    err = stopped_check(ready: -> { sleep 0.3 }, STUB_LEAVES: 'late')
+
+    assert_empty session_folders
+    assert_match(/was stopped while its arms ran/, err)
+  end
+
+  def test_a_stopped_check_does_not_wait_on_an_arm_that_ignores_the_signal
+    stopped_check(STUB_IGNORES_TERM: '1') do |arms|
+      Timeout.timeout(5) { sleep 0.05 while arms.any? { |pid| alive?(pid) } }
+    end
+
+    assert_empty scratch_leftovers
+  end
+
+  def test_removes_its_scratch_directory_when_nothing_reads_its_report
+    reader, writer = IO.pipe
+    reader.close
+    script = Process.spawn(check_env(STUB_LEAVES: '1'), 'bash', SCRIPT, out: File::NULL, err: writer)
+    writer.close
+    Timeout.timeout(20) { Process.wait(script) }
+
+    assert_empty scratch_leftovers
+    assert_empty session_folders
+  end
+
+  # The arms run in <TMPDIR>/check-arm-isolation.XXXXXX/arm, 31
+  # characters past TMPDIR.
+  def tmpdir_giving_a_name_of(length)
+    padding = length - 31 - @tmp.length - 1
+    assert_operator padding, :>, 0, "#{@tmp} is too long a path for this test"
+    File.join(@tmp, 'a' * padding).tap { |dir| FileUtils.mkdir_p(dir) }
+  end
+
+  def test_looks_for_a_folder_whose_name_is_199_characters
+    _out, err, status = check(TMPDIR: tmpdir_giving_a_name_of(199), STUB_LEAVES: '1')
+
+    assert_equal 3, status.exitstatus, err
+    assert_equal 199, folder_name(calls.first['cwd']).length
+    assert_empty session_folders
+  end
+
+  def test_does_not_look_for_a_folder_whose_name_is_200_characters
+    out, err, status = check(TMPDIR: tmpdir_giving_a_name_of(200), STUB_LEAVES: '1')
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_equal 200, folder_name(calls.first['cwd']).length
+    assert_match(/not checked for a session-history folder.*200 characters/, out)
+    assert_equal 1, session_folders.length
+  end
+
+  def test_does_not_look_for_a_folder_when_the_scratch_directory_is_in_a_git_repository
+    repository = File.join(@tmp, 'repository')
+    FileUtils.mkdir_p(repository)
+    system('git', 'init', '-q', repository, exception: true)
+
+    out, err, status = check(TMPDIR: repository, STUB_LEAVES: '1')
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_match(/not checked for a session-history folder.*git repository/, out)
+    assert_equal 1, session_folders.length
+  end
+
+  def test_names_the_folder_the_way_claude_code_does
+    odd = File.join(@tmp, 'my_dir v1.2')
+    FileUtils.mkdir_p(odd)
+
+    _out, err, status = check(TMPDIR: odd, STUB_LEAVES: '1')
+
+    assert_equal 3, status.exitstatus, err
+    assert_match(%r{/projects/\S*-my-dir-v1-2-check-arm-isolation-\w+-arm\b}, err)
+  end
+
+  def test_removes_the_folder_its_arm_left_and_no_other
+    ledger = '-Users-dana-dev-ledger'
+    shares_the_start = "#{folder_name(@tmp)}-check-arm-isolation-"
+    [ledger, shares_the_start].each { |name| FileUtils.mkdir_p(File.join(@tmp, 'projects', name)) }
+
+    _out, err, status = check(STUB_LEAVES: '1', STUB_SIBLING: '1')
+
+    assert_equal 3, status.exitstatus, err
+    goes_on_from_it = session_folders.grep(/-arm-worktrees\z/)
+    assert_equal 1, goes_on_from_it.length
+    assert_equal ([ledger, shares_the_start] + goes_on_from_it).sort, session_folders
+  end
+
+  def test_keeps_the_projects_directory_when_sed_fails
+    FileUtils.mkdir_p(File.join(@tmp, 'projects', '-Users-dana-dev-ledger'))
+    File.write(File.join(@tmp, 'sed'), <<~SH)
+      #!/bin/sh
+      case "$1" in "s/[^A-Za-z0-9]/-/g") exit 1 ;; esac
+      exec /usr/bin/sed "$@"
+    SH
+    File.chmod(0o755, File.join(@tmp, 'sed'))
+
+    out, err, status = check(STUB_LEAVES: '1')
+
+    assert_equal 3, status.exitstatus, out + err
+    assert_equal ['-Users-dana-dev-ledger'], session_folders
+  end
+
+  def test_a_pass_nothing_reads_is_still_a_pass
+    odd = File.join(@tmp, "caf\u00e9")
+    FileUtils.mkdir_p(odd)
+    reader, writer = IO.pipe
+    reader.close
+    script = Process.spawn(check_env(TMPDIR: odd), 'bash', SCRIPT, out: writer, err: File::NULL)
+    writer.close
+    _, status = Timeout.timeout(20) { Process.wait2(script) }
+
+    assert_equal 0, status.exitstatus
+  end
+
+  def test_leaves_a_project_named_arm_alone_when_no_arm_started
+    FileUtils.mkdir_p(File.join(@tmp, 'projects', '-arm'))
+
+    _out, err, status = check(TMPDIR: File.join(@tmp, 'missing'))
+
+    assert_equal 2, status.exitstatus, err
+    assert_equal ['-arm'], session_folders
+  end
+
+  def test_says_so_when_the_folder_cannot_be_removed
+    _out, err, status = check(STUB_LEAVES: 'locked')
+
+    assert_equal 3, status.exitstatus, err
+    assert_match(/could not be removed/, err)
+    refute_match(/The folder is removed/, err)
+    assert_equal 1, session_folders.length
+  ensure
+    File.chmod(0o755, File.join(@tmp, 'projects')) if Dir.exist?(File.join(@tmp, 'projects'))
+  end
+
+  def test_finds_the_folder_in_the_default_config_directory
+    _out, err, status = check(CLAUDE_CONFIG_DIR: nil, STUB_LEAVES: '1')
+
+    assert_equal 3, status.exitstatus, err
+    assert_includes err, '/.claude/projects/'
+    assert_empty session_folders(File.join(@tmp, '.claude'))
+  end
+
+  def test_gives_the_arms_a_relative_config_directory_as_an_absolute_path
+    _out, err, status = Dir.chdir(@tmp) { check(CLAUDE_CONFIG_DIR: 'elsewhere', STUB_LEAVES: '1') }
+
+    assert_equal 3, status.exitstatus, err
+    assert_equal [File.join(@tmp, 'elsewhere')], calls.map { |call| call['config'] }.uniq
+    assert_empty session_folders(File.join(@tmp, 'elsewhere'))
+  end
+
+  def test_a_leak_is_still_the_verdict_when_a_folder_was_left_too
+    _out, err, status = check(flagged: [['User', USER_FILE], ['Project', PROJECT_FILE]], STUB_LEAVES: '1')
+
+    assert_equal 1, status.exitstatus, err
+    assert_match(/does not isolate/, err)
+    assert_match(/left a session-history folder/, err)
+    assert_empty session_folders
+  end
+
+  def test_cannot_tell_is_still_the_verdict_when_a_folder_was_left_too
+    _out, err, status = check(plain: [['Project', PROJECT_FILE]], STUB_LEAVES: '1')
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/cannot tell: no user-level instruction file/, err)
+    assert_match(/left a session-history folder/, err)
+    assert_empty session_folders
+  end
+
+  def test_reports_and_removes_the_folder_when_an_arm_failed
+    _out, err, status = check(STUB_LEAVES: '1', STUB_FLAGGED_EXIT: '1')
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/left a session-history folder/, err)
+    assert_empty session_folders
+  end
+
+  def test_reports_and_removes_the_folder_when_a_park_lock_appeared
+    _out, err, status = check(STUB_LEAVES: '1', STUB_PARK: File.join(@tmp, 'CLAUDE.md.park-lock'))
+
+    assert_equal 2, status.exitstatus, err
+    assert_match(/appeared while the check ran/, err)
+    assert_match(/left a session-history folder/, err)
+    assert_empty session_folders
+  end
+
+  def test_does_not_look_for_a_folder_whose_name_would_be_cut
+    long = File.join(@tmp, 'a' * 120, 'b' * 120)
+    FileUtils.mkdir_p(long)
+    earlier = "#{folder_name(long)[0, 200]}-earlier"
+    FileUtils.mkdir_p(File.join(@tmp, 'projects', earlier))
+
+    out, err, status = check(TMPDIR: long, STUB_LEAVES: 'cut')
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_match(/isolates an arm/, out)
+    assert_match(/not checked for a session-history folder.*200 characters/, out)
+    assert_equal 2, session_folders.length
+    assert_includes session_folders, earlier
+  end
+
+  def test_does_not_look_for_a_folder_when_the_scratch_path_is_not_ascii
+    odd = File.join(@tmp, "café")
+    FileUtils.mkdir_p(odd)
+
+    out, err, status = check(TMPDIR: odd, STUB_LEAVES: '1')
+
+    assert_equal 0, status.exitstatus, out + err
+    assert_match(/isolates an arm/, out)
+    assert_match(/not checked for a session-history folder.*outside ASCII/, out)
+    assert_equal 1, session_folders.length
+  end
+
+  def test_says_nothing_of_folders_when_none_was_left
+    FileUtils.mkdir_p(File.join(@tmp, 'projects', '-Users-dana-dev-ledger'))
+
+    out, err, status = check
+
+    assert_equal 0, status.exitstatus, out + err
+    refute_match(/session-history folder/, out + err)
+    assert_equal ['-Users-dana-dev-ledger'], session_folders
   end
 
   # --- usage and messages ---
