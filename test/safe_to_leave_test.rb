@@ -392,6 +392,17 @@ class LeaveArgumentTest < LeaveCliTestCase
     end
   end
 
+  def test_a_timeout_that_is_no_positive_number_is_refused
+    in_empty_directory do |dir|
+      zero = run_report(['-C', dir, '--remote-timeout', '0'])
+      word = run_report(['-C', dir, '--remote-timeout', 'soon'])
+
+      assert_equal [2, 2], [zero.status, word.status]
+      assert_match(/--remote-timeout/, zero.stderr)
+      assert_match(/--remote-timeout/, word.stderr)
+    end
+  end
+
   def test_an_abbreviated_flag_is_refused
     in_empty_directory do |dir|
       result = run_report(['-C', dir, '--story', 'abc-12-'])
@@ -1078,6 +1089,21 @@ class LeaveReportTest < LeaveCliTestCase
       assert_equal 1, result.status, result.stdout + result.stderr
       assert_equal %w[working-tree in-progress unpushed stashes worktrees], result.statuses.keys
       assert_includes result.line_for('unpushed'), 'no such remote: café (configured: origin)'
+    end
+  end
+
+  # A remote that accepts the connection and says nothing would hold an
+  # unattended session for as long as it liked.
+  def test_a_remote_that_does_not_answer_leaves_unpushed_unchecked
+    with_repo do |repo|
+      repo.git('config', 'remote.origin.uploadpack', 'sleep 30 #')
+      started = Time.now
+      result = report(repo, '--remote-timeout', '1')
+
+      assert_operator Time.now - started, :<, 15
+      assert_equal ['UNCHECKED'], result.statuses['unpushed']
+      assert_includes result.line_for('unpushed'), 'origin did not answer within 1s'
+      assert_equal ['ok'], result.statuses['working-tree']
     end
   end
 

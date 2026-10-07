@@ -44,9 +44,11 @@ module SafeToLeave
   Error = Class.new(StandardError)
 
   DEFAULT_REMOTE = 'origin'
+  DEFAULT_REMOTE_TIMEOUT = 30
 
   USAGE = <<~TXT
-    Usage: safe-to-leave [-C DIR] [--remote NAME] [--story-branch PREFIX]...
+    Usage: safe-to-leave [-C DIR] [--remote NAME] [--remote-timeout SECONDS]
+                         [--story-branch PREFIX]...
 
     Reports what is left behind in a repository, in one or more lines
     per check. Nothing is changed. Each line of a check starts with one
@@ -61,6 +63,9 @@ module SafeToLeave
                       directory)
       --remote NAME   the remote unpushed commits are measured against
                       (default: #{DEFAULT_REMOTE})
+      --remote-timeout SECONDS
+                      how long the remote is given to answer (default:
+                      #{DEFAULT_REMOTE_TIMEOUT})
       --story-branch PREFIX
                       a branch-name prefix that marks the finished story's
                       branches, such as "abc-123-". Repeat it for a story
@@ -86,7 +91,7 @@ module SafeToLeave
     since moved or deleted is not measured against, and its commits
     count as unpushed. When that branch is the default one, the unpushed
     check is UNCHECKED until you fetch. When the remote cannot be
-    reached, the unpushed check is UNCHECKED, and so are the commits of
+    reached or does not answer in time, the unpushed check is UNCHECKED, and so are the commits of
     a worktree with a detached HEAD. Everything else is still reported.
 
     The worktrees check needs git 2.36 or newer.
@@ -310,9 +315,10 @@ module SafeToLeave
     # followed by the path it was renamed or copied from.
     TWO_PATH_STATUS = /\A.?[RC]/
 
-    def initialize(dir:, remote:)
+    def initialize(dir:, remote:, remote_timeout:)
       @dir = dir
       @remote = remote
+      @remote_timeout = remote_timeout
     end
 
     def toplevel
@@ -472,14 +478,35 @@ module SafeToLeave
     # where each of its branches is.
     def ask_remote
       require_configured_remote
-      answer = output('ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*')
-               .lines(chomp: true).map { |line| line.split("\t", 2) }
+      answer = remote_answer.lines(chomp: true).map { |line| line.split("\t", 2) }
       default = answer.find { |value, ref| ref == 'HEAD' && value.start_with?('ref: refs/heads/') }
       raise Error, "#{@remote} names no default branch" if default.nil?
 
       heads = answer.select { |_commit, ref| ref.to_s.start_with?('refs/heads/') }
                     .to_h { |commit, ref| [ref.delete_prefix('refs/heads/'), commit] }
       Advertised.new(default.first.delete_prefix('ref: refs/heads/'), heads)
+    end
+
+    # `ls-remote`, given `@remote_timeout` seconds. A remote that takes
+    # the connection and never answers would otherwise hold the report,
+    # and the session running it, for as long as it liked. git runs in a
+    # process group of its own so that the transport it started is
+    # stopped with it.
+    def remote_answer
+      command = ['git', '-C', @dir, 'ls-remote', '--symref', @remote, 'HEAD', 'refs/heads/*']
+      Open3.popen3(CHILD_ENV, *command, pgroup: true) do |stdin, stdout, stderr, child|
+        stdin.close
+        readers = [stdout, stderr].map { |stream| Thread.new { stream.read } }
+        if child.join(@remote_timeout).nil?
+          Process.kill('KILL', -child.pid)
+          raise Error, "#{@remote} did not answer within #{@remote_timeout}s"
+        end
+        raise Error, "git ls-remote failed: #{complaint(SafeToLeave.utf8(readers.last.value))}" unless child.value.success?
+
+        SafeToLeave.utf8(readers.first.value)
+      end
+    rescue Errno::ENOENT, Errno::EACCES => e
+      raise Error, "could not run git: #{e.message}"
     end
 
     # git takes a URL or a path where a remote's name is expected, and
@@ -543,7 +570,7 @@ module SafeToLeave
     end
 
     def read_worktree(path, branch)
-      there = Git.new(dir: path, remote: @remote)
+      there = Git.new(dir: path, remote: @remote, remote_timeout: @remote_timeout)
       there.require_worktree_root
       measure_worktree(there, path, branch, there.status_entries.length)
     rescue Error => e
@@ -628,7 +655,7 @@ module SafeToLeave
       options = parse(argv.map { |argument| SafeToLeave.utf8(argument) })
       return puts(USAGE) if options[:help]
 
-      git = Git.new(dir: options[:dir], remote: options[:remote])
+      git = Git.new(dir: options[:dir], remote: options[:remote], remote_timeout: options[:remote_timeout])
       here = git.toplevel
       lines = Report.new(git: git, here: here, prefixes: options[:prefixes]).lines
       print_report(here, lines)
@@ -654,7 +681,7 @@ module SafeToLeave
         raise Error, "unexpected extra arguments: #{stray.map(&:inspect).join(', ')}"
       end
 
-      { dir: SafeToLeave.utf8(Dir.pwd), remote: DEFAULT_REMOTE }.merge(options)
+      { dir: SafeToLeave.utf8(Dir.pwd), remote: DEFAULT_REMOTE, remote_timeout: DEFAULT_REMOTE_TIMEOUT }.merge(options)
     rescue OptionParser::ParseError => e
       raise Error, e.message
     end
@@ -673,6 +700,11 @@ module SafeToLeave
         o.require_exact = true
         o.on('-C DIR', VALUE_NOT_FLAG) { |dir| set_once(options, :dir, '-C', dir) }
         o.on('--remote NAME', VALUE_NOT_FLAG) { |name| set_once(options, :remote, '--remote', name) }
+        o.on('--remote-timeout SECONDS', Integer) do |seconds|
+          raise Error, 'invalid argument: --remote-timeout takes a number of seconds above 0' unless seconds.positive?
+
+          set_once(options, :remote_timeout, '--remote-timeout', seconds)
+        end
         o.on('--story-branch PREFIX', VALUE_NOT_FLAG) { |prefix| options[:prefixes] << prefix }
         o.on('-h', '--help') { options[:help] = true }
         # OptionParser answers --version itself, by exiting 1. The
