@@ -22,6 +22,22 @@ require 'tmpdir'
 CLI_PATH = File.expand_path('../bin/safe-to-leave', __dir__)
 load CLI_PATH
 
+# Loaded for the test that the two commands' copied lists agree.
+load File.expand_path('../bin/stale-branches', __dir__)
+
+# bin/safe-to-leave and bin/stale-branches are single files that share
+# no code, and each carries its own copy of two lists. A variable added
+# to one has to reach the other.
+class SiblingCommandTest < Minitest::Test
+  def test_both_commands_unset_the_same_git_location_variables
+    assert_equal StaleBranches::REDIRECTING_ENV_KEYS, SafeToLeave::Git::LOCATION_ENV_KEYS
+  end
+
+  def test_both_commands_refuse_a_flag_where_a_value_belongs_by_the_same_pattern
+    assert_equal StaleBranches::VALUE_NOT_FLAG, SafeToLeave::CLI::VALUE_NOT_FLAG
+  end
+end
+
 class WorkingTreeDecisionTest < Minitest::Test
   def test_no_entries_is_one_clean_line
     lines = SafeToLeave::Checks.working_tree([])

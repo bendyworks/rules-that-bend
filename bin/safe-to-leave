@@ -502,7 +502,8 @@ module SafeToLeave
           Process.kill('KILL', -child.pid)
           raise Error, "#{@remote} did not answer within #{@remote_timeout}s"
         end
-        raise Error, "git ls-remote failed: #{complaint(SafeToLeave.utf8(readers.last.value))}" unless child.value.success?
+        complaint = complaint(SafeToLeave.utf8(readers.last.value))
+        raise Error, "git ls-remote failed: #{complaint}" unless child.value.success?
 
         SafeToLeave.utf8(readers.first.value)
       end
