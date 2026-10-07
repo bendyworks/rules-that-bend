@@ -1,0 +1,46 @@
+# The GitHub CLI commands this project names: the ones its tools run and
+# the ones its skills and guidance give a session, one per line. A
+# `gh`-compatible tool for another host would have to answer them, and
+# it would run with the user's credentials, so it has to be one the
+# team trusts. CONTRIBUTING.md ("GitHub is required") says why the list
+# exists. test/gh_calls_test.rb compares it in both directions with the
+# commands named under skills/, guidance/, and bin/, and with the calls
+# each tool declares, so add a line when a change names a new command
+# and remove one when the last use goes.
+#
+# `gh api` takes a path, listed by its first segment. The `gh stack`
+# commands come from the github/gh-stack extension.
+gh api graphql
+gh api repos
+gh api user
+gh api users
+gh issue close
+gh issue comment
+gh issue create
+gh issue develop
+gh issue edit
+gh issue list
+gh issue view
+gh label create
+gh label list
+gh pr checkout
+gh pr checks
+gh pr create
+gh pr edit
+gh pr list
+gh pr merge
+gh pr ready
+gh pr view
+gh repo set-default
+gh repo view
+gh run list
+gh run view
+gh stack checkout
+gh stack init
+gh stack link
+gh stack merge
+gh stack push
+gh stack rebase
+gh stack submit
+gh stack sync
+gh stack view
