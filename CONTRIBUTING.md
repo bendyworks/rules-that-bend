@@ -391,6 +391,18 @@ from the tool's call log. A session that offers the forbidden action as
 a choice, then takes it on the go-ahead, fails in a way the first turn
 does not show.
 
+**When a passage has taken three rounds of patches, write it again from
+the cases it has to cover.** One section of a skill was patched four
+times in a story. Each patch closed the gap a review had found, and the
+review of each patch found a new one where two sentences could be read
+against each other: a fixed summary line beside a deletion the user may
+order, an exception that closed the only command safe to run. A patch
+adds a sentence that every other sentence in the passage then has to
+agree with. Past the second round, list the situations the passage must
+answer (here: before the user says anything, the user names branches,
+the user names a flag) and write one answer for each. The rewritten
+section passed its arms on the two larger models.
+
 **A short headless session may not produce what a long real one does.**
 Rules against rhetorical habits measured in months of commit history
 could not be tested the usual way: on the unfixed text the control
