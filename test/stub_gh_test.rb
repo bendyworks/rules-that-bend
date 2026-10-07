@@ -332,10 +332,10 @@ class StubGhTest < Minitest::Test
   CLOSED_ISSUE = { 'number' => 13, 'state' => 'CLOSED', 'title' => 'Done already',
                    'body' => 'Follows #12.' }.freeze
 
-  def issue_env(extra = {})
+  def issue_env
     path = File.join(@dir, 'issues.json')
     File.write(path, JSON.generate('@cwd' => [STORY_ISSUE, CLOSED_ISSUE], REPO => []))
-    { 'STUB_GH_ISSUES' => path }.merge(extra)
+    { 'STUB_GH_ISSUES' => path }
   end
 
   def test_an_issue_listing_answers_with_the_open_issues_by_default
@@ -346,7 +346,13 @@ class StubGhTest < Minitest::Test
                  result.json
   end
 
-  def test_an_issue_listing_honours_state_and_limit
+  def test_an_issue_listing_of_every_state_includes_the_closed_issue
+    result = run_stub('issue', 'list', '--json', 'number', '--state', 'all', env: issue_env)
+
+    assert_equal [{ 'number' => 12 }, { 'number' => 13 }], result.json
+  end
+
+  def test_an_issue_listing_honours_its_limit
     result = run_stub('issue', 'list', '--json', 'number', '--state', 'all', '--limit', '1', env: issue_env)
 
     assert_equal [{ 'number' => 12 }], result.json
@@ -372,18 +378,17 @@ class StubGhTest < Minitest::Test
 
   # Workflow runs, and the earlier attempts of one, which `run list`
   # does not show: it reports a rerun run by its latest attempt alone.
-  EARLY_RUN = { 'databaseId' => 500, 'workflowName' => 'checks', 'status' => 'completed',
-                'conclusion' => 'success', 'attempt' => 1, 'createdAt' => '2027-03-01T10:00:00Z' }.freeze
-  LATE_RUN = { 'databaseId' => 501, 'workflowName' => 'checks', 'status' => 'completed',
-               'conclusion' => 'success', 'attempt' => 2, 'createdAt' => '2027-03-01T12:00:00Z' }.freeze
-  ATTEMPT_PATH = 'repos/{owner}/{repo}/actions/runs/501/attempts/1'
+  EARLY_RUN = { 'databaseId' => 500, 'attempt' => 1, 'event' => 'push', 'headBranch' => 'main',
+                'createdAt' => '2027-03-01T10:00:00Z' }.freeze
+  LATE_RUN = { 'databaseId' => 501, 'attempt' => 2, 'event' => 'pull_request', 'headBranch' => 'other-work',
+               'createdAt' => '2027-03-01T12:00:00Z' }.freeze
 
-  def run_env(extra = {})
+  def run_env
     runs = File.join(@dir, 'runs.json')
     File.write(runs, JSON.generate('@cwd' => [LATE_RUN, EARLY_RUN]))
-    api = File.join(@dir, 'api.json')
-    File.write(api, JSON.generate(ATTEMPT_PATH => { 'conclusion' => 'failure', 'run_attempt' => 1 }))
-    { 'STUB_GH_RUNS' => runs, 'STUB_GH_API' => api }.merge(extra)
+    attempts = File.join(@dir, 'attempts.json')
+    File.write(attempts, JSON.generate('@cwd' => { '501' => { '1' => { 'conclusion' => 'failure' } } }))
+    { 'STUB_GH_RUNS' => runs, 'STUB_GH_ATTEMPTS' => attempts }
   end
 
   def test_a_run_listing_answers_with_every_run_when_no_time_is_given
@@ -420,22 +425,48 @@ class StubGhTest < Minitest::Test
     assert_match(/unserved flag for run list: --state/, result.refusals.join("\n"))
   end
 
-  def test_an_api_path_the_data_describes_is_answered_with_its_object
-    result = run_stub('api', ATTEMPT_PATH, env: run_env)
+  def test_a_run_listing_for_one_event_leaves_out_the_others
+    result = run_stub('run', 'list', '--json', 'databaseId', '--event', 'push', env: run_env)
+
+    assert_equal [{ 'databaseId' => 500 }], result.json
+  end
+
+  def test_a_run_listing_for_one_branch_leaves_out_the_others
+    result = run_stub('run', 'list', '--json', 'databaseId', '--branch', 'other-work', env: run_env)
+
+    assert_equal [{ 'databaseId' => 501 }], result.json
+  end
+
+  def test_one_attempt_of_a_run_is_answered_with_its_record
+    result = run_stub('run', 'view', '501', '--attempt', '1', '--json', 'conclusion', env: run_env)
 
     assert result.ok?, result.stderr
-    assert_equal({ 'conclusion' => 'failure', 'run_attempt' => 1 }, result.json)
+    assert_equal({ 'conclusion' => 'failure' }, result.json)
   end
 
-  def test_an_api_path_the_data_does_not_describe_is_refused
-    result = refusal_case('api', 'repos/{owner}/{repo}/actions/runs/999/attempts/1', env: run_env)
+  def test_an_attempt_the_data_does_not_describe_is_refused
+    result = refusal_case('run', 'view', '999', '--attempt', '1', '--json', 'conclusion', env: run_env)
 
-    assert_match(/no api data for/, result.refusals.join("\n"))
+    assert_match(/no data for run 999, attempt 1/, result.refusals.join("\n"))
   end
 
-  def test_an_api_call_with_a_flag_is_refused
-    result = refusal_case('api', ATTEMPT_PATH, '--method', 'DELETE', env: run_env)
+  # Without --attempt the real client answers for the latest attempt,
+  # which the listing already gave.
+  def test_a_run_view_naming_no_attempt_is_refused
+    result = refusal_case('run', 'view', '501', '--json', 'conclusion', env: run_env)
 
-    assert_match(/unserved api arguments/, result.refusals.join("\n"))
+    assert_match(/run view without --attempt/, result.refusals.join("\n"))
+  end
+
+  def test_a_run_view_naming_no_run_is_refused
+    result = refusal_case('run', 'view', '--attempt', '1', '--json', 'conclusion', env: run_env)
+
+    assert_match(/run view without a run id/, result.refusals.join("\n"))
+  end
+
+  def test_an_api_call_is_refused
+    result = refusal_case('api', 'repos/{owner}/{repo}', env: run_env)
+
+    assert_match(/unserved command: api/, result.refusals.join("\n"))
   end
 end

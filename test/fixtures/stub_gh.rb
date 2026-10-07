@@ -2,8 +2,8 @@
 # frozen_string_literal: true
 
 # Stand-in for the GitHub CLI, serving canned pull-request data to the
-# sweep's forge tests, and canned pull-request and issue data to the
-# safe-to-leave tests. Installed onto PATH under the name `gh` by
+# sweep's forge tests, and canned pull requests, issues, workflow runs,
+# and single attempts of a run to the safe-to-leave tests. Installed onto PATH under the name `gh` by
 # CliTestCase's serving-stub seam, which also names the two logs it
 # reports through.
 #
@@ -22,7 +22,8 @@
 #   --state defaults to open, so a sweep that forgets --state all sees
 #   no merged pull request at all and keeps everything.
 #
-#   --limit defaults to 30 and truncates in silence.
+#   --limit defaults to 30, or 20 for `run list`, and truncates in
+#   silence.
 #
 #   A query that matches nothing is an empty array and exit 0. A
 #   failure is a message on stderr and exit 1 -- the shape the sweep
@@ -48,6 +49,10 @@
 require 'json'
 require 'time'
 
+# The real client is not a Ruby program: it reads and writes UTF-8
+# whatever the locale, and a caller may run it under LC_ALL=C.
+Encoding.default_external = Encoding::UTF_8
+
 module StubGh
   # Every variable this stub reads, named once. A suite that scrubs and
   # resets these one at a time misses the next one added -- and a switch
@@ -55,13 +60,14 @@ module StubGh
   # it are graded against a forge that is quietly broken. The test base
   # derives its scrub list from this, and a guard test checks this list
   # against the source below.
-  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_RUNS STUB_GH_API STUB_GH_FAIL
-                STUB_GH_FAIL_AFTER STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH].freeze
+  ENV_KEYS = %w[STUB_GH_PRS STUB_GH_ISSUES STUB_GH_RUNS STUB_GH_ATTEMPTS STUB_GH_FAIL
+                STUB_GH_FAIL_AFTER STUB_GH_GARBAGE STUB_GH_SHAPE STUB_GH_MISMATCH STUB_GH_HANG].freeze
 
   # gh's own defaults, reproduced because a sweep that omits either
   # flag must see what it would really see.
   DEFAULT_STATE = 'open'
   DEFAULT_LIMIT = 30
+  RUN_DEFAULT_LIMIT = 20
 
   module_function
 
@@ -74,9 +80,14 @@ module StubGh
   # stops.
   REDIRECTING_ENV_KEYS = %w[GH_REPO CLICOLOR_FORCE GH_FORCE_TTY].freeze
 
+  # Variables that make a real gh write a trace of its requests to
+  # stderr, which a caller quoting stderr would print.
+  TRACING_ENV_KEYS = %w[GH_DEBUG DEBUG].freeze
+
   def main(argv)
     log_invocation(argv)
     refuse_redirecting_environment
+    hang_as_configured
     fail_after_as_configured
     fail_as_configured
     garble_as_configured
@@ -84,13 +95,11 @@ module StubGh
     command = argv.take(2).join(' ')
     rest = argv.drop(2)
     case command
-    when 'pr list' then list_pull_requests(parse(rest))
+    when 'pr list' then list_pull_requests(parse(rest, refused: RUN_ONLY_FLAGS, command: command))
     when 'issue list' then list_issues(parse(rest, refused: ISSUE_REFUSED_FLAGS, command: command))
-    when 'run list' then list_runs(parse(rest, refused: RUN_REFUSED_FLAGS, command: command))
-    else
-      return answer_api(argv.drop(1)) if argv.first == 'api'
-
-      refuse("unserved command: #{command.empty? ? '(none)' : command}")
+    when 'run list' then list_runs(parse(rest, refused: RUN_LIST_REFUSED_FLAGS, command: command))
+    when 'run view' then view_run(rest)
+    else refuse("unserved command: #{command.empty? ? '(none)' : command}")
     end
   end
 
@@ -112,9 +121,15 @@ module StubGh
 
   def refuse_redirecting_environment
     leaked = REDIRECTING_ENV_KEYS.select { |key| ENV[key] }
-    return if leaked.empty?
+    refuse("#{leaked.join(', ')} reached me; a real gh would answer somewhere else") unless leaked.empty?
 
-    refuse("#{leaked.join(', ')} reached me; a real gh would answer somewhere else")
+    tracing = TRACING_ENV_KEYS.select { |key| ENV[key] }
+    refuse("#{tracing.join(', ')} reached me; a real gh would trace its requests on stderr") unless tracing.empty?
+  end
+
+  # A host that takes the connection and never answers.
+  def hang_as_configured
+    sleep 60 if ENV['STUB_GH_HANG'] == '1'
   end
 
   # The unauthenticated / offline / not-a-GitHub-remote case. It is a
@@ -123,7 +138,7 @@ module StubGh
   # missing a stub.
   # STUB_GH_FAIL=1 fails with a message; =2 fails saying nothing at all,
   # which a caller quoting gh's stderr has to have something to say
-  # about.
+  # about; =3 follows the message with a line of advice, as gh does.
   # Answers normally for the first N calls and fails from then on: the
   # rate limit reached mid-sweep, the network dropping between branches.
   # Counted from the log this already writes, which is one line per
@@ -139,9 +154,10 @@ module StubGh
 
   def fail_as_configured
     mode = ENV.fetch('STUB_GH_FAIL', nil)
-    return unless %w[1 2].include?(mode)
+    return unless %w[1 2 3].include?(mode)
 
-    warn 'error connecting to api.github.com' if mode == '1'
+    warn 'error connecting to api.github.com' unless mode == '2'
+    warn 'check your internet connection or https://githubstatus.com' if mode == '3'
     exit 1
   end
 
@@ -199,15 +215,24 @@ module StubGh
     '--state' => :state,
     '--limit' => :limit,
     '--json' => :json,
-    '--created' => :created
+    '--created' => :created,
+    '--event' => :event,
+    '--branch' => :branch,
+    '--attempt' => :attempt
   }.freeze
+
+  # Flags only a run command takes.
+  RUN_ONLY_FLAGS = %w[--event --branch --attempt].freeze
 
   # Flags `gh issue list` does not take. The real client rejects them,
   # so a caller that sent one would be answered by nothing.
-  ISSUE_REFUSED_FLAGS = %w[--head -H --created].freeze
+  ISSUE_REFUSED_FLAGS = (%w[--head -H --created] + RUN_ONLY_FLAGS).freeze
 
   # `gh run list` filters on --status, and has no --state or --head.
-  RUN_REFUSED_FLAGS = %w[--head -H --state].freeze
+  RUN_LIST_REFUSED_FLAGS = %w[--head -H --state --attempt].freeze
+
+  # `gh run view` names one run and takes none of the listing filters.
+  RUN_VIEW_REFUSED_FLAGS = %w[--head -H --state --limit --created --event --branch].freeze
 
   def parse(argv, refused: [], command: nil)
     options = { state: DEFAULT_STATE, limit: DEFAULT_LIMIT }
@@ -224,11 +249,6 @@ module StubGh
     options
   end
 
-  # A record about a branch nobody asked about, served alongside the
-  # real ones. gh honours --head, so this stub does too -- which means
-  # a caller's own filter has nothing to discard and a test of it would
-  # assert a property the stub guarantees. This switch is how that
-  # filter gets a subject.
   # A record about a branch nobody asked about. gh honours --head, so
   # this stub does too -- which leaves a caller's own filter nothing to
   # discard, and a test of that filter asserting a property the stub
@@ -259,19 +279,20 @@ module StubGh
     puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields, 'issue') })
   end
 
-  # The sweep reads JSON, so a run without --json would hand it gh's
-  # human table. Refused rather than served, because the sweep parsing
-  # that table is a bug no verdict would reveal.
-  # Runs are served newest first, as the real client lists them, and
-  # are not filtered by state: a run has a status and a conclusion, and
-  # `run list` shows every one unless asked otherwise.
+  # Runs are served in the data file's order, which a fixture writes
+  # newest first as the real client lists them. They are not filtered
+  # by state: a run has a status and a conclusion, and `run list` shows
+  # every one unless asked otherwise.
   def list_runs(options)
     fields = requested_fields(options, 'run list')
     since = created_since(options[:created])
     matched = records_for(options[:repo], 'STUB_GH_RUNS').select do |record|
-      since.nil? || Time.iso8601(record.fetch('createdAt')) >= since
+      (since.nil? || Time.iso8601(record.fetch('createdAt')) >= since) &&
+        (options[:event].nil? || record.fetch('event') == options[:event]) &&
+        (options[:branch].nil? || record.fetch('headBranch') == options[:branch])
     end
-    puts JSON.generate(matched.first(limit_of(options)).map { |record| project(record, fields, 'run') })
+    limit = options[:limit] == DEFAULT_LIMIT ? RUN_DEFAULT_LIMIT : limit_of(options)
+    puts JSON.generate(matched.first(limit).map { |record| project(record, fields, 'run') })
   end
 
   # The one --created form the callers send. The real client takes
@@ -286,21 +307,28 @@ module StubGh
     Time.iso8601(stamp)
   end
 
-  # A GET of one path, answered with the object the data file holds for
-  # it. Any flag is refused: `gh api` can write, and nothing that drives
-  # this stub has a reason to.
-  def answer_api(argv)
-    refuse("unserved api arguments: #{argv.join(' ')}") unless argv.length == 1 && !argv.first.start_with?('-')
+  # One attempt of one run, from a data file of its own that maps a
+  # run's id to its attempts by number. Without --attempt the real
+  # client answers for the latest attempt, which a caller reading
+  # earlier ones has no reason to ask for.
+  def view_run(argv)
+    id = argv.shift
+    refuse('run view without a run id') unless id.to_s.match?(/\A\d+\z/)
 
-    path = ENV.fetch('STUB_GH_API', nil)
-    refuse('STUB_GH_API is unset; there is no data to serve') if path.nil? || !File.exist?(path)
+    options = parse(argv, refused: RUN_VIEW_REFUSED_FLAGS, command: 'run view')
+    fields = requested_fields(options, 'run view')
+    refuse('run view without --attempt') if options[:attempt].nil?
 
-    data = JSON.parse(File.read(path))
-    refuse("no api data for #{argv.first}; served paths are #{data.keys.join(', ')}") unless data.key?(argv.first)
+    record = records_for(options[:repo], 'STUB_GH_ATTEMPTS').dig(id, options[:attempt])
+    refuse("no data for run #{id}, attempt #{options[:attempt]}") if record.nil?
+    return puts(JSON.generate(record)) unless record.is_a?(Hash)
 
-    puts JSON.generate(data.fetch(argv.first))
+    puts JSON.generate(project(record, fields, 'run attempt'))
   end
 
+  # The sweep reads JSON, so a listing without --json would hand it
+  # gh's human table. Refused rather than served, because the sweep
+  # parsing that table is a bug no verdict would reveal.
   def requested_fields(options, command = 'pr list')
     raw = options[:json]
     refuse("#{command} without --json") if raw.nil?
