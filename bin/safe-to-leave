@@ -344,7 +344,8 @@ module SafeToLeave
     # itself, where the default form quotes and escapes it. The two
     # settings are passed because configuration can turn either off:
     # status.showUntrackedFiles hides untracked files, and
-    # diff.ignoreSubmodules hides a changed submodule.
+    # diff.ignoreSubmodules hides a changed submodule. Files status is
+    # told to skip are compared with the index separately.
     def status_entries
       tokens = output('status', '--porcelain=v1', '-z', '--untracked-files=normal',
                       '--ignore-submodules=none').split("\0")
@@ -354,7 +355,7 @@ module SafeToLeave
         tokens.shift if token.match?(TWO_PATH_STATUS)
         entries << token[3..]
       end
-      entries
+      entries + hidden_changes
     end
 
     # What was started in this working tree and not finished. A rebase
@@ -507,6 +508,30 @@ module SafeToLeave
       end
     rescue Errno::ENOENT, Errno::EACCES => e
       raise Error, "could not run git: #{e.message}"
+    end
+
+    # The tracked files `git status` is told not to look at, by the
+    # skip-worktree or assume-unchanged mark, whose contents are not
+    # what the index holds. `ls-files -v` tags the first with S and the
+    # second with a lowercase letter.
+    def hidden_changes
+      marked = output('ls-files', '-v', '-z').split("\0").filter_map do |entry|
+        entry[2..] if entry.match?(/\A(?:S|[a-z]) /)
+      end
+      return [] if marked.empty?
+
+      indexed = output('ls-files', '-s', '-z', '--', *marked).split("\0").to_h do |entry|
+        details, path = entry.split("\t", 2)
+        [path, details.split[1]]
+      end
+      marked.reject { |path| indexed[path] == blob_of(path) }
+    end
+
+    # The blob the file would be stored as, and nil when it is missing
+    # or cannot be read.
+    def blob_of(path)
+      stdout, _stderr, status = capture('hash-object', '--', path)
+      stdout.strip if status.success?
     end
 
     # git takes a URL or a path where a remote's name is expected, and

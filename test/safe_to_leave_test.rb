@@ -619,6 +619,44 @@ class LeaveReportTest < LeaveCliTestCase
     end
   end
 
+  # A file marked skip-worktree or assume-unchanged is one `git status`
+  # is told not to look at, edited or not.
+  def test_an_edited_file_that_status_is_told_to_skip_counts
+    with_repo do |repo|
+      repo.git('update-index', '--skip-worktree', 'README')
+      repo.write('README', 'edited')
+      result = report(repo)
+
+      assert_equal '  AGAINST   working-tree: 1 uncommitted or untracked file: README', result.line_for('working-tree')
+    end
+  end
+
+  def test_an_edited_file_that_status_assumes_unchanged_counts
+    with_repo do |repo|
+      repo.git('update-index', '--assume-unchanged', 'README')
+      repo.write('README', 'edited')
+
+      assert_equal ['AGAINST'], report(repo).statuses['working-tree']
+    end
+  end
+
+  def test_an_unedited_file_that_status_is_told_to_skip_does_not_count
+    with_repo do |repo|
+      repo.git('update-index', '--skip-worktree', 'README')
+
+      assert_equal ['ok'], report(repo).statuses['working-tree']
+    end
+  end
+
+  def test_a_deleted_file_that_status_is_told_to_skip_counts
+    with_repo do |repo|
+      repo.git('update-index', '--skip-worktree', 'README')
+      FileUtils.rm(File.join(repo.work, 'README'))
+
+      assert_equal ['AGAINST'], report(repo).statuses['working-tree']
+    end
+  end
+
   def test_an_ignored_file_does_not_count
     with_repo do |repo|
       repo.write('.gitignore', 'tmp/')
