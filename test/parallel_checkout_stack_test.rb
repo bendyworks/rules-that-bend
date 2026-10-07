@@ -23,7 +23,7 @@ require 'pty'
 
 class ParallelCheckoutStackTest < Minitest::Test
   TEMPLATES = File.expand_path('../skills/parallel-checkouts/templates', __dir__)
-  SCRIPT_TEMPLATES = %w[compose-project dexec docker-up docker-down docker-rebuild].freeze
+  SCRIPT_TEMPLATES = %w[compose-project dexec docker-up docker-down docker-rebuild suite-lock].freeze
   PREFIX = 'ZZSTACK_'
   SYSTEM_BASH = '/bin/bash'
   BASH3 = File.executable?(SYSTEM_BASH) && `#{SYSTEM_BASH} -c 'echo $BASH_VERSINFO'`.strip == '3'

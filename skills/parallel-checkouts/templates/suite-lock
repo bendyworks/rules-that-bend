@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+# parallel-checkouts template v1 (bendyworks/rules-that-bend)
+#
+# Run a full lint+test suite while holding this checkout's suite lock:
+#
+#   bin/suite-lock [--wait] [--] <command...>
+#
+# Every worktree of a checkout shares the checkout's test database and its
+# pinned test ports, so two full runs started from two of them at once
+# corrupt each other. The lock lives in the git common directory, which all
+# of a checkout's worktrees share, so a second run started from any of them
+# is refused while the first is going. The refusal comes at once and names
+# the holder's process ID, start time, and command. `--wait` waits for the
+# holder instead; a caller whose commands have a time limit, such as an
+# AI coding session or a CI step, should not pass it. See
+# docs/parallel-checkouts.md.
+#
+# The command replaces this script (`exec`), so the process the lock
+# records is the suite itself, and nothing has to release the lock: it is
+# free once that process is gone. The start time is recorded beside the
+# process ID, so an unrelated process that later gets the same ID is not
+# taken for the holder. The lock follows that one process only: a suite
+# runner killed while its own child processes run on leaves the lock free
+# while they finish.
+#
+# The holder file keeps the command line after the run has ended, and a
+# later run that is refused prints it. Only the file's owner can read
+# it, but a secret passed as an argument to the command is stored there
+# and shown again: pass secrets through the environment. Because only
+# its owner can read it, the lock is one user's: a run by another user
+# cannot tell whether the holder is gone, and is refused, with `--wait`
+# too, until the owner runs again or removes the lock.
+#
+# A command that itself runs bin/suite-lock, from this worktree or
+# another of the same checkout, is under the lock already and passes
+# straight through: the holder exports SUITE_LOCK_HELD_BY, its process ID
+# and the lock's path, and an inner call that finds that process still
+# holding that lock runs its command at once. So a project's own suite
+# command can take the lock, and whoever runs it can wrap it again.
+#
+# A lock whose holder is gone is taken over inside a second directory lock,
+# so that of several runs arriving together one takes it and the rest are
+# refused. A takeover directory left behind by a run killed in that step is
+# never removed by age, since that would let two runs into the takeover at
+# once; the refusal names it for a person to remove, and `--wait` does not
+# wait for it.
+#
+# The git common directory is found by reading the .git file's `gitdir:`
+# line and the commondir file, never by running git: an exported GIT_DIR
+# points git elsewhere, and git may be missing or too old. It targets
+# bash 3.2, macOS's /bin/bash.
+#
+# Exit status: the command's own; 64 with no command; 73 when the git
+# directory cannot be written to or this run cannot be recorded as the
+# holder; 75 when refused; 78 when the git directory cannot be found;
+# 128 plus the signal's number when interrupted, hung up on, or
+# terminated while taking over a lock.
+set -u
+
+wait_for_lock=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --wait)
+      wait_for_lock=1
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  echo "Usage: bin/suite-lock [--wait] [--] <command...>" >&2
+  exit 64
+fi
+
+suite_command="$*"
+suite_command="${suite_command//$'\n'/ }"
+
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+walk="$root"
+while [ ! -e "$walk/.git" ] && [ "$walk" != / ]; do
+  walk="$(dirname -- "$walk")"
+done
+
+common=""
+if [ -d "$walk/.git" ]; then
+  common="$walk/.git"
+elif [ -f "$walk/.git" ]; then
+  # A file that cannot be read leaves the value empty, and so the git
+  # directory unfound.
+  git_dir=""
+  { IFS= read -r git_dir < "$walk/.git"; } 2>/dev/null || true
+  git_dir="${git_dir%$'\r'}"
+  # Only a `gitdir:` line names a git directory. Anything else is left
+  # unfollowed: an empty value would make the working tree itself the
+  # place to look for the lock.
+  case "$git_dir" in
+    gitdir:*)
+      git_dir="${git_dir#gitdir:}"
+      git_dir="${git_dir#"${git_dir%%[![:space:]]*}"}"
+      ;;
+    *) git_dir="" ;;
+  esac
+  case "$git_dir" in
+    ''|/*) ;;
+    *) git_dir="$walk/$git_dir" ;;
+  esac
+  if [ -d "$git_dir" ]; then
+    common="$git_dir"
+    # A commondir file that is empty or cannot be read names no common
+    # directory. Falling back to the worktree's own git directory would
+    # give this worktree a lock no other shares.
+    if [ -f "$git_dir/commondir" ]; then
+      common=""
+      { IFS= read -r common < "$git_dir/commondir"; } 2>/dev/null || true
+      common="${common%$'\r'}"
+      case "$common" in
+        ''|/*) ;;
+        *) common="$git_dir/$common" ;;
+      esac
+    fi
+  fi
+fi
+
+# git takes a directory for a git directory when it holds HEAD, objects
+# and refs, and so does this: HEAD as a file or as a symbolic link,
+# which in an old layout may point at a branch file since packed away.
+# A `gitdir:` line naming some other directory, the working tree itself
+# included, is not followed into one, so the lock, and the removal of a
+# stale one, stay inside git's own directory.
+is_git_directory() {
+  [ -n "$1" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ] &&
+    { [ -f "$1/HEAD" ] || [ -L "$1/HEAD" ]; }
+}
+
+if ! is_git_directory "$common"; then
+  echo "${0##*/}: cannot find the git directory for $root, so there is no lock to take. If this is a worktree, its .git file, or the commondir file in its git directory, cannot be read or names a directory that is not a git directory here. Run \`git worktree list\` in its checkout to see whether the worktree was pruned; inside a container that mounts the checkout at another path, a worktree's .git file names the path on the host -- see docs/parallel-checkouts.md" >&2
+  exit 78
+fi
+
+lock="$common/suite-lock"
+takeover="$lock.takeover"
+
+if [ ! -w "$common" ]; then
+  echo "${0##*/}: $common cannot be written to by this user, so no suite lock can be taken there and the command was not run -- see docs/parallel-checkouts.md" >&2
+  exit 73
+fi
+
+# When the process started, or nothing when it is gone. One that has
+# exited and not yet been collected by its parent still has a row in ps,
+# with a state beginning Z. ps prints the time in the caller's time
+# zone, so the zone is fixed: two runs with different TZ values must
+# print the same text for one process. UTC0 is the form that needs no
+# time zone files on the machine.
+process_start() {
+  local started
+  case "$(LC_ALL=C ps -o stat= -p "$1" 2>/dev/null)" in
+    ''|Z*) return 0 ;;
+  esac
+  started="$(TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)"
+  started="${started#"${started%%[![:space:]]*}"}"
+  started="${started%"${started##*[![:space:]]}"}"
+  printf '%s' "$started"
+}
+
+# The holder file appears whole or not at all.
+write_holder() {
+  local started
+  started="$(process_start "$$")"
+  [ -n "$started" ] || return 1
+  (umask 077 && printf '%s\n%s\n%s\n' "$$" "$started" "$suite_command" > "$lock/holder.$$") &&
+    mv -f "$lock/holder.$$" "$lock/holder"
+}
+
+# Record this run as the holder of the lock directory it has just made,
+# or give the directory back and stop. A run that went on with no holder
+# file, or with one holding no start time, would be read as gone by
+# every later run.
+hold_or_quit() {
+  write_holder && return 0
+  rm -f "$lock/holder.$$"
+  rmdir "$lock" 2>/dev/null
+  if [ -z "$(process_start "$$")" ]; then
+    echo "${0##*/}: ps gave no start time for this run (process $$), so it cannot be recorded as the holder of the suite lock and the command was not run. The lock needs a ps that prints lstart: macOS's does, and so does the procps package on Linux; BusyBox's does not -- see docs/parallel-checkouts.md" >&2
+  else
+    echo "${0##*/}: the holder file in $lock could not be written, so this run cannot be recorded as the holder of the suite lock and the command was not run. Check that $common can be written to and has room -- see docs/parallel-checkouts.md" >&2
+  fi
+  exit 73
+}
+
+# Reads the holder file, or sets holder_unreadable for a holder file
+# this user cannot open or a lock directory this user cannot look into.
+# The file is its owner's alone to read, so that is another user's
+# lock, and nothing here can tell whether its run is still going.
+#
+# Another run's takeover may remove the lock at any moment, so each
+# failure looks again before it is believed: a lock that has gone since
+# is one changing hands, with no holder yet, and not one closed to this
+# user.
+read_holder() {
+  holder_pid=""
+  holder_start=""
+  holder_command=""
+  holder_unreadable=""
+  if [ -d "$lock" ] && [ ! -x "$lock" ]; then
+    [ -d "$lock" ] || return 1
+    holder_unreadable=1
+    return 0
+  fi
+  [ -f "$lock/holder" ] || return 1
+  # The trailing `:` makes the group succeed whenever the file opened,
+  # whatever the reads found in it.
+  {
+    {
+      IFS= read -r holder_pid
+      IFS= read -r holder_start
+      IFS= read -r holder_command
+      :
+    } < "$lock/holder"
+  } 2>/dev/null && return 0
+  [ -e "$lock/holder" ] || return 1
+  holder_unreadable=1
+  return 0
+}
+
+holder_alive() {
+  case "$holder_pid" in
+    ''|*[!0123456789]*) return 1 ;;
+  esac
+  [ -n "$holder_start" ] && [ "$(process_start "$holder_pid")" = "$holder_start" ]
+}
+
+# `-mmin +1` is true from one minute with GNU find and from two with
+# BSD find (macOS), which counts an age in whole minutes.
+older_than_a_minute() {
+  [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]
+}
+
+# A lock is stale when its holder is gone, or when it has had no holder
+# file for over a minute: its taker died between making the directory and
+# writing the file.
+lock_is_stale() {
+  if read_holder; then
+    [ -z "$holder_unreadable" ] && ! holder_alive
+  else
+    older_than_a_minute "$lock"
+  fi
+}
+
+# Take the lock, or say in held_reason why not: `live` (read_holder has
+# set the holder), `pending` (another run is taking it right now),
+# `unreadable` (the holder file is another user's), or `abandoned` (a
+# takeover directory was left behind).
+try_take() {
+  if mkdir "$lock" 2>/dev/null; then
+    hold_or_quit
+    return 0
+  fi
+
+  if ! lock_is_stale; then
+    held_reason=live
+    [ -n "$holder_pid" ] || held_reason=pending
+    [ -z "$holder_unreadable" ] || held_reason=unreadable
+    return 1
+  fi
+
+  if ! mkdir "$takeover" 2>/dev/null; then
+    held_reason=pending
+    older_than_a_minute "$takeover" && held_reason=abandoned
+    return 1
+  fi
+  trap 'rmdir "$takeover" 2>/dev/null' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+
+  # Only a lock that is there and stale is removed, whether a directory
+  # or a file left where one belongs. It exists from that check until
+  # the removal, so no run can take it in between, and one that takes
+  # it after the removal makes the mkdir here fail. With no lock there
+  # is nothing to remove: a run may take the lock at any moment, and
+  # the mkdir alone decides between it and this one.
+  local taken=1
+  if { [ -e "$lock" ] || [ -L "$lock" ]; } && lock_is_stale; then
+    rm -rf "$lock"
+  fi
+  if mkdir "$lock" 2>/dev/null; then
+    hold_or_quit
+    taken=0
+  fi
+
+  rmdir "$takeover" 2>/dev/null
+  trap - EXIT INT TERM HUP
+  [ "$taken" -eq 0 ] && return 0
+
+  held_reason=pending
+  if read_holder; then
+    holder_alive && held_reason=live
+    [ -z "$holder_unreadable" ] || held_reason=unreadable
+  fi
+  return 1
+}
+
+refuse() {
+  case "$held_reason" in
+    live)
+      # The holder file is printed to a terminal, so nothing in it may
+      # move the cursor or clear the screen. A control character becomes
+      # a space, as a newline does when the command is recorded.
+      holder_start="${holder_start//[[:cntrl:]]/ }"
+      holder_command="${holder_command//[[:cntrl:]]/ }"
+      echo "${0##*/}: a full run already holds this checkout's suite lock: process $holder_pid, started $holder_start UTC, running: $holder_command. Worktrees of one checkout share its test database, so a second run now would corrupt both. Run this again once that one has finished -- see docs/parallel-checkouts.md" >&2
+      ;;
+    unreadable)
+      echo "${0##*/}: this checkout's suite lock ($lock) is held, and this user cannot read who holds it, so there is no telling whether that run is still going. If it is not, whoever owns the lock can remove it (rm -r) -- see docs/parallel-checkouts.md" >&2
+      ;;
+    abandoned)
+      echo "${0##*/}: $takeover was left behind by a run that was killed while taking the suite lock, over a minute ago. If no full run is starting in this checkout, remove it (rmdir) and run this again -- see docs/parallel-checkouts.md" >&2
+      ;;
+    *)
+      echo "${0##*/}: this checkout's suite lock ($lock) is being taken by another run; run this again in a moment -- see docs/parallel-checkouts.md" >&2
+      ;;
+  esac
+  exit 75
+}
+
+# The lock's path with symbolic links resolved, which is the same text
+# from every worktree of the checkout.
+lock_id="$(CDPATH='' cd -- "$common" && pwd -P)/suite-lock"
+
+# This run was started by the run that holds the lock: its environment
+# names a process and a lock, that lock is this one, and that process
+# is its holder and is still going. An environment that outlived its
+# holder, or came from another checkout, names something else.
+started_by_the_holder() {
+  [ -n "${SUITE_LOCK_HELD_BY:-}" ] || return 1
+  read_holder || return 1
+  [ "$SUITE_LOCK_HELD_BY" = "$holder_pid $lock_id" ] && holder_alive
+}
+
+if started_by_the_holder; then
+  exec -- "$@"
+fi
+
+held_reason=""
+until try_take; do
+  if [ -z "$wait_for_lock" ] || [ "$held_reason" = abandoned ] || [ "$held_reason" = unreadable ]; then
+    refuse
+  fi
+  sleep 1
+done
+
+export SUITE_LOCK_HELD_BY="$$ $lock_id"
+exec -- "$@"
