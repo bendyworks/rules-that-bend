@@ -18,8 +18,9 @@ description, a whole new audit lane in gauntlet.
   file changes how a consuming teammate's Claude behaves on their next
   `git pull` or vendoring refresh -- silently, if nobody tells them. The
   PR description for such a change must say what behavior changes and
-  why, in wording a consuming team can relay to its own channel. Typo
-  and formatting fixes are exempt.
+  why, in wording a consuming team can relay to its own channel. The
+  description's why paragraph is the place for it, with no section of
+  its own. Typo and formatting fixes are exempt.
 
 ## Before you open a PR
 
