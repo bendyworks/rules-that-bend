@@ -21,8 +21,13 @@
 # instruction file it loads, through an InstructionsLoaded hook passed
 # on the command line. Nothing depends on what a model says. The arms
 # run with no built-in tools and no MCP servers from your configuration.
-# Session saving and auto-memory are off, so Claude Code leaves nothing
-# in the config directory.
+# Session saving and auto-memory are off, which is what keeps a
+# single-turn session from leaving a session-history folder in the
+# config directory. Once the arms finish, or the check is stopped while
+# they run, it looks for theirs there. One it finds is listed and
+# removed, whatever the verdict, and costs a passing check its pass.
+# It does not look when the scratch path is one of three kinds it
+# cannot name a folder for; a line after the pass line says so.
 #
 # Each arm makes one small model request. The arm without the flag is a
 # real session with your own settings: it sends your user-level
@@ -37,6 +42,9 @@
 #   2  cannot tell, and the message says why: among other reasons, claude
 #      is older than 2.1.101, an arm failed, nothing user-level loaded
 #      even without the flag, or the user-level CLAUDE.md is parked
+#   3  the flag isolates, and an arm left a session-history folder in
+#      the config directory; the message says what that means for a
+#      batch
 #
 # The arm without the flag is what makes a pass mean something: with the
 # user-level files absent, an arm loads none either way.
@@ -155,6 +163,9 @@ config="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 # Made absolute so the commands printed below mean the same thing in
 # whatever directory they are pasted.
 case "$config" in /*) ;; *) config="$PWD/$config" ;; esac
+# The arms run from the scratch directory, where a relative
+# CLAUDE_CONFIG_DIR would name some other directory than this one.
+[ -z "${CLAUDE_CONFIG_DIR:-}" ] || export CLAUDE_CONFIG_DIR="$config"
 live="$config/CLAUDE.md"
 lock="$config/CLAUDE.md.park-lock"
 parked="$lock/CLAUDE.md"
@@ -285,18 +296,145 @@ if [ -n "$arm_settings" ]; then
     cannot_tell "ARM_SETTINGS needs ruby, to merge the file with the hook this check passes its arms, and ruby is not on PATH. No session was started."
 fi
 
+# Looks for the session-history folder the arms left, and removes it.
+# Claude Code names the folder for a session's working directory: the
+# path with every character other than a letter or digit turned into a
+# dash. Three kinds of scratch path are not looked for, and a line
+# after the pass line says which applied:
+#   - one with characters outside ASCII, whose name cannot be worked
+#     out here;
+#   - one whose name comes to 200 characters or more, since Claude
+#     Code cuts a long name and adds a suffix of its own;
+#   - one inside a git repository, where the memory directory goes
+#     under the repository root's name, which is a real project's, and
+#     a folder under the scratch path's own name tells half the story.
+# A folder with the whole name can only be these arms', since the
+# scratch directory is new. What it held is kept in a variable, so the
+# report needs nothing from the scratch directory. A signal can stop
+# the function partway, so the exit trap may run it a second time: it
+# is marked as done only at its end, and a second run that finds the
+# folder gone records the first run's removal.
+left=
+left_held=
+left_removed=
+looked=
+unchecked=
+arms_started=
+stopped=
+look_for_left_folder() {
+  local LC_ALL=C arm_directory="$scratch/arm" encoded
+  [ -n "$scratch" ] || return 0
+  # The name is worked out by the shell itself. A command that failed
+  # to run would hand back an empty name, and the folder looked for
+  # and removed would then be the projects directory. The name of an
+  # absolute path ending /arm begins with a dash and ends -arm, and
+  # nothing is looked for under any other.
+  encoded="${arm_directory//[^A-Za-z0-9]/-}"
+  case "$arm_directory" in
+    *[!\ -~]*) unchecked="the scratch path has characters outside ASCII, so the folder's name cannot be worked out" ;;
+  esac
+  if [ -n "$unchecked" ]; then
+    :
+  elif [ "${#encoded}" -ge 200 ]; then
+    unchecked="the scratch path gives a folder name of 200 characters or more, which Claude Code may cut short"
+  elif [ "${encoded#-}" = "$encoded" ] || [ "${encoded%-arm}" = "$encoded" ]; then
+    unchecked="the folder's name could not be worked out from the scratch path"
+  elif git -C "$arm_directory" rev-parse --show-toplevel > /dev/null 2>&1; then
+    unchecked="the scratch directory is inside a git repository, and Claude Code names a memory directory for the repository"
+  elif exists "$config/projects/$encoded"; then
+    left="$config/projects/$encoded"
+    if [ -d "$left" ] && [ ! -L "$left" ]; then
+      # -q prints a question mark for a character a terminal would act on.
+      left_held="$(LC_ALL=C ls -Aq "$left" 2> /dev/null)" || left_held="(it could not be listed)"
+      [ -n "$left_held" ] || left_held="(nothing)"
+    else
+      left_held="(it is not a directory)"
+    fi
+    rm -rf "$left" 2> /dev/null
+    exists "$left" || left_removed=yes
+  elif [ -n "$left" ]; then
+    left_removed=yes
+  fi
+  looked=yes
+}
+
+# Says where the folder an arm left was, what it held, and whether it
+# is still there. Prints nothing when no arm left one. The arm without
+# the flag is a session on the user's own settings, and the two arms
+# share a directory, so a folder cannot be laid at either arm's door.
+# Arms that were stopped partway show nothing about the two switches.
+left_folder_report() {
+  [ -n "$left" ] || return 0
+  if [ -n "$stopped" ]; then
+    say "the check was stopped while its arms ran, and they had made a session-history folder in the config directory, at $(shown "$left"), holding:"
+  else
+    say "an arm left a session-history folder in the config directory, at $(shown "$left"), holding:"
+  fi
+  printf '%s\n' "$left_held" | sed 's/^/  /'
+  if [ -z "$stopped" ]; then
+    say "The arms run with --no-session-persistence and CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, which together keep a single-turn arm from leaving one, so on $version they may not. The arm without the flag also runs your own hooks and plugins, and one of those writing there looks the same from here."
+  fi
+  if [ -n "$left_removed" ]; then
+    say "The folder is removed.${stopped:+ Run the check again for a verdict.}"
+    [ -n "$stopped" ] || say "If a batch's arms leave folders on this build too, keep their working directories under a directory made by bin/dry-run-cleanup new, and sweep it when the batch ends."
+  else
+    say "The folder could not be removed. It is this check's and nothing needs it: delete it yourself."
+  fi
+}
+
+# Waits for the arms the trap has just told to stop, and after five
+# seconds stops outright any that have not gone, so a check that is
+# interrupted ends even when an arm ignores the first signal. It asks
+# after each arm by its process ID ten times a second.
+await_stopped_arms() {
+  local arm tenths=0 running=yes
+  while [ -n "$running" ] && [ "$tenths" -lt 50 ]; do
+    running=
+    for arm in "$plain_pid" "$flagged_pid"; do
+      [ -z "$arm" ] || ! kill -0 "$arm" 2> /dev/null || running=yes
+    done
+    [ -z "$running" ] || sleep 0.1
+    tenths=$((tenths + 1))
+  done
+  [ -n "$running" ] || return 0
+  for arm in "$plain_pid" "$flagged_pid"; do
+    [ -z "$arm" ] || ! kill -0 "$arm" 2> /dev/null || kill -9 "$arm" 2> /dev/null
+  done
+}
+
 # The arms are stopped before the scratch directory goes, so a check
-# that is interrupted leaves no session running. Each process ID is
-# cleared once its arm has been waited for, since it can be reused.
+# that is interrupted leaves no session running. A check stopped while
+# its arms ran has not looked for their folder yet, so it looks here,
+# once the arms it stopped are gone. The scratch directory goes before
+# the report is printed: a report nothing reads can end the script on
+# the spot. Each process ID is cleared once its arm has been waited
+# for, since it can be reused.
 scratch=
 plain_pid=
 flagged_pid=
 cleanup() {
+  # A second signal would end the script partway through this, with
+  # the scratch directory and any folder the arms made still there.
+  trap '' INT TERM HUP
+  # Only an arm that had not finished was stopped partway.
+  [ -z "$plain_pid$flagged_pid" ] || stopped=yes
   [ -z "$plain_pid" ] || kill "$plain_pid" 2>/dev/null
   [ -z "$flagged_pid" ] || kill "$flagged_pid" 2>/dev/null
+  if [ -n "$arms_started" ] && [ -z "$looked" ]; then
+    await_stopped_arms
+    look_for_left_folder
+  fi
   [ -z "$scratch" ] || rm -rf "$scratch"
+  left_folder_report >&9
 }
+# A signal can arrive while a command whose own stderr is silenced is
+# running, and the trap then starts with that redirection still in
+# force. The report goes to this copy of the script's stderr.
+exec 9>&2
 trap cleanup EXIT
+# A message written to a pipe nothing reads would otherwise end the
+# script before the trap had removed the scratch directory.
+trap '' PIPE
 
 # A TMPDIR that starts with a dash would be read by mktemp as an option.
 tmp="${TMPDIR:-/tmp}"
@@ -406,9 +544,10 @@ fi
 arm() {
   local name="$1" settings="$2"
   shift 2
+  trap - PIPE
   CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 exec "$CLAUDE" -p "Reply with the single word ready." \
     --model haiku --tools "" --strict-mcp-config --no-session-persistence --settings "$settings" "$@" \
-    > /dev/null 2> "$scratch/$name.err" < /dev/null
+    > /dev/null 2> "$scratch/$name.err" < /dev/null 9>&-
 }
 
 # The two arms run side by side, so a user-level file that appears or
@@ -416,6 +555,7 @@ arm() {
 # neither.
 # bash's own report of an arm killed by a signal is silenced; the status
 # says as much.
+arms_started=yes
 arm plain "$plain_settings" &
 plain_pid=$!
 arm flagged "$flagged_settings" --setting-sources project &
@@ -426,6 +566,7 @@ plain_pid=
 wait "$flagged_pid" 2>/dev/null
 flagged_status=$?
 flagged_pid=
+look_for_left_folder
 ! exists "$lock" || report_park_lock during
 
 # Says which arm ($1, in words) failed with status $2, and shows what
@@ -478,4 +619,13 @@ if [ -z "$plain_files" ]; then
   cannot_tell "no user-level instruction file loaded even without the flag. This machine has none for the flag to keep out, so the check has nothing to tell by."
 fi
 
+if [ -n "$left" ]; then
+  say "--setting-sources project isolates an arm on $version, and the check gives no pass, for the folder reported below." >&2
+  exit 3
+fi
+
 say "--setting-sources project isolates an arm on $version: $(printf '%s\n' "$plain_files" | wc -l | tr -d ' ') user-level instruction file(s) loaded without the flag, none with it."
+[ -z "$unchecked" ] || say "not checked for a session-history folder an arm may have left: $unchecked. Set TMPDIR to a short, plain ASCII path outside any git repository to check that too."
+# A message nothing read fails to print, and the last command's status
+# would otherwise be the script's.
+exit 0
