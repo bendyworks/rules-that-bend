@@ -93,10 +93,11 @@ overriding, and troubleshooting.
   [CONTRIBUTING.md](CONTRIBUTING.md#github-is-required) says what
   supporting one would take.
 - The bundled CLIs (`linear`, `gh-issue-sync` used by `plan-issue`
-  and `finished-issue-housekeeping` on GitHub-tracked repos, and
-  `stale-branches`) require Ruby 3.x on your PATH (macOS and Linux; on
-  Windows use WSL). The `linear` CLI also needs a `LINEAR_API_TOKEN`
-  environment variable; `gh-issue-sync` delegates auth to `gh`.
+  and `finished-issue-housekeeping` on GitHub-tracked repos,
+  `stale-branches`, and `dry-run-cleanup`) require Ruby 3.x on your PATH
+  (macOS and Linux; on Windows use WSL). The `linear` CLI also needs a
+  `LINEAR_API_TOKEN` environment variable; `gh-issue-sync` delegates
+  auth to `gh`.
 - `stale-branches` reports which local branches have already landed on
   the default branch, and deletes them with `--delete`. It needs git
   2.38 or newer for `merge-tree --write-tree`, the check that
@@ -110,6 +111,26 @@ overriding, and troubleshooting.
   work has already landed while its own pull request is still open is
   marked DELETE. `--offline` is how you ask for a sweep on local
   evidence alone and mean it.
+- `dry-run-cleanup` is for anyone who tests with batches of headless
+  `claude -p` runs. Each run leaves a session-history folder in the
+  Claude config directory (`CLAUDE_CONFIG_DIR` when set, otherwise
+  `~/.claude`), named for its working directory. `dry-run-cleanup new`
+  makes a run directory to keep those working directories under, and
+  refuses a temporary directory whose path is not printable ASCII or is
+  too long for the folder names. `dry-run-cleanup sweep <dir>` lists the
+  folders its runs left, and with `--delete` removes them and then the
+  run directory.
+  - It leaves a folder whose session log ran outside the run directory.
+  - It keeps a folder whose memory directory holds a file, one whose
+    session log names no directory, and one that holds files and no
+    session log and has the name of no directory under the run
+    directory. It keeps the run directory whenever it kept a folder.
+  - It removes nothing for a directory `new` did not make, for one
+    copied or moved since, for one another user owns, or from a shell
+    whose config directory is not the one `new` recorded.
+  - It removes nothing while anything in those folders or in the run
+    directory was written in the last ten minutes, so wait that long
+    after a batch ends.
 - `gauntlet` is tuned for Ruby on Rails projects (RSpec, RuboCop, Pundit).
   It runs elsewhere, but its audit prompts are Rails-flavored. It would be easy to re-focus a forked copy if you wish.
 - `markdown-to-pdf` needs a Chromium-based browser or wkhtmltopdf, plus a

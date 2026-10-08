@@ -1,0 +1,541 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# dry-run-cleanup -- removes what a batch of headless Claude Code runs
+# leaves in the config directory.
+#
+# Every `claude -p` run started in a directory leaves a session-history
+# folder under the config directory's `projects/`, named for that
+# directory: its absolute physical path with every character other than
+# a letter or digit turned into `-`. A batch of test runs leaves one
+# per working directory, and they crowd the real projects out of
+# session pickers.
+#
+#   dry-run-cleanup new                    make a run directory, print its path
+#   dry-run-cleanup sweep <dir>            list the folders its runs left
+#   dry-run-cleanup sweep <dir> --delete   remove them, then the run directory
+#
+# Keep every run's working directory under the directory `new` prints.
+# `new` refuses a temporary directory whose path is not printable ASCII
+# or is too long for Claude Code's 200-character folder names.
+#
+# `sweep` finds the folders by the run directory's name, and leaves one
+# whose session log ran outside it. It refuses a directory `new` did
+# not make, one that was copied or moved since, one another user owns,
+# and a shell whose config directory is not the one `new` recorded.
+#
+# `--delete` keeps a folder whose memory directory holds a file, one
+# whose session log names no directory, one that holds files and no
+# session log and has the name of no directory under the run
+# directory, and an entry that is not a plain directory. It keeps the
+# run directory whenever it kept a folder. It refuses while anything in
+# the folders or in the run directory was written in the last ten
+# minutes, so wait that long after a batch ends. A run that has been
+# silent for longer than that looks finished to it.
+#
+# The config directory is $CLAUDE_CONFIG_DIR when set, else ~/.claude.
+#
+# Stdlib-only (no gems). Run with no arguments for usage.
+
+require 'fileutils'
+require 'json'
+require 'shellwords'
+require 'tmpdir'
+
+module DryRunCleanup
+  Error = Class.new(StandardError)
+
+  # `new` names every run directory with this prefix and writes the
+  # marker file into it, naming the directory it is in and the config
+  # directory in effect. `sweep` requires the name and both lines to
+  # match, so a mistyped path, or a marker copied or written into
+  # another directory, cannot aim a removal at a project.
+  RUN_PREFIX = 'dry-run-'
+  MARKER = '.dry-run-cleanup-run-directory'
+
+  # Claude Code cuts a folder name at 200 characters and appends a
+  # suffix it derives from the whole path. A run directory's own name
+  # has to end inside those 200 for its runs' folders to begin with it.
+  NAME_LIMIT = 200
+
+  # A run that is resumed reads its session log, and a batch still
+  # running writes to it. Anything written this recently may belong to
+  # either.
+  RECENT_SECONDS = 600
+
+  # A session log names its working directory within its first few
+  # records.
+  LOG_LINES_READ = 50
+
+  LATE_WRITE = 'it was written while the sweep ran'
+
+  USAGE = <<~USAGE
+    Usage: dry-run-cleanup new
+           dry-run-cleanup sweep <run directory> [--delete]
+           dry-run-cleanup help
+  USAGE
+
+  module_function
+
+  def folder_name(path)
+    path.gsub(/[^A-Za-z0-9]/, '-')
+  end
+
+  def check_run_directory_path!(path)
+    advice = 'Point TMPDIR at a shorter directory with a plain ASCII path and run `dry-run-cleanup new` again.'
+    unless path.match?(/\A[ -~]+\z/)
+      raise Error, "#{path.inspect} has characters outside printable ASCII, and the folder names Claude " \
+                   "Code gives its runs cannot be worked out from it. #{advice}"
+    end
+    name = folder_name(path)
+    return if name.length + 1 < NAME_LIMIT
+
+    raise Error, "#{path} is too long for a run directory. It gives a #{name.length}-character folder name, " \
+                 "Claude Code cuts folder names at #{NAME_LIMIT}, and its runs' folders could not be told " \
+                 "from another directory's. #{advice}"
+  end
+
+  # A name narrows the search and cannot settle it: `/tmp/run1/copy`
+  # and `/tmp/run1-copy` both begin `-tmp-run1-`. The dash rules out
+  # `/tmp/run10`, and directory_elsewhere rules out the rest.
+  def left_by(names, run_directory)
+    own = folder_name(run_directory)
+    names.select { |name| name == own || name.start_with?("#{own}-") }
+  end
+
+  # logged_directories holds the directory each of a folder's session
+  # logs names, nil for a log that names none. Returns the first one
+  # that is not the run directory or inside it.
+  def directory_elsewhere(run_directory, logged_directories)
+    logged_directories.compact.find do |directory|
+      directory != run_directory && !directory.start_with?("#{run_directory}/")
+    end
+  end
+
+  def config_directory(env, home)
+    configured = env['CLAUDE_CONFIG_DIR'].to_s
+    configured.empty? ? File.join(home, '.claude') : configured
+  end
+
+  def recent?(written_at, now)
+    now - written_at < RECENT_SECONDS
+  end
+
+  def marker_text(run_directory, config_directory)
+    "run directory: #{run_directory}\nconfig directory: #{config_directory}\n"
+  end
+
+  # The marker is read and compared as bytes. A path may hold bytes
+  # the shell's locale cannot decode, and the same bytes still name the
+  # same directory.
+  def parse_marker(text)
+    text = text.b
+    run_directory = text[/^run directory: (.+)$/n, 1]
+    config_directory = text[/^config directory: (.+)$/n, 1]
+    { run_directory: run_directory, config_directory: config_directory } if run_directory && config_directory
+  end
+
+  def same_path?(recorded, path)
+    recorded.b == path.b
+  end
+
+  def shown(recorded, like)
+    recorded.dup.force_encoding(like.encoding).scrub
+  end
+
+  # True when one of the run directory's own directories would be given
+  # this folder name. directory_names are their names uncut; Claude
+  # Code's own are cut at NAME_LIMIT and given a suffix.
+  def names_a_directory?(name, directory_names)
+    directory_names.any? do |own|
+      own == name || (own.length > NAME_LIMIT && name.start_with?("#{own[0, NAME_LIMIT]}-"))
+    end
+  end
+
+  # entries are the paths, relative to the folder, of everything in it
+  # that is not a directory. A folder that is gone has nothing to keep.
+  # A run with session saving off leaves tool results and no log, and
+  # its folder is told from a neighbor's by has_directory: whether a
+  # directory under the run directory has its name.
+  def reason_to_keep(kind:, entries:, logged_directories:, has_directory:)
+    return if kind == :missing
+    return 'it is a symbolic link' if kind == :link
+    return 'it is not a directory' unless kind == :directory
+    return 'its memory entry is not a directory' if entries.include?('memory')
+    return 'its memory directory holds a file' if entries.any? { |entry| entry.start_with?('memory/') }
+    return 'a session log in it does not say where it ran' if logged_directories.include?(nil)
+
+    return unless logged_directories.empty? && entries.any? && !has_directory
+
+    'it holds files and no session log, and no directory under the run directory has its name'
+  end
+
+  # Options may come before or after the run directory. Everything
+  # after `--` is a path, so a path that begins with a dash can be
+  # given.
+  def split_arguments(argv)
+    before = argv.take_while { |argument| argument != '--' }
+    options, paths = before.partition { |argument| argument.start_with?('-') }
+    [options, paths + argv.drop(before.length + 1)]
+  end
+
+  def recent_refusal(names)
+    "#{recent_writes(names)} A run may still be going, or about to be resumed, or a sweep stopped partway. " \
+      'Run sweep again in ten minutes. Nothing was removed.'
+  end
+
+  def recent_writes(names)
+    "These were written in the last #{RECENT_SECONDS / 60} minutes: #{names.join(', ')}."
+  end
+
+  # kept_late maps the name of each folder that was listed for removal
+  # and then kept to the reason.
+  def deleted_lines(removed:, kept:, kept_late:)
+    late = kept_late.map { |name, reason| "  kept    #{name} (#{reason})" }
+    return late + ["Removed #{folder_count(removed)} and the run directory."] if kept.zero?
+
+    late + ["Removed #{folder_count(removed)}. Kept #{folder_count(kept)} and the run directory."]
+  end
+
+  def folder_count(count)
+    "#{count} folder#{'s' unless count == 1}"
+  end
+
+  # What the disk says. Only `resolved` follows a symbolic link.
+  module Tree
+    module_function
+
+    def kind(path)
+      stat = File.lstat(path)
+      return :link if stat.symlink?
+      return :directory if stat.directory?
+
+      stat.file? ? :file : :other
+    rescue Errno::ENOENT
+      :missing
+    end
+
+    def entries(path)
+      paths_under(path).reject { |entry| kind(File.join(path, entry)) == :directory }
+    end
+
+    # Directories count: one made a moment ago holds no file yet.
+    # paths_under includes `.`, the directory itself.
+    def recently_written?(path, now, except: [])
+      any_recent?(path, paths_under(path) - except, now)
+    end
+
+    # A file that is gone by the time it is read was removed a moment
+    # ago, which is a write.
+    def any_recent?(path, paths, now)
+      paths.any? { |entry| DryRunCleanup.recent?(File.lstat(File.join(path, entry)).mtime, now) }
+    rescue Errno::ENOENT
+      true
+    end
+
+    def paths_under(path)
+      Dir.glob('**/*', File::FNM_DOTMATCH, base: path)
+    end
+
+    # The folder name of the directory and of every directory in it.
+    def directory_names(path)
+      inside = paths_under(path).select { |entry| entry != '.' && kind(File.join(path, entry)) == :directory }
+      ([path] + inside.map { |entry| File.join(path, entry) }).map { |directory| DryRunCleanup.folder_name(directory) }
+    end
+
+    # The path with its symbolic links followed, as far as it exists.
+    # The answer is the same before and after the last parts are made,
+    # unless one of the missing parts is itself a symbolic link.
+    def resolved(path)
+      path = File.expand_path(path)
+      missing = []
+      until File.exist?(path)
+        missing.unshift(File.basename(path))
+        path = File.dirname(path)
+      end
+      File.join(File.realpath(path), *missing)
+    rescue ArgumentError => e
+      raise Error, "cannot read the config directory path #{path.inspect} (#{e.message}). Check CLAUDE_CONFIG_DIR."
+    end
+
+    def logged_directory(log)
+      File.foreach(log).first(LOG_LINES_READ).each do |line|
+        record = begin
+          JSON.parse(line)
+        rescue JSON::ParserError
+          nil
+        end
+        return record['cwd'] if record.is_a?(Hash) && record['cwd'].is_a?(String)
+      end
+      nil
+    end
+  end
+
+  # One entry under `projects/`. Every answer is read from the disk when
+  # asked for, since a run that is finishing may still be writing.
+  class Folder
+    attr_reader :name
+
+    def initialize(projects, name, has_directory:)
+      @name = name
+      @path = File.join(projects, name)
+      @has_directory = has_directory
+    end
+
+    def directory_elsewhere(run_directory)
+      DryRunCleanup.directory_elsewhere(run_directory, logged_directories)
+    end
+
+    def reason_to_keep
+      kind = Tree.kind(@path)
+      entries = kind == :directory ? Tree.entries(@path) : []
+      DryRunCleanup.reason_to_keep(kind: kind, entries: entries, logged_directories: logged_directories,
+                                   has_directory: @has_directory)
+    end
+
+    def recently_written?(now)
+      Tree.kind(@path) == :directory && Tree.recently_written?(@path, now)
+    end
+
+    # False for a folder already gone. The session logs go last: they
+    # are what says whose folder this is, and a removal that stops
+    # partway has to leave a folder the next sweep still recognizes.
+    def remove
+      return false if Tree.kind(@path) == :missing
+
+      logs, others = Dir.children(@path).partition { |child| child.end_with?('.jsonl') }
+      (others + logs).each { |child| FileUtils.remove_entry(File.join(@path, child)) }
+      Dir.rmdir(@path)
+      true
+    end
+
+    private
+
+    def logged_directories
+      return [] unless Tree.kind(@path) == :directory
+
+      Dir.glob('*.jsonl', File::FNM_DOTMATCH, base: @path)
+         .map { |log| File.join(@path, log) }
+         .select { |log| Tree.kind(log) == :file }
+         .map { |log| Tree.logged_directory(log) }
+    end
+  end
+
+  # A run directory and the folders its runs left.
+  class Sweep
+    # removed and kept are folders. kept_late maps the name of each
+    # folder that was listed for removal and then kept to the reason.
+    Deleted = Struct.new(:removed, :kept, :kept_late, keyword_init: true)
+
+    # folders are this run directory's, and listing maps each to its
+    # reason to keep it, nil for none, as first read. neighbors share
+    # the name prefix and map to the directory outside this one that a
+    # session log of theirs ran in.
+    attr_reader :run_directory, :projects, :folders, :listing, :neighbors
+
+    def self.open(path, config_directory, uid: Process.euid)
+      unless File.directory?(path)
+        raise Error, "not a directory: #{path}. Pass the path `dry-run-cleanup new` printed. Nothing was removed."
+      end
+
+      run_directory = File.realpath(path)
+      unless File.basename(run_directory).start_with?(RUN_PREFIX)
+        raise Error, "#{run_directory} is not named #{RUN_PREFIX}..., so `dry-run-cleanup new` did not make it. " \
+                     'Nothing was removed.'
+      end
+      # A shared temporary directory holds other users' run directories.
+      unless File.stat(run_directory).uid == uid
+        raise Error, "#{run_directory} belongs to another user. Nothing was removed."
+      end
+
+      config_directory = Tree.resolved(config_directory)
+      check_marker(run_directory, config_directory)
+      new(run_directory, File.join(config_directory, 'projects'))
+    end
+
+    def self.check_marker(run_directory, config_directory)
+      marker = File.join(run_directory, MARKER)
+      recorded = DryRunCleanup.parse_marker(File.binread(marker)) if Tree.kind(marker) == :file
+      unless recorded
+        raise Error, "#{run_directory} has no #{MARKER} file written by this tool, so `dry-run-cleanup new` " \
+                     'did not make it. Nothing was removed.'
+      end
+      unless DryRunCleanup.same_path?(recorded[:run_directory], run_directory)
+        raise Error, "#{run_directory} was copied or moved since `dry-run-cleanup new` made it: its marker " \
+                     "names #{DryRunCleanup.shown(recorded[:run_directory], run_directory)}. Nothing was removed."
+      end
+      return if DryRunCleanup.same_path?(recorded[:config_directory], config_directory)
+
+      made_with = DryRunCleanup.shown(recorded[:config_directory], config_directory)
+      raise Error, "#{run_directory} was made with the config directory #{made_with}, and this shell's is " \
+                   "#{config_directory}. Run sweep with CLAUDE_CONFIG_DIR=#{Shellwords.escape(made_with)}. " \
+                   'Nothing was removed.'
+    end
+    private_class_method :check_marker
+
+    def initialize(run_directory, projects)
+      @run_directory = run_directory
+      @projects = projects
+      names = File.directory?(projects) ? Dir.children(projects).sort : []
+      own = Tree.directory_names(run_directory)
+      elsewhere = DryRunCleanup.left_by(names, run_directory).to_h do |name|
+        folder = Folder.new(projects, name, has_directory: DryRunCleanup.names_a_directory?(name, own))
+        [folder, folder.directory_elsewhere(run_directory)]
+      end
+      @neighbors = elsewhere.compact
+      @folders = elsewhere.keys - @neighbors.keys
+      @listing = @folders.to_h { |folder| [folder, folder.reason_to_keep] }
+    end
+
+    # The names of what was written recently: folders, and the run
+    # directory itself. Runs that have left no folder yet still write
+    # into their working directories.
+    def recently_written(now)
+      names = folders.select { |folder| folder.recently_written?(now) }.map(&:name)
+      names << 'the run directory' if run_directory_recently_written?(now)
+      names
+    end
+
+    # The run directory and each folder are read again just before
+    # anything goes, and a folder that has gained a reason to stay, or
+    # a fresh write, is kept. The run directory goes only when every
+    # folder went: `sweep` cannot find a kept folder again without it.
+    def delete(now)
+      raise Error, DryRunCleanup.recent_refusal(['the run directory']) if run_directory_recently_written?(now)
+
+      deleted = Deleted.new(removed: [], kept: [], kept_late: {})
+      folders.each { |folder| remove_or_keep(folder, now, deleted) }
+      remove_run_directory if deleted.kept.empty?
+      deleted
+    rescue SystemCallError => e
+      raise Error, "#{e.message}. The removal stopped partway, and --delete may refuse for the next ten " \
+                   'minutes. Run sweep again to see what is left.'
+    end
+
+    private
+
+    def remove_or_keep(folder, now, deleted)
+      reason = folder.reason_to_keep || (LATE_WRITE if folder.recently_written?(now))
+      if reason
+        deleted.kept << folder
+        deleted.kept_late[folder.name] = reason unless listing[folder]
+      elsif folder.remove
+        deleted.removed << folder
+      end
+    end
+
+    def run_directory_recently_written?(now)
+      Tree.recently_written?(@run_directory, now, except: [MARKER])
+    end
+
+    # The marker goes last, and it is written back when the directory
+    # itself will not go, so a removal that fails at any point leaves a
+    # directory `sweep` still accepts. rmdir refuses a directory that
+    # gained an entry after its children were listed here.
+    def remove_run_directory
+      (Dir.children(@run_directory) - [MARKER]).each do |child|
+        FileUtils.remove_entry(File.join(@run_directory, child))
+      end
+      marker = File.join(@run_directory, MARKER)
+      text = File.binread(marker)
+      File.unlink(marker)
+      begin
+        Dir.rmdir(@run_directory)
+      rescue SystemCallError
+        File.binwrite(marker, text)
+        raise
+      end
+    end
+  end
+
+  class CLI
+    HELP = %w[help --help -h].freeze
+
+    def self.run(argv)
+      new.run(argv.dup)
+    rescue Error, SystemCallError => e
+      abort "dry-run-cleanup: #{e.message}"
+    end
+
+    def run(argv)
+      command = argv.shift
+      return puts(USAGE) if command.nil? || HELP.include?(command) || argv.intersection(HELP).any?
+
+      case command
+      when 'new' then make(argv)
+      when 'sweep' then sweep(argv)
+      else raise Error, "unknown command: #{command}\n#{USAGE}"
+      end
+    end
+
+    private
+
+    def make(argv)
+      raise Error, "new takes no arguments\n#{USAGE}" unless argv.empty?
+
+      run_directory = File.realpath(Dir.mktmpdir(RUN_PREFIX))
+      begin
+        DryRunCleanup.check_run_directory_path!(run_directory)
+      rescue Error
+        Dir.rmdir(run_directory)
+        raise
+      end
+      config_directory = Tree.resolved(DryRunCleanup.config_directory(ENV, Dir.home))
+      File.write(File.join(run_directory, MARKER), DryRunCleanup.marker_text(run_directory, config_directory))
+      puts run_directory
+    end
+
+    def sweep(argv)
+      options, paths = DryRunCleanup.split_arguments(argv)
+      unknown = options - ['--delete']
+      raise Error, "invalid option: #{unknown.first}\n#{USAGE}" unless unknown.empty?
+      raise Error, "sweep takes one run directory\n#{USAGE}" unless paths.length == 1
+
+      swept = Sweep.open(paths.first, DryRunCleanup.config_directory(ENV, Dir.home))
+      print_listing(swept)
+      now = Time.now
+      recent = swept.recently_written(now)
+      options.include?('--delete') ? remove(swept, recent, now) : print_preview(swept, recent)
+    end
+
+    def print_listing(swept)
+      puts "Run directory: #{swept.run_directory}"
+      puts "Looking in: #{swept.projects}"
+      puts "Session-history folders: #{swept.folders.length}"
+      swept.listing.each do |folder, reason|
+        puts(reason ? "  keep    #{folder.name} (#{reason})" : "  remove  #{folder.name}")
+      end
+      return if swept.neighbors.empty?
+
+      puts "Left for other directories: #{swept.neighbors.length}"
+      swept.neighbors.each do |folder, directory|
+        puts "  leave   #{folder.name} (its session log ran in #{directory})"
+      end
+    end
+
+    def print_preview(swept, recent)
+      unless recent.empty?
+        return puts("Nothing removed. --delete would refuse for now. #{DryRunCleanup.recent_writes(recent)}")
+      end
+
+      kept = swept.listing.values.compact.length
+      removable = DryRunCleanup.folder_count(swept.folders.length - kept)
+      if kept.zero?
+        puts "Nothing removed. --delete removes #{removable} and the run directory."
+      else
+        puts "Nothing removed. --delete removes #{removable}, " \
+             "and keeps #{DryRunCleanup.folder_count(kept)} and the run directory."
+      end
+    end
+
+    def remove(swept, recent, now)
+      raise Error, DryRunCleanup.recent_refusal(recent) unless recent.empty?
+
+      deleted = swept.delete(now)
+      puts DryRunCleanup.deleted_lines(removed: deleted.removed.length, kept: deleted.kept.length,
+                                       kept_late: deleted.kept_late)
+    end
+  end
+end
+
+DryRunCleanup::CLI.run(ARGV) if $PROGRAM_NAME == __FILE__
