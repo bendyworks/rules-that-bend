@@ -58,8 +58,8 @@ sentence by sentence.
   expires the same way; anchor it ("this pull request still leaves the
   contributor list unscoped").
 - After the change, a heading that already names the side ("What
-  changed", "Not in this pull request") lets the sentences under it
-  drop "now" and "before this change".
+  changed" in release notes or a changelog) lets the sentences under
+  it drop "now" and "before this change".
 
 Before sending a preview of unshipped work, search it, headings and
 captions included, for `now`, `still`, `unchanged`, `stays`,

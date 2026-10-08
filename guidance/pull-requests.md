@@ -74,11 +74,54 @@ but the first prose paragraph is the Why. This is the same why-first
 principle commit titles follow in the commit-messages guidance:
 motivation first, mechanism second. For a change that remedies
 something, the strongest Why names the concrete cost of leaving things
-as they were. Label that old behavior as before the change: "before
-this change, any signed-in user could open any repository", never "any
-signed-in user can open any repository today", which reads after the
-merge as a hole still open. The writing-about-change guidance covers
-tense in the rest of the body.
+as they were, and what prompted the change: the report, the error, or
+the issue, linked where the description's readers can open the link.
+Label that old behavior as before the change: "before this change, any
+signed-in user could open any repository", never "any signed-in user
+can open any repository today", which reads after the merge as a hole
+still open. The writing-about-change guidance covers tense in the rest
+of the body.
+
+## Size the description to the change
+
+**A description is as long as the change needs: a small fix gets one or
+two sentences of why and up to three bullets of what.** A larger change
+earns more bullets, never more sections. The reviewer has the diff open
+beside the description, so it spends its words on what the diff cannot
+show: why, what was run, and what is open.
+
+**The what is a flat list, one line per item, each starting with a
+verb:** "Skip blank rows", "Replace `--csv` with `--format`". No
+sub-heading divides the list, and none of its bullets opens with a bold
+label. Leave out what GitHub already shows: the lines changed and the
+files touched.
+
+**Show the evidence in place of describing it:** the error, the log
+line, the query, a before and after screenshot for a change to the
+interface. A few figures can go in a small table. A full results table
+or a run log is never copied in: give its headline figure, and link the
+rest only where it is already posted. Never post it somewhere to have a
+link. Cut secrets, personal data, and production record IDs from
+anything pasted.
+
+**Say where each check ran, and mark what was not run.** "Ran the
+migration on a copy of production data on my machine" tells a reviewer
+what "tested the migration" does not. A claim the description makes
+without a run behind it says so.
+
+**One headed section, "For the reviewer", closes the description.**
+It holds what was not run and why, open questions, deploy steps, where
+to start reading, a decision to weigh, what is out of scope, and
+follow-ups. It never summarizes the change. With nothing to list it
+reads "None", which is never the answer while a check a plan named has
+not run (see the verification-habits guidance). A screenshot that could
+not be attached is listed here.
+
+**A project's pull request template sets the headings, and these rules
+still decide what goes under them.** A template section with nothing to
+say reads "None"; never write a sentence to fill one. What was not run
+goes in the template's closest section, or in "For the reviewer" at the
+end when none fits.
 
 ## Write descriptions for the reader
 
@@ -252,8 +295,9 @@ there as a stack, using the
 - **Keep draft-first.** Never pass `--open`, which marks new and
   existing PRs ready for review. A PR the tool opens has the branch
   name for a title and a credit line for a body; rewrite both (per
-  Lead with why) before handing the stack off. A draft layer blocks
-  the merge of every layer above it.
+  Lead with why and Size the description to the change) before
+  handing the stack off. A draft layer blocks the merge of every layer
+  above it.
 - **A stack merge lands every unmerged layer up to and including its
   target.** It is a merge under Who presses Merge like any other, and
   its confirmation lists each PR that will land, bottom to top, with
