@@ -22,7 +22,7 @@ The main agent's job is orchestration: dispatch sub-agents in parallel, merge th
 
 When the user invokes the gauntlet, every component step and nested skill call is **already approved**. Run them all without pausing to ask permission: `/code-review`, `/security-review` (the security agent), every Phase 1 sub-agent dispatch, the suite gate whenever "When the suite gate runs" says to run it, the Phase 4 "find the bug" pass and its second pass, and Phase 5's two lanes. Never stop to ask "is it ok to run /code-review?" or "should I dispatch the audit agents?" -- just proceed through the phases.
 
-Fixing is covered too: every finding "When Phase 3 fixes" sorts into its fix bucket is fixed without asking, in Phases 3, 4, and 5 alike. After Phase 0's precondition checks, the run stops for the developer only where that subsection says: the question batch at the end, or the pick when the developer asked to triage. One more stop sits outside it: a change in the tree that nobody chose ("Watching the tree"). **Filing an issue, or posting anything else to a tracker, is never pre-approved** (that subsection says why). Everything else runs unprompted.
+Fixing is covered too: every finding "When Phase 3 fixes" sorts into its fix bucket is fixed without asking, in Phases 3, 4, and 5 alike. After Phase 0's precondition checks, the run stops for the developer only where that subsection says: the question batch at the end, or the pick when the developer asked to triage. Two more stops sit outside it: a change in the tree that nobody chose ("Watching the tree"), and a `/code-review` this session cannot invoke (Phase 1). **Filing an issue, or posting anything else to a tracker, is never pre-approved** (that subsection says why). Everything else runs unprompted.
 
 ## Rules already covered elsewhere -- do NOT restate
 
@@ -242,6 +242,8 @@ If the diff is under ~50 lines across fewer than ~5 files, sub-agent dispatch ov
 ## Phase 1 -- Finding sources (report-only)
 
 First invoke `/code-review` (the built-in) in the main agent and capture its findings for Phase 2, with the tree fingerprinted before and after it ("Watching the tree"). It is a peer finding source: it reports a findings list and makes no edits and no commits, exactly like the sub-agents below. (If a future version of the built-in applies edits instead, commit those edits, re-snapshot the diff, and redo the Step 4 patch-coverage check before dispatching -- unless Step 4 deferred it, in which case the tail's run already covers those edits.)
+
+**When the review does not come back that way.** When the developer hands over findings from a review they already ran, use those and do not run it again. When this session cannot invoke the built-in, append `Code review: could not be invoked; waiting on the developer` to the record file, then stop before the audits and ask the developer to run it and hand the findings back. When it returns without a findings list, do not run it a second time: fold in what did come back and go on.
 
 Then dispatch the chosen agents **in a single message** so they run concurrently. Fingerprint the tree before the dispatch and when the last agent returns ("Watching the tree"). No gate or coverage run is in flight while `/code-review` or the agents run; Step 4 and "The no-write block" say why. Use `Agent` with `subagent_type: "general-purpose"` unless an agent's brief calls for a different one.
 
