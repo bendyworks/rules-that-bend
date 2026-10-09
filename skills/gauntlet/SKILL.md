@@ -395,7 +395,7 @@ Findings that are one gap seen from two places -- a nil the mailer cannot handle
 
 Then fix the `[fix]` bucket without asking:
 
-1. **TDD where applicable.** A behavior fix gets a failing spec first -- write it, watch it fail, then fix and watch it pass. A spec that cannot be made to fail is evidence: remove it, and re-tag the finding `[disproved: <what the attempt showed>]`, or `[ask]` when the attempt was inconclusive. A pure-refactor fix needs no new spec.
+1. **TDD where applicable.** A behavior fix gets a failing spec first -- write it, watch it fail, then fix and watch it pass. A spec that cannot be made to fail is evidence: remove it, and re-tag the finding `[disproved: <what the attempt showed>]`, or `[ask]` when the attempt was inconclusive. A pure-refactor fix needs no new spec. Whatever the fix, run the test file nearest the code it changed, where one exists, and commit only once its examples pass; a coverage floor that one file's run cannot meet is not a failure.
 2. **One logical change per commit**, its message about the change itself, never about the gauntlet, and free of the prose defaults Phase 5's `prose-defaults` brief lists, wherever that brief applies to the project.
 3. **A fix that outgrows its finding** -- a new production file (the new spec file rule 1 asks for does not count), a changed public interface, far more lines than the finding implied -- is reverted and re-tagged `[ask]` with what it turned out to need.
 4. **Mark it off with its commit** in the form above as soon as the commit exists, so overruling any automatic fix later is one revert. A resumed run that finds an unchecked `[fix]` entry checks `git log main..HEAD` and the diff for that change before fixing it again.
