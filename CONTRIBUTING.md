@@ -398,9 +398,9 @@ on the arms.
 The plugin requires a GitHub-hosted repository, on github.com or a
 GitHub Enterprise host, and the GitHub CLI (`gh`) installed and
 authenticated. Everything that reads pull requests or GitHub issues goes
-through `gh`: the commands the skills and guidance give a session, and
-`bin/gh-issue-sync`. Issue trackers are a
-separate matter: Linear and Shortcut are supported where the skills
+through `gh`: the commands the skills and guidance give a session and
+`bin/gh-issue-sync`. Issue trackers are a separate matter: Linear and
+Shortcut are supported where the skills
 name them, and a project tracked there still needs GitHub for its pull
 requests.
 

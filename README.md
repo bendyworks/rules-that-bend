@@ -85,8 +85,8 @@ overriding, and troubleshooting.
 - A GitHub-hosted repository and the GitHub CLI (`gh`), installed and
   authenticated. Everything that reads pull requests or GitHub issues
   goes through `gh`: the commands the skills and guidance give a
-  session, and `gh-issue-sync`. `targeted-specs` uses
-  it only as a fallback when resolving a repo's default branch. A
+  session and `gh-issue-sync`. `targeted-specs` uses it only as a
+  fallback when resolving a repo's default branch. A
   GitHub Enterprise host counts, since `gh` reaches it through its own
   host setting, though stacked pull requests may not be enabled there.
   Linear and Shortcut are supported as issue trackers, and a project
