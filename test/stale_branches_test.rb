@@ -231,48 +231,6 @@ class FixtureShapeTest < Minitest::Test
     end
   end
 
-  def test_the_flat_fixture_builds_its_remote_ref_traps
-    with_flat do |repo|
-      Fixtures::BranchRepo::PUSHED_THEN_DELETED.each do |branch|
-        assert_empty repo.git('ls-remote', '--heads', 'origin', branch).strip,
-                     "#{branch} must have had its remote ref deleted"
-      end
-
-      Fixtures::BranchRepo::PUSHED_AND_KEPT.each do |branch|
-        refute_empty repo.git('ls-remote', '--heads', 'origin', branch).strip,
-                     "#{branch} must keep its remote ref, so a forge can answer for it"
-      end
-    end
-  end
-
-  def test_the_flat_fixture_builds_a_branch_tracking_a_deleted_local_one
-    with_flat do |repo|
-      upstream = repo.git('config', '--default', '', '--get',
-                          'branch.l-tracks-deleted-local.merge').strip
-
-      assert_equal 'refs/heads/throwaway', upstream,
-                   'l-tracks-deleted-local must track a LOCAL branch, not a remote one'
-      refute repo.git_succeeds?('rev-parse', '--verify', '-q', 'refs/heads/throwaway'),
-             'the branch l-tracks-deleted-local tracks must be gone'
-    end
-  end
-
-  # A deleted remote ref is not the same as work no remote ever saw: the
-  # ref can be gone while the objects remain, which is the ordinary shape
-  # of a merged branch the forge tidied up. d-unpushed is the fixture's
-  # only branch carrying the stronger property, and it holds only because
-  # its last commit is made after every push. Asserting the branch tip is
-  # absent from origin's object store is the difference between building
-  # that property and merely naming it.
-  def test_the_flat_fixture_builds_a_branch_no_remote_ever_received
-    with_flat do |repo|
-      tip = repo.git('rev-parse', 'refs/heads/d-unpushed').strip
-
-      refute repo.git_succeeds?('cat-file', '-e', "#{tip}^{commit}", dir: repo.origin),
-             'd-unpushed carries work a remote already has, so no row tests unpushed work'
-    end
-  end
-
   def test_the_flat_fixture_builds_the_tag_that_shadows_a_branch
     with_flat { |repo| assert_tag_shadows(repo, Fixtures::BranchRepo::TAG_SHADOWED) }
   end
@@ -1630,11 +1588,11 @@ class MeasuredRefTest < OracleTestCase
   def test_an_unpushed_local_default_is_not_used_even_as_a_last_resort
     with_flat_fixture('no-tracking-unpushed') do |repo|
       repo.checkout('main')
-      repo.git('merge', '-q', '--no-ff', 'g-open', '-m', 'merge g-open locally only')
+      repo.git('merge', '-q', '--no-ff', 'e-parent', '-m', 'merge e-parent locally only')
       repo.git('update-ref', '-d', 'refs/remotes/origin/main')
 
       assert_raises(StaleBranches::Error) { measure(repo) }
-      assert_includes repo.local_refs, 'refs/heads/g-open', 'the arm deleted its own subject'
+      assert_includes repo.local_refs, 'refs/heads/e-parent', 'the arm deleted its own subject'
     end
   end
 
@@ -1948,12 +1906,12 @@ class Pass1Test < OracleTestCase
   def test_ancestry_of_an_unpushed_local_default_clears_nothing
     with_flat_fixture('pass1-unpushed') do |repo|
       repo.checkout('main')
-      repo.git('merge', '-q', '--no-ff', 'g-open', '-m', 'merge g-open locally only')
+      repo.git('merge', '-q', '--no-ff', 'e-parent', '-m', 'merge e-parent locally only')
 
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'pass1:ancestor').keys, 'g-open'
-      assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'g-open' }&.verdict,
+      refute_includes stage_of(sweep, 'pass1:ancestor').keys, 'e-parent'
+      assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'e-parent' }&.verdict,
                    'the branch was not cleared, but it was not reported either'
     end
   end

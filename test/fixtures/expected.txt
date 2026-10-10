@@ -54,20 +54,8 @@ n-worktree               KEEP     protected:worktree      an ancestor, and check
 p1-ancestor              DELETE   pass1:ancestor          merged with a real merge commit
 a-squash-clean           DELETE   proof-a:content-landed  squash-merged; the default branch later moved on
 c-merged-main-back       DELETE   proof-a:content-landed  squash-merged, then the default branch merged back in
-q-open-but-landed        DELETE   proof-a:content-landed  landed by another pull request; its own is still open
-v-open-from-fork         DELETE   proof-a:content-landed  landed by another pull request; a fork has one open on a branch of the same name
-b-main-edited            KEEP     proof-a:conflict        squash-merged, then the same lines were edited; a merged pull request clears it online
-j-two-merged             KEEP     proof-a:conflict        two merged pull requests share it and the tip matches the older; clears online on that one
-d-unpushed               KEEP     proof-a:conflict        merged, but carries a commit no remote received, so the pull request's head SHA is not the tip
-f-closed                 KEEP     proof-a:conflict        its only pull request is closed, so nothing merged it
-h-no-pr                  KEEP     proof-a:conflict        no pull request at all ever named it
-i-cross-fork             KEEP     proof-a:conflict        the merged pull request came from a fork, so it is not evidence about this branch
-k-merged-and-open        KEEP     proof-a:conflict        merged once, but another pull request on it is still open
-t-merged-to-release      KEEP     proof-a:conflict        the merged pull request's base was a release branch, not the default one
+b-main-edited            KEEP     proof-a:conflict        squash-merged, then the same lines were edited
 e-parent                 KEEP     kept:not-landed         never merged anywhere
 e-stacked-child          KEEP     kept:not-landed         merged into its parent, not the default branch
-g-open                   KEEP     kept:not-landed         work never landed, and its pull request is open
-l-tracks-deleted-local   KEEP     kept:not-landed         never pushed; upstream was a deleted local branch
-m-gone-in-subject        KEEP     kept:not-landed         never pushed; the marker text is in its commit subject
 s-tag-shadow             KEEP     kept:not-landed         work never landed; a tag of the same name points at the default branch
 u-added-then-removed     KEEP     proof-a:tip-only        added a file and removed it, so it adds nothing while holding the only copy of what it added

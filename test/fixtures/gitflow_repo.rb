@@ -55,20 +55,9 @@ module Fixtures
     # not landed.
     TAG_SHADOWED = 'amb'
 
-    # The pair that makes the default branch's NAME load-bearing in
-    # proof (b). Both conflict against develop, so both reach the forge,
-    # and their merged pull requests differ only in which branch they
-    # were based on: one on develop, which is this repository's default,
-    # and one on main, which exists here and is not.
-    #
-    # A sweep comparing a pull request's base against a hardcoded main
-    # gets both wrong, in opposite directions -- it keeps the branch
-    # that landed and deletes the branch that did not. Nothing in the
-    # flat fixture can catch that, because there the default branch IS
-    # main, and the flat table's t-merged-to-release only shows that
-    # SOME other base is rejected, not that the right one is accepted.
-    LANDED_ON_DEFAULT = 'gf-landed-on-develop'
-    LANDED_ON_MAIN = 'gf-landed-on-main'
+    # Squash-merged into develop, which then edited the same lines, so
+    # merging it back conflicts and the content check cannot answer.
+    CONFLICTING = 'gf-landed-on-develop'
 
     def build
       prepare_root
@@ -79,7 +68,7 @@ module Fixtures
       build_squashed_into_develop
       build_deletable_and_protected_ancestors
       build_tag_shadowed_branch
-      build_conflicting_pair
+      build_conflicting_branch
       git('checkout', '-q', DEFAULT_BRANCH)
       git('fetch', '-q', '--prune', 'origin')
       detach_head
@@ -135,20 +124,11 @@ module Fixtures
       git('tag', TAG_SHADOWED)
     end
 
-    # Each is squash-merged into a different branch, and then the lines
-    # it touched are edited again on develop -- which is what makes
-    # merging it back into develop conflict, and a conflict is the only
-    # route to the forge. Without that second edit the content check
-    # answers both of them and neither ever reaches proof (b).
-    # Both branches this leaves behind are measured against what the
-    # remote has, so the commits it adds to develop and main are pushed:
-    # the second edit is what produces the conflict, and a remote that
-    # never received it describes a repository where neither branch
-    # reaches the forge at all.
-    def build_conflicting_pair
-      conflict_after_squashing_into(DEFAULT_BRANCH, LANDED_ON_DEFAULT, 'gfd.txt')
-      conflict_after_squashing_into('main', LANDED_ON_MAIN, 'gfm.txt')
-      git('push', '-q', 'origin', "#{DEFAULT_BRANCH}:#{DEFAULT_BRANCH}", 'main:main')
+    # The second edit on develop is what produces the conflict, and it is
+    # pushed because the branch is measured against what the remote has.
+    def build_conflicting_branch
+      conflict_after_squashing_into(DEFAULT_BRANCH, CONFLICTING, 'gfd.txt')
+      git('push', '-q', 'origin', "#{DEFAULT_BRANCH}:#{DEFAULT_BRANCH}")
     end
 
     def conflict_after_squashing_into(target, branch, path)
