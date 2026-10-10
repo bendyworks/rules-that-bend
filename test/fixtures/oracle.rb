@@ -38,16 +38,15 @@ module Fixtures
       protected:worktree
       protected:long-lived
       protected:backup
-      pass1:ancestor
-      proof-a:content-landed
-      proof-a:tip-only
-      proof-a:conflict
+      landed:ancestor
+      landed:content
+      kept:commit-not-landed
+      kept:conflict
       kept:not-landed
     ].freeze
 
-    # The prefix before the colon names the stage that reached the
-    # verdict. A table that demands deletions from only one stage is
-    # satisfied by a sweep that implements only that stage.
+    # The prefix before the colon names the kind of answer: protected,
+    # landed or kept.
     def self.stage(reason)
       reason.split(':').first
     end

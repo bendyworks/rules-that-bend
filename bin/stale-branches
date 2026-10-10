@@ -707,11 +707,11 @@ module StaleBranches
       decide do |branch|
         ref = "refs/heads/#{branch}"
         tree, merged = @git.merge_tree(@measured_ref, ref)
-        next ['KEEP', 'proof-a:conflict'] unless merged
+        next ['KEEP', 'kept:conflict'] unless merged
         next ['KEEP', 'kept:not-landed'] unless tree == landed
-        next ['DELETE', 'proof-a:content-landed'] if history_landed?(ref, landed)
+        next ['DELETE', 'landed:content'] if history_landed?(ref, landed)
 
-        ['KEEP', 'proof-a:tip-only']
+        ['KEEP', 'kept:commit-not-landed']
       end
     end
 
@@ -741,7 +741,7 @@ module StaleBranches
     # nothing while its own work has never landed.
     def clear_by_ancestry
       decide do |branch|
-        ['DELETE', 'pass1:ancestor'] if @git.ancestor?("refs/heads/#{branch}", @measured_ref)
+        ['DELETE', 'landed:ancestor'] if @git.ancestor?("refs/heads/#{branch}", @measured_ref)
       end
     end
 

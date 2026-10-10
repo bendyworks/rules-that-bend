@@ -179,7 +179,7 @@ class FixtureShapeTest < Minitest::Test
   # name. Each is a falsifiable claim about git's own answer, so each can
   # be checked here without a sweep existing.
   EVIDENCE_REASONS = %w[
-    pass1:ancestor proof-a:content-landed proof-a:tip-only proof-a:conflict
+    landed:ancestor landed:content kept:commit-not-landed kept:conflict
     kept:not-landed
   ].freeze
 
@@ -308,13 +308,13 @@ class FixtureShapeTest < Minitest::Test
   # graded on what git actually reports rather than on what a row claims.
   def evidence_for(repo, branch, default, default_tree)
     ref = "refs/heads/#{branch}"
-    return 'pass1:ancestor' if ancestor?(repo, branch, default)
+    return 'landed:ancestor' if ancestor?(repo, branch, default)
 
     tree, merged = merge_tree(repo, default, ref)
-    return 'proof-a:conflict' unless merged
+    return 'kept:conflict' unless merged
     return 'kept:not-landed' unless tree == default_tree
 
-    history_landed?(repo, default, ref, default_tree) ? 'proof-a:content-landed' : 'proof-a:tip-only'
+    history_landed?(repo, default, ref, default_tree) ? 'landed:content' : 'kept:commit-not-landed'
   end
 
   # Every commit the branch does not share with the default branch,
@@ -1122,7 +1122,7 @@ end
 class ReportTest < Minitest::Test
   ROWS = [
     StaleBranches::Row.new('main', 'KEEP', 'protected:default'),
-    StaleBranches::Row.new('a-squash-clean', 'DELETE', 'proof-a:content-landed'),
+    StaleBranches::Row.new('a-squash-clean', 'DELETE', 'landed:content'),
     StaleBranches::Row.new('l-tracks-deleted-local', 'KEEP', 'kept:not-landed')
   ].freeze
 
@@ -1159,7 +1159,7 @@ class ReportTest < Minitest::Test
   def test_a_deletion_is_the_only_verdict_in_capitals
     report = StaleBranches.render_report(ROWS)
 
-    assert_match(/^a-squash-clean\s+DELETE\s+proof-a:content-landed$/, report)
+    assert_match(/^a-squash-clean\s+DELETE\s+landed:content$/, report)
     assert_match(/^main\s+keep\s+protected:default$/, report)
     refute_match(/\bKEEP\b/, report, 'a keep shouted, so DELETE no longer stands out')
   end
@@ -1175,7 +1175,7 @@ class ReportTest < Minitest::Test
   # being enumerated, and a report is where a name that starts with a
   # dash would be least expected.
   def test_a_branch_named_like_a_flag_renders_and_reads_back
-    rows = [StaleBranches::Row.new('-D', 'DELETE', 'pass1:ancestor')]
+    rows = [StaleBranches::Row.new('-D', 'DELETE', 'landed:ancestor')]
 
     assert_equal ['-D'], SweepRun.parse(StaleBranches.render_report(rows)).map(&:branch)
   end
@@ -1858,18 +1858,18 @@ end
 # contains adds nothing to it, and git answers that by walking commits
 # rather than comparing content. Everything it clears is clear beyond
 # argument, which is why it runs before the expensive checks.
-class Pass1Test < OracleTestCase
+class AncestorPassTest < OracleTestCase
   def test_the_flat_tables_ancestor_row_is_the_one_ancestry_clears
-    with_flat_fixture('pass1') do |repo|
-      assert_stage_matches(FLAT_ORACLE, measure(repo), 'pass1:ancestor')
+    with_flat_fixture('ancestor') do |repo|
+      assert_stage_matches(FLAT_ORACLE, measure(repo), 'landed:ancestor')
     end
   end
 
   # Ancestry of DEVELOP. Every branch here is an ancestor of something,
   # and measuring against main would clear the wrong ones.
   def test_the_gitflow_tables_ancestor_row_is_measured_against_its_own_default
-    with_gitflow_fixture('pass1') do |repo|
-      assert_stage_matches(GITFLOW_ORACLE, measure(repo), 'pass1:ancestor')
+    with_gitflow_fixture('ancestor') do |repo|
+      assert_stage_matches(GITFLOW_ORACLE, measure(repo), 'landed:ancestor')
     end
   end
 
@@ -1883,7 +1883,7 @@ class Pass1Test < OracleTestCase
     with_flat_fixture('tag-trap') do |repo|
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'pass1:ancestor').keys, 's-tag-shadow'
+      refute_includes stage_of(sweep, 'landed:ancestor').keys, 's-tag-shadow'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 's-tag-shadow' }&.verdict,
                    'the branch a tag shadows was swept up by the tag'
     end
@@ -1893,7 +1893,7 @@ class Pass1Test < OracleTestCase
     with_gitflow_fixture('tag-trap') do |repo|
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'pass1:ancestor').keys, 'amb'
+      refute_includes stage_of(sweep, 'landed:ancestor').keys, 'amb'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'amb' }&.verdict,
                    'the branch a tag shadows was swept up by the tag'
     end
@@ -1904,13 +1904,13 @@ class Pass1Test < OracleTestCase
   # branch below is an ancestor of the local main and of nothing the
   # remote knows about.
   def test_ancestry_of_an_unpushed_local_default_clears_nothing
-    with_flat_fixture('pass1-unpushed') do |repo|
+    with_flat_fixture('ancestor-unpushed') do |repo|
       repo.checkout('main')
       repo.git('merge', '-q', '--no-ff', 'e-parent', '-m', 'merge e-parent locally only')
 
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'pass1:ancestor').keys, 'e-parent'
+      refute_includes stage_of(sweep, 'landed:ancestor').keys, 'e-parent'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'e-parent' }&.verdict,
                    'the branch was not cleared, but it was not reported either'
     end
@@ -1929,7 +1929,7 @@ end
 # local fact: this branch definitely adds something. A conflict is
 # neither: the check could not run, and the branch is kept on an
 # unanswered question.
-class ProofATest < OracleTestCase
+class ContentCheckTest < OracleTestCase
   # A git from before `merge-tree --write-tree` existed. Reported
   # rather than simulated: the command's absence is what the version
   # check stands in for, and there is no old git to run here.
@@ -1987,20 +1987,20 @@ class ProofATest < OracleTestCase
   end
 
   def test_the_flat_table_agrees_about_what_the_content_check_finds
-    with_flat_fixture('proof-a') do |repo|
+    with_flat_fixture('content') do |repo|
       sweep = measure(repo)
 
-      %w[proof-a:content-landed proof-a:conflict kept:not-landed].each do |stage|
+      %w[landed:content kept:conflict kept:not-landed].each do |stage|
         assert_stage_matches(FLAT_ORACLE, sweep, stage)
       end
     end
   end
 
   def test_the_gitflow_table_agrees_about_what_the_content_check_finds
-    with_gitflow_fixture('proof-a') do |repo|
+    with_gitflow_fixture('content') do |repo|
       sweep = measure(repo)
 
-      %w[proof-a:content-landed kept:not-landed].each do |stage|
+      %w[landed:content kept:not-landed].each do |stage|
         assert_stage_matches(GITFLOW_ORACLE, sweep, stage)
       end
     end
@@ -2012,7 +2012,7 @@ class ProofATest < OracleTestCase
   # branch that adds something.
   def test_a_conflicting_branch_is_kept_and_says_the_check_could_not_answer
     with_flat_fixture('conflict') do |repo|
-      conflicted = stage_of(measure(repo), 'proof-a:conflict')
+      conflicted = stage_of(measure(repo), 'kept:conflict')
 
       refute_empty conflicted, 'no branch reached the check that could not answer'
       assert_equal %w[KEEP], conflicted.values.uniq
@@ -2072,7 +2072,7 @@ class GitFailureTest < OracleTestCase
 
   # A ref git cannot resolve exits with nothing on stdout, exactly as a
   # conflict does with the tree still there. Reading the first as the
-  # second puts `proof-a:conflict` in the report for a conflict nobody
+  # second puts `kept:conflict` in the report for a conflict nobody
   # observed.
   def test_a_content_check_git_cannot_run_raises_rather_than_reporting_a_conflict
     with_flat_fixture('merge-tree-failure') do |repo|
@@ -2216,14 +2216,14 @@ class DeletionTest < OracleTestCase
     end
   end
 
-  # The harm the tip-only rule exists to prevent, asserted as harm
+  # The harm the per-commit check exists to prevent, asserted as harm
   # rather than as a verdict: the branch survives --delete, and so does
   # the only copy of what it added. Before the rule, this branch was
   # deleted with its reflog and the blob was left reachable from
   # nothing -- recoverable by `git fsck` until the next gc, and by
   # nobody who did not know to look.
   def test_a_branch_holding_the_only_copy_of_its_own_work_survives_delete
-    with_flat_fixture('tip-only-delete') do |repo|
+    with_flat_fixture('commit-not-landed-delete') do |repo|
       branch = Fixtures::BranchRepo::ADDED_THEN_REMOVED
       blob = repo.git('rev-parse', "#{branch}~1:u-research.txt").strip
       sweep(repo, '--delete')
@@ -2552,7 +2552,7 @@ class FlatFixtureOracleTest < OracleTestCase
       assert_matches_oracle(
         Fixtures::Oracle.load(ORACLE), result,
         'a-squash-clean' => %w[KEEP protected:current],
-        'o-current' => %w[DELETE pass1:ancestor]
+        'o-current' => %w[DELETE landed:ancestor]
       )
       refute_git_complaints(result)
     end
@@ -2571,7 +2571,7 @@ class FlatFixtureOracleTest < OracleTestCase
       refute_includes result.rows.map(&:branch), 'HEAD',
                       'a detached HEAD was reported as a branch'
       assert_matches_oracle(Fixtures::Oracle.load(ORACLE), result,
-                            'o-current' => %w[DELETE pass1:ancestor])
+                            'o-current' => %w[DELETE landed:ancestor])
       refute_git_complaints(result)
     end
   end

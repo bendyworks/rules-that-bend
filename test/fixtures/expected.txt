@@ -6,8 +6,9 @@
 # saying why the row exists.
 #
 # The reason keys, in the order the sweep decides them. The prefix
-# names the stage that reached the verdict, which is what makes a
-# row assert more than "this branch survived":
+# names the kind of answer (protected, landed or kept), and asserting
+# the whole key is what makes a row say more than "this branch
+# survived":
 #
 #   protected:default      the default branch of the repository
 #   protected:current      the branch HEAD is on
@@ -20,42 +21,42 @@
 #                          have them in the gitflow table, and master
 #                          has none in either.
 #   protected:backup       a name ending in -backup
-#   pass1:ancestor         already an ancestor of the default branch
-#   proof-a:content-landed merging it into the default branch would
+#   landed:ancestor         already an ancestor of the default branch
+#   landed:content merging it into the default branch would
 #                          produce the default branch tree unchanged, and
 #                          so would merging each commit it does not
 #                          share with that branch
-#   proof-a:tip-only       merging the branch adds nothing, but a commit
+#   kept:commit-not-landed       merging the branch adds nothing, but a commit
 #                          on it would: content that reached no other
 #                          branch, which no ref would reach once this
 #                          branch is deleted
-#   proof-a:conflict       that merge conflicts, so the check cannot say
+#   kept:conflict       that merge conflicts, so the check cannot say
 #                          either way
 #   kept:not-landed        the merge runs cleanly and produces a
 #                          different tree, so the branch adds something
 #                          the default branch does not have
 #
-# proof-a:conflict and kept:not-landed both end in a keep, and the
+# kept:conflict and kept:not-landed both end in a keep, and the
 # difference between them is the point: the first is an unanswered
 # question, the second is a positive local fact.
 #
 # The sweep reads no pull request. A row whose prose mentions one is
 # describing how the branch came to have its shape.
 #
-# branch                 verdict  reason                  why
-main                     KEEP     protected:default       the default branch, and decided by that rule first; the long-lived list holds main too, so this row's VERDICT survives losing the default-branch rule and only its reason catches that
-o-current                KEEP     protected:current       an ancestor at the default branch's tip; only being checked out saves it
-develop                  KEEP     protected:long-lived    an ancestor; only the name saves it
-staging                  KEEP     protected:long-lived    an ancestor; only the name saves it
-production               KEEP     protected:long-lived    an ancestor; only the name saves it
-gh-pages                 KEEP     protected:long-lived    an ancestor; only the name saves it
-r-spike-backup           KEEP     protected:backup        an ancestor; only the -backup suffix saves it
-n-worktree               KEEP     protected:worktree      an ancestor, and checked out elsewhere
-p1-ancestor              DELETE   pass1:ancestor          merged with a real merge commit
-a-squash-clean           DELETE   proof-a:content-landed  squash-merged; the default branch later moved on
-c-merged-main-back       DELETE   proof-a:content-landed  squash-merged, then the default branch merged back in
-b-main-edited            KEEP     proof-a:conflict        squash-merged, then the same lines were edited
-e-parent                 KEEP     kept:not-landed         never merged anywhere
-e-stacked-child          KEEP     kept:not-landed         merged into its parent, not the default branch
-s-tag-shadow             KEEP     kept:not-landed         work never landed; a tag of the same name points at the default branch
-u-added-then-removed     KEEP     proof-a:tip-only        added a file and removed it, so it adds nothing while holding the only copy of what it added
+# branch              verdict reason                  why
+main                  KEEP    protected:default       the default branch, and decided by that rule first; the long-lived list holds main too, so this row's VERDICT survives losing the default-branch rule and only its reason catches that
+o-current             KEEP    protected:current       an ancestor at the default branch's tip; only being checked out saves it
+develop               KEEP    protected:long-lived    an ancestor; only the name saves it
+staging               KEEP    protected:long-lived    an ancestor; only the name saves it
+production            KEEP    protected:long-lived    an ancestor; only the name saves it
+gh-pages              KEEP    protected:long-lived    an ancestor; only the name saves it
+r-spike-backup        KEEP    protected:backup        an ancestor; only the -backup suffix saves it
+n-worktree            KEEP    protected:worktree      an ancestor, and checked out elsewhere
+p1-ancestor           DELETE  landed:ancestor         merged with a real merge commit
+a-squash-clean        DELETE  landed:content          squash-merged; the default branch later moved on
+c-merged-main-back    DELETE  landed:content          squash-merged, then the default branch merged back in
+b-main-edited         KEEP    kept:conflict           squash-merged, then the same lines were edited
+e-parent              KEEP    kept:not-landed         never merged anywhere
+e-stacked-child       KEEP    kept:not-landed         merged into its parent, not the default branch
+s-tag-shadow          KEEP    kept:not-landed         work never landed; a tag of the same name points at the default branch
+u-added-then-removed  KEEP    kept:commit-not-landed  added a file and removed it, so it adds nothing while holding the only copy of what it added
