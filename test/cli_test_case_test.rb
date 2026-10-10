@@ -6,7 +6,6 @@
 # Run: ruby test/cli_test_case_test.rb
 
 require_relative 'cli_test_case'
-require 'open3'
 
 # Probe subclasses observe the scaffolding from inside a real Minitest
 # run. Their test methods only record what they see -- the assertions

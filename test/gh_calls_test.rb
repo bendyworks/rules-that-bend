@@ -120,7 +120,7 @@ class GhCallsTest < Minitest::Test
   end
 
   # A declared call the tool no longer makes would keep its line in
-  # gh-calls.txt. Both tools write a call's words as a list of quoted
+  # gh-calls.txt. A tool writes a call's words as a list of quoted
   # strings, which is what this looks for.
   def test_every_call_a_cli_declares_is_one_its_source_makes
     TOOLS.each do |path, tool|

@@ -127,11 +127,11 @@ module Fixtures
     # The second edit on develop is what produces the conflict, and it is
     # pushed because the branch is measured against what the remote has.
     def build_conflicting_branch
-      conflict_after_squashing_into(DEFAULT_BRANCH, CONFLICTING, 'gfd.txt')
+      conflict_after_squashing(CONFLICTING, 'gfd.txt')
       git('push', '-q', 'origin', "#{DEFAULT_BRANCH}:#{DEFAULT_BRANCH}")
     end
 
-    def conflict_after_squashing_into(target, branch, path)
+    def conflict_after_squashing(branch, path)
       git('checkout', '-q', DEFAULT_BRANCH)
       write_lines(path, %w[one two three])
       git('add', path)
@@ -140,7 +140,7 @@ module Fixtures
       git('checkout', '-qb', branch, DEFAULT_BRANCH)
       write_lines(path, %w[one BRANCH-EDIT three])
       git('commit', '-qam', "#{branch} edits #{path}")
-      squash_into(target, branch, "squash #{branch} into #{target}")
+      squash_into(DEFAULT_BRANCH, branch, "squash #{branch} into #{DEFAULT_BRANCH}")
 
       git('checkout', '-q', DEFAULT_BRANCH)
       write_lines(path, %w[one DEVELOP-EDITED-LATER three])

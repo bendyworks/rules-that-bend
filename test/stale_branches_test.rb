@@ -21,7 +21,7 @@
 #   - the loader's own guards must fire, since a guard that stops firing
 #     yields a table specifying less than it appears to
 #   - the fixtures must still build the structure the reasons rest on --
-#     the worktree, the shadowing tags, the deleted remote refs
+#     the worktree and the shadowing tags
 #
 # Together those are what stops the tables from being gradable by a sweep
 # nobody would ship, which is the failure the fixtures were rebuilt to
@@ -54,56 +54,29 @@ class OracleTableTest < Minitest::Test
     assert_tables_agree(Fixtures::GitflowRepo, GITFLOW, 'gitflow')
   end
 
-  # Both tables must demand a deletion from EVERY stage that can reach
-  # one, not merely somewhere. A table whose only deletions come from the
-  # cheap ancestor pass is satisfied by a sweep that implements that pass
+  # Every table must demand a deletion for EVERY reason that can reach
+  # one, not merely somewhere. A table whose only deletions come from
+  # the ancestor pass is satisfied by a sweep that implements that pass
   # and stops, and a table with no keepers is satisfied by one that
-  # deletes everything -- the same accidental-full-marks shape that made
-  # the earlier oracle gradable by implementations nobody would ship.
-  # Derived from the vocabulary rather than listed, so a stage added to
-  # REASONS later cannot slip past this guarantee.
-  #
-  # A stage counts as deleting when it can reach a deletion at all, which
-  # is a property of the rule rather than of a table. protected:* never
-  # deletes -- that is what protection means -- and kept:* is a keep by
-  # name, so what remains is the stages that weigh evidence.
-  NON_DELETING_STAGES = %w[protected kept].freeze
-
-  def self.deleting_stages
-    Fixtures::Oracle::REASONS.map { |reason| Fixtures::Oracle.stage(reason) }
-                             .uniq - NON_DELETING_STAGES
+  # deletes everything. Derived from the vocabulary rather than listed,
+  # so a deleting reason added to REASONS later is held to the same.
+  def self.deleting_reasons
+    Fixtures::Oracle::REASONS.select { |reason| Fixtures::Oracle.stage(reason) == 'landed' }
   end
 
-  # Each table is held to the stages it names.
-  def test_every_table_demands_a_deletion_from_every_stage_it_exercises
+  def test_every_table_demands_a_deletion_for_every_reason_that_can_delete
+    refute_empty self.class.deleting_reasons
+
     ALL.each do |path|
       rows = Fixtures::Oracle.load(path)
       table = File.basename(path)
-      named = rows.map { |row| Fixtures::Oracle.stage(row.reason) }.uniq
+      deleted_for = rows.select { |row| row.verdict == 'DELETE' }.map(&:reason)
 
-      (self.class.deleting_stages & named).each do |stage|
-        deletions = rows.count do |row|
-          row.verdict == 'DELETE' && Fixtures::Oracle.stage(row.reason) == stage
-        end
-        assert_operator deletions, :>, 0, "#{table} asks for no deletion decided by #{stage}"
-      end
-
+      assert_empty self.class.deleting_reasons - deleted_for,
+                   "#{table} asks for no deletion decided by these reasons"
       assert_operator rows.count { |row| row.verdict == 'KEEP' }, :>, 0,
                       "#{table} asks for no keeps at all"
     end
-  end
-
-  # And across the tables together, every deciding stage must reach a
-  # deletion somewhere. Without this, a stage added to REASONS and named
-  # by no row at all would satisfy the per-table test vacuously -- it
-  # only asks about stages a table names.
-  def test_every_deciding_stage_reaches_a_deletion_in_some_table
-    deleting = ALL.flat_map { |path| Fixtures::Oracle.load(path) }
-                  .select { |row| row.verdict == 'DELETE' }
-                  .map { |row| Fixtures::Oracle.stage(row.reason) }.uniq
-
-    assert_empty self.class.deleting_stages - deleting,
-                 'these stages can decide a deletion and no table asks for one'
   end
 
   # Every reason the vocabulary documents must be demanded by some row in
@@ -163,8 +136,8 @@ end
 # Every reason in the tables is a claim about the shape of the fixture,
 # and the tables assert those reasons against a sweep rather than against
 # the repository. So if a fixture quietly stopped building the shape its
-# rows describe -- the worktree not registered, the shadowing tag absent,
-# a remote ref that was supposed to be deleted still present -- the sweep
+# rows describe -- the worktree not registered, the shadowing tag
+# absent -- the sweep
 # would be graded against a specification nothing else holds it to, and
 # every test here would stay green while doing it.
 #
@@ -1043,8 +1016,6 @@ class ProtectionTest < Minitest::Test
     assert_nil protection('backup-of-something')
   end
 
-  private
-
   # Standing on the default branch is the most ordinary way to run this,
   # and both rules keep the branch, so only the reason says which fired.
   # That reason is the report's single witness that the sweep identified
@@ -1053,6 +1024,8 @@ class ProtectionTest < Minitest::Test
   def test_the_default_branch_is_still_decided_as_the_default_when_it_is_current
     assert_equal 'protected:default', protection('main', current: 'main')
   end
+
+  private
 
   def protection(branch, **overrides)
     StaleBranches.protection_for(branch, **FACTS.merge(overrides))
@@ -1063,10 +1036,8 @@ end
 module SweepRun
   Result = Struct.new(:rows, :stdout, :stderr)
 
-  # The reason column carries a stable key, optionally followed by a
-  # parenthesized detail (a pull-request number, say). Only the key is
-  # matched, so the legend's wording stays free to change without
-  # breaking a test.
+  # The reason column carries a stable key, and only the key is
+  # matched.
   REPORT_LINE = /\A(?<branch>\S+)\s{2,}(?<outcome>DELETE|keep)\s{2,}(?<reason>[a-z0-9:-]+)/
 
   # A sweep that hands a full refname to `git branch -d` deletes nothing
@@ -1123,7 +1094,7 @@ class ReportTest < Minitest::Test
   ROWS = [
     StaleBranches::Row.new('main', 'KEEP', 'protected:default'),
     StaleBranches::Row.new('a-squash-clean', 'DELETE', 'landed:content'),
-    StaleBranches::Row.new('l-tracks-deleted-local', 'KEEP', 'kept:not-landed')
+    StaleBranches::Row.new('e-stacked-child', 'KEEP', 'kept:not-landed')
   ].freeze
 
   def test_every_row_survives_the_round_trip_through_the_oracles_parser
@@ -1260,39 +1231,6 @@ class OracleTestCase < CliTestCase
     StaleBranches::Sweep.new(git: git)
   end
 
-  # Every command run in the block resolves against an empty PATH, so
-  # even git is gone. The version gate runs before anything else and
-  # captures git directly rather than through Git#capture, so its own
-  # rescue is the only thing between a missing git and a raw backtrace.
-  def with_nothing_on_path
-    Dir.mktmpdir('empty-path') do |dir|
-      saved = ENV.fetch('PATH')
-      ENV['PATH'] = dir
-      begin
-        yield
-      ensure
-        ENV['PATH'] = saved
-      end
-    end
-  end
-
-  def resolve_on_path(command)
-    found = ENV.fetch('PATH').split(File::PATH_SEPARATOR)
-               .map { |dir| File.join(dir, command) }
-               .find { |path| File.executable?(path) }
-    found || flunk("#{command} is not on PATH, so this test cannot run")
-  end
-
-  # A second remote, added to a repository already built. It is given
-  # the same URL as origin, so what it advertises is identical and the
-  # verdicts cannot change: this arm is about which knob the sweep
-  # reads, not about two remotes disagreeing.
-  def add_upstream_remote(repo, name: 'upstream')
-    repo.git('remote', 'add', name, repo.origin)
-    repo.git('fetch', '-q', name)
-    name
-  end
-
   # The CLI shells out to git, so it runs under the same neutralized
   # environment the fixture was built with: a developer's commit.gpgsign
   # or merge.ff must not be able to change a verdict, and an ambient
@@ -1362,20 +1300,20 @@ class OracleTestCase < CliTestCase
     end
   end
 
-  # Every row a table demands of one stage, against every row the sweep
-  # reached by it. Compared as whole sets in both directions, so a stage
-  # that reaches the right verdict for an extra branch is a failure too.
-  def assert_stage_matches(oracle_path, sweep, stage)
+  # Every row a table gives one reason, against every row the sweep
+  # gave it. Compared as whole sets in both directions, so the right
+  # verdict for an extra branch is a failure too.
+  def assert_reason_matches(oracle_path, sweep, reason)
     expected = Fixtures::Oracle.load(oracle_path)
-                               .select { |row| row.reason == stage }
+                               .select { |row| row.reason == reason }
                                .to_h { |row| [row.branch, row.verdict] }
-    refute_empty expected, "the table demands nothing of #{stage}"
+    refute_empty expected, "the table demands nothing of #{reason}"
 
-    assert_equal expected, stage_of(sweep, stage), "#{stage} disagrees with the table"
+    assert_equal expected, rows_with_reason(sweep, reason), "#{reason} disagrees with the table"
   end
 
-  def stage_of(sweep, stage)
-    sweep.rows.select { |row| row.reason == stage }.to_h { |row| [row.branch, row.verdict] }
+  def rows_with_reason(sweep, reason)
+    sweep.rows.select { |row| row.reason == reason }.to_h { |row| [row.branch, row.verdict] }
   end
 end
 
@@ -1861,7 +1799,7 @@ end
 class AncestorPassTest < OracleTestCase
   def test_the_flat_tables_ancestor_row_is_the_one_ancestry_clears
     with_flat_fixture('ancestor') do |repo|
-      assert_stage_matches(FLAT_ORACLE, measure(repo), 'landed:ancestor')
+      assert_reason_matches(FLAT_ORACLE, measure(repo), 'landed:ancestor')
     end
   end
 
@@ -1869,7 +1807,7 @@ class AncestorPassTest < OracleTestCase
   # and measuring against main would clear the wrong ones.
   def test_the_gitflow_tables_ancestor_row_is_measured_against_its_own_default
     with_gitflow_fixture('ancestor') do |repo|
-      assert_stage_matches(GITFLOW_ORACLE, measure(repo), 'landed:ancestor')
+      assert_reason_matches(GITFLOW_ORACLE, measure(repo), 'landed:ancestor')
     end
   end
 
@@ -1883,7 +1821,7 @@ class AncestorPassTest < OracleTestCase
     with_flat_fixture('tag-trap') do |repo|
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'landed:ancestor').keys, 's-tag-shadow'
+      refute_includes rows_with_reason(sweep, 'landed:ancestor').keys, 's-tag-shadow'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 's-tag-shadow' }&.verdict,
                    'the branch a tag shadows was swept up by the tag'
     end
@@ -1893,7 +1831,7 @@ class AncestorPassTest < OracleTestCase
     with_gitflow_fixture('tag-trap') do |repo|
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'landed:ancestor').keys, 'amb'
+      refute_includes rows_with_reason(sweep, 'landed:ancestor').keys, 'amb'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'amb' }&.verdict,
                    'the branch a tag shadows was swept up by the tag'
     end
@@ -1910,7 +1848,7 @@ class AncestorPassTest < OracleTestCase
 
       sweep = measure(repo)
 
-      refute_includes stage_of(sweep, 'landed:ancestor').keys, 'e-parent'
+      refute_includes rows_with_reason(sweep, 'landed:ancestor').keys, 'e-parent'
       assert_equal 'KEEP', sweep.rows.find { |row| row.branch == 'e-parent' }&.verdict,
                    'the branch was not cleared, but it was not reported either'
     end
@@ -1991,7 +1929,7 @@ class ContentCheckTest < OracleTestCase
       sweep = measure(repo)
 
       %w[landed:content kept:conflict kept:not-landed].each do |stage|
-        assert_stage_matches(FLAT_ORACLE, sweep, stage)
+        assert_reason_matches(FLAT_ORACLE, sweep, stage)
       end
     end
   end
@@ -2001,7 +1939,7 @@ class ContentCheckTest < OracleTestCase
       sweep = measure(repo)
 
       %w[landed:content kept:not-landed].each do |stage|
-        assert_stage_matches(GITFLOW_ORACLE, sweep, stage)
+        assert_reason_matches(GITFLOW_ORACLE, sweep, stage)
       end
     end
   end
@@ -2012,7 +1950,7 @@ class ContentCheckTest < OracleTestCase
   # branch that adds something.
   def test_a_conflicting_branch_is_kept_and_says_the_check_could_not_answer
     with_flat_fixture('conflict') do |repo|
-      conflicted = stage_of(measure(repo), 'kept:conflict')
+      conflicted = rows_with_reason(measure(repo), 'kept:conflict')
 
       refute_empty conflicted, 'no branch reached the check that could not answer'
       assert_equal %w[KEEP], conflicted.values.uniq
@@ -2050,6 +1988,20 @@ class MissingGitTest < Minitest::Test
       assert_match(/could not run git/, assert_raises(StaleBranches::Error) do
         git.capture('--version')
       end.message)
+    ensure
+      ENV['PATH'] = saved
+    end
+  end
+
+  # The version gate runs before anything else in a sweep and runs git
+  # without Git#capture, so it has a rescue of its own.
+  def test_the_version_gate_reports_a_missing_git_as_a_sentence
+    Dir.mktmpdir('stale-branches-no-git') do |empty|
+      saved = ENV.fetch('PATH')
+      ENV['PATH'] = empty
+      git = StaleBranches::Git.new(dir: Dir.tmpdir, remote: 'origin')
+
+      assert_match(/could not run git/, assert_raises(StaleBranches::Error) { git.version }.message)
     ensure
       ENV['PATH'] = saved
     end
