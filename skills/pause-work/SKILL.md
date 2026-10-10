@@ -1,6 +1,6 @@
 ---
 name: pause-work
-description: Pause an unfinished story so a fresh session can carry it on. Writes dated resume notes into the story's plan file (what is pushed and what is only local, decisions with their reasons, checks already run, tests failing on purpose, what is waiting on the developer) and ends by naming the resume-work skill. Use when the user says "let's continue this in a fresh session", "I'm running low on context", "hand this off to a new session", "pause this story", "wrap up for a new session", or invokes the pause-work skill. Not for a story that has shipped; that is the finished-issue-housekeeping skill.
+description: Pause an unfinished story so a fresh session can carry it on. Writes dated resume notes into the story's plan file (what is pushed and what is only local, decisions with their reasons, checks already run, tests failing on purpose, what is waiting on the developer) and ends by naming the resume-work skill. Use when the user says "let's continue this in a fresh session", "I'm running low on context", "hand this off to a new session", "pause this story", or invokes the pause-work skill. Not for a shipped story: that is the finished-issue-housekeeping skill.
 ---
 
 # Pause work
@@ -34,25 +34,26 @@ With no plan file, ask the developer where to write them.
 
 2. **Bring the plan up to date.** Tick each to-do whose work is
    finished and verified, and correct any sentence in the plan about
-   the story's state that is no longer true.
+   the story's state that is no longer true. **When the plan names a
+   GitHub issue, then sync that issue's checklist:**
+   `gh-issue-sync checklist <issue> --plan <plan file>`.
 
 3. **Append the notes to the end of the plan file** under
    `## Resume notes (<today's date>)`, after any earlier notes. Keep
-   the heading at `##`, which is where the to-do list ends for the
-   tools that read it, and write no checkboxes under it: the finished-issue-housekeeping skill (bundled in this
+   the heading at `##`, where the to-do list ends for the tools that
+   read it, and write no checkboxes under it: the finished-issue-housekeeping skill (bundled in this
    plugin) counts every unchecked box in the file as unfinished work.
    Refer to a to-do by its number. The next session acts on the newest
    notes only, so repeat what is still open. The notes say:
 
    - **Pushed and local:** the branch, each commit not on the remote
-     (short hash and subject), each uncommitted path and why it is
-     uncommitted (the plan file too, where git tracks it), each stash
-     made on this branch, and each pull request with its state.
+     (hash and subject), each uncommitted path and why (the plan
+     file too, where git tracks it), each stash made on this branch, and each pull request with its state.
    - **Decisions:** each one made this session, with its reason.
    - **Checks already run:** each fact learned by running something,
-     with the command and what came back.
-   - **Failing on purpose:** each such test by name, and what it is
-     waiting for.
+     with the command and its result.
+   - **Failing on purpose:** each such test by name, and what it
+     waits for.
    - **Waiting on the developer:** each question or approval, with its
      text or the path to it.
    - **Next:** the next to-do by its number, where in it the work
@@ -60,8 +61,8 @@ With no plan file, ask the developer where to write them.
 
 4. **Correct memory; add nothing to it.** Where the project's memory
    has an entry about this story's position that is now wrong, rewrite
-   it as one true line that points at the plan file. The notes
-   themselves never go there.
+   it as one true line pointing at the plan file. The notes never go
+   there.
 
 5. **End on one line:** start a fresh session and invoke the
    resume-work skill with the plan's name, written the way this
