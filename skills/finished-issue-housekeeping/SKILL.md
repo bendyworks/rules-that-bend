@@ -283,13 +283,14 @@ something different, and they need different responses:
   branch whose commits correct each other is squash-merged. The
   comparison under `kept:conflict` tells them apart: no difference
   from the head that merged means the second. A `backup/` branch taken
-  before a squash or a reword usually reads this way, since the
-  commits the rewrite replaced are on no other branch.
+  before a squash reads this way when its commits rewrote each other's
+  lines; one whose commits did not is an ordinary `landed:content` row.
 
-**Delete a kept `backup/` branch without asking when you can account
-for everything it holds, unless the user said this session they are
-still using it.** It was taken before a rewrite of the branch it
-names: `backup/<branch>`, sometimes with a label after it
+**Delete a `backup/` branch the tool kept under a `kept:` reason,
+without asking, when you can account for everything it holds, unless
+the user said this session they are still using it.** It was taken
+before a rewrite of the branch it names: `backup/<branch>`, sometimes
+with a label after it
 (`backup/<branch>-pre-squash`). Find that branch's merged pull request
 with the `gh pr list` command above, trying the whole name after
 `backup/` first and then each shorter name cut at a hyphen from the
@@ -298,10 +299,10 @@ and its base is the default branch. Then run
 `git diff 'refs/heads/<backup>' <head sha>`, under the same rules as
 above. No difference, or only lines that the branch's own commits
 after the backup changed, means the backup has nothing left to
-restore: delete it with `git branch -D -- '<backup>'` and name it in
-the Step 10 summary with the `was` SHA git prints. No such pull
-request, or a difference you cannot account for, stays a question for
-the user.
+restore: read its tip with `git rev-parse 'refs/heads/<backup>'`,
+delete it with `git branch -D -- '<backup>'`, and name it in the
+Step 10 summary with that SHA. No such pull request, or a difference
+you cannot account for, stays a question for the user.
 
 A deletion carries a reason too, and each deserves the same glance:
 `landed:ancestor`, every commit already on the default branch; and
