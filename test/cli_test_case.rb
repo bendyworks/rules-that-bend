@@ -58,22 +58,12 @@ class CliTestCase < Minitest::Test
     GIT_TEMPLATE_DIR
   ].freeze
 
-  # How a serving stub reports back: one line per invocation to the
-  # first, one line per invocation it does not serve to the second. The
-  # installer sets both, and they are scrubbed alongside everything else
-  # so an ambient value cannot send a stub's log somewhere this run
-  # never reads -- which would look exactly like a CLI that asked
-  # nothing.
-  CLI_STUB_LOG_ENV = 'CLI_STUB_LOG'
-  CLI_STUB_REFUSALS_ENV = 'CLI_STUB_REFUSALS'
-
   # Env vars whose machine values must not leak into any CLI test run,
   # deleted before each test and restored to their original values
   # afterward. POSIXLY_CORRECT is scrubbed for every CLI because
   # OptionParser's parsing mode depends on it.
   BASE_SCRUBBED_ENV_KEYS = (%w[POSIXLY_CORRECT] + GIT_LOCATION_ENV_KEYS +
-                            GIT_CONFIG_ENV_KEYS +
-                            [CLI_STUB_LOG_ENV, CLI_STUB_REFUSALS_ENV]).freeze
+                            GIT_CONFIG_ENV_KEYS).freeze
 
   # Subclasses override to extend the scrub with their CLI's own env
   # keys (tokens, default-team settings, and kin).
@@ -89,34 +79,6 @@ class CliTestCase < Minitest::Test
   # was hit.
   def shimmed_commands
     []
-  end
-
-  # Subclasses override to name commands their CLI shells out to that a
-  # test must ANSWER rather than refuse: a forge client whose replies
-  # are the fixture's own data. Each entry maps the command's name to
-  # the path of a program serving it, which the installer copies onto
-  # PATH under that name.
-  #
-  # A path rather than a script body, so the program stays a file that
-  # can be run, read, and tested on its own -- a stub reachable only
-  # through the suite it serves is one nothing can check the shape of.
-  #
-  # The two lists are opposites, and a command in both would have one of
-  # them silently win, so naming a command in both is refused.
-  def served_commands
-    {}
-  end
-
-  # Every invocation the serving stubs have recorded so far, one string
-  # per call, readable during the test. What a CLI asked the forge is
-  # half of what a forge test is asserting: a sweep that queries a
-  # branch it should never have reached is wrong even when every verdict
-  # it prints is right.
-  def served_invocations
-    log = @stub_log
-    return [] unless log && File.exist?(log)
-
-    File.readlines(log).map(&:chomp)
   end
 
   # The invocation the tests drive, owned here rather than written per
@@ -163,16 +125,9 @@ class CliTestCase < Minitest::Test
     # place, and this restore still runs.
     @saved_env&.each { |key, value| value ? ENV[key] = value : ENV.delete(key) }
     super
-    # The verdicts come after super so a flunk cannot skip an
+    # The verdict comes after super so a flunk cannot skip an
     # ancestor's cleanup.
     flunk "command intercepted by test shim (live call refused):\n#{@shim_hits}" if @shim_hits
-    return unless @stub_refusal_hits
-
-    # A stub that answered a call it does not serve would teach the
-    # suite that the CLI asked something it never asked, so the refusal
-    # is carried out to here rather than left in the stub's exit status,
-    # which a CLI degrading on failure is entitled to swallow.
-    flunk "invocation refused by test stub (nothing serves it):\n#{@stub_refusal_hits}"
   end
 
   # Everything a refusing CLI did on its way out. Kernel#abort carries
@@ -207,13 +162,9 @@ class CliTestCase < Minitest::Test
 
   private
 
-  # Both kinds of stand-in share one directory at the front of PATH: the
-  # refusing shims, and the stubs that serve. The emptiness test covers
-  # both lists, so a suite that only serves still gets a PATH to serve
-  # from.
+  # The refusing shims live in one directory at the front of PATH.
   def install_path_stand_ins
-    refuse_overlapping_stand_ins
-    return if shimmed_commands.empty? && served_commands.empty?
+    return if shimmed_commands.empty?
 
     # Saved before any fallible work: if anything below raises,
     # remove_path_stand_ins must restore PATH from a real value, never
@@ -221,22 +172,8 @@ class CliTestCase < Minitest::Test
     @saved_path = ENV.fetch('PATH')
     @stand_in_dir = Dir.mktmpdir('cli-test-stand-ins')
     @shim_log = File.join(@stand_in_dir, 'invocations.log')
-    @stub_log = File.join(@stand_in_dir, 'served.log')
-    @stub_refusals = File.join(@stand_in_dir, 'refusals.log')
     write_command_shims
-    install_serving_stubs
     ENV['PATH'] = "#{@stand_in_dir}#{File::PATH_SEPARATOR}#{@saved_path}"
-  end
-
-  # A name in both lists asks for a command that is refused and also
-  # answered. Whichever list won would win silently, and the suite would
-  # go on passing either way, so this is refused rather than resolved.
-  def refuse_overlapping_stand_ins
-    overlap = shimmed_commands & served_commands.keys
-    return if overlap.empty?
-
-    flunk "#{self.class} names #{overlap.join(', ')} as both shimmed and served; " \
-          'a command is either refused or answered, never both'
   end
 
   def write_command_shims
@@ -252,32 +189,15 @@ class CliTestCase < Minitest::Test
     end
   end
 
-  # Copied rather than symlinked: a stub that resolves its own directory
-  # from $0 would find the source tree instead of the run's own
-  # directory, and the copy is what makes the mode bit this run's to set.
-  def install_serving_stubs
-    return if served_commands.empty?
-
-    ENV[CLI_STUB_LOG_ENV] = @stub_log
-    ENV[CLI_STUB_REFUSALS_ENV] = @stub_refusals
-    served_commands.each do |command, program|
-      stub_path = File.join(@stand_in_dir, command)
-      FileUtils.cp(program, stub_path)
-      File.chmod(0o755, stub_path)
-    end
-  end
-
   def remove_path_stand_ins
     return unless @stand_in_dir
 
     ENV['PATH'] = @saved_path
     @shim_hits = read_stand_in_log(@shim_log)
-    @stub_refusal_hits = read_stand_in_log(@stub_refusals)
     FileUtils.remove_entry(@stand_in_dir)
-    # All four are nilled together: they name paths inside a directory
-    # that no longer exists, and a half-cleared set invites a later read
-    # of one that looks live.
-    @stand_in_dir = @stub_log = @shim_log = @stub_refusals = nil
+    # Both are nilled together: the log is a path inside a directory
+    # that no longer exists.
+    @stand_in_dir = @shim_log = nil
   end
 
   def read_stand_in_log(path)

@@ -39,7 +39,6 @@
 #   repairs that ref, but only for whoever remembers to run it; asking
 #   the remote needs no memory and writes nothing.
 
-require 'json'
 require 'open3'
 require 'optparse'
 
@@ -49,8 +48,7 @@ module StaleBranches
   DEFAULT_REMOTE = 'origin'
 
   USAGE = <<~TXT
-    Usage: stale-branches [-C DIR] [--remote NAME] [--repo OWNER/NAME]
-                          [--offline] [--delete]
+    Usage: stale-branches [-C DIR] [--remote NAME] [--delete]
 
     Reports every local branch with a verdict and the evidence behind
     it. Nothing is deleted unless --delete is given, and then only the
@@ -59,21 +57,13 @@ module StaleBranches
       -C DIR          the repository to sweep (default: the working directory)
       --remote NAME   the remote whose default branch verdicts are measured
                       against (default: #{DEFAULT_REMOTE})
-      --repo OWNER/NAME
-                      the GitHub project whose pull requests are read
-                      (default: whichever one gh resolves from DIR). Name it
-                      when DIR is a clone of a fork -- your pull requests live
-                      in the project you opened them against, and asking the
-                      fork comes back empty rather than failing
-      --offline       do not consult pull requests at all
       --delete        delete the branches marked DELETE
       -h, --help      print this message
 
-    Pull requests are read through the gh command, so the repository
-    must be hosted on GitHub. Where gh cannot read them the report says
-    so, and --delete is refused. --offline --delete deletes on the local
-    evidence alone, including a branch whose work has landed while its
-    pull request is still open.
+    Every verdict comes from the repository itself. Pull requests are
+    not read, so a branch whose work has landed is marked DELETE even
+    while a pull request for it is open. Only the local branch is
+    deleted.
 
     A branch is kept unless the evidence positively says its work has
     landed. Unpushed work and an unanswerable question both end in a
@@ -81,12 +71,6 @@ module StaleBranches
     as of your last fetch -- never against a local branch, which may
     carry commits no remote has seen.
   TXT
-
-  # Repeated into the report on stdout because the warnings go to
-  # stderr, and a redirected report would otherwise read as though every
-  # verdict in it had been checked against a pull request.
-  UNCONSULTED_NOTICE = 'NOTE: pull requests were not consulted for every row in this ' \
-                       'report; see the warnings on stderr.'
 
   # Which remote-tracking ref the sweep falls back to when the remote
   # cannot be reached, in order. Picking one is a guess about which
@@ -108,11 +92,6 @@ module StaleBranches
   # The suffix a hand-made safety net carries. Someone typed it to keep
   # something; the sweep is not the tool that second-guesses that.
   BACKUP_SUFFIX = '-backup'
-
-  # The prefix a backup taken before a rewrite carries, ahead of the
-  # name of the branch it backs up. Unlike the suffix above, it marks a
-  # branch meant to go once the branch it names has merged.
-  BACKUP_PREFIX = 'backup/'
 
   # Where `merge-tree --write-tree` arrived. Before it, merge-tree was
   # a different tool taking three arguments, so the command below does
@@ -154,31 +133,6 @@ module StaleBranches
                                          # from one this tool broke.
                                          'LC_ALL' => 'C')
                                   .freeze
-
-  # The variables that redirect gh the way GIT_DIR redirects git, unset
-  # for the forge's children. GH_REPO wins over the repository gh would
-  # resolve from its working directory, so an ambient one answers every
-  # query about a different project -- and answers it with [] and exit
-  # 0, which is not a failure this tool can notice: no warning prints,
-  # open-pull-request protection silently stops protecting, and every
-  # branch reads as having no pull request. That is the same hazard
-  # REDIRECTING_ENV_KEYS documents, arriving through a variable git
-  # never looks at.
-  #
-  # The colour forcing is here for a different reason with the same
-  # ending. gh honours CLICOLOR_FORCE and GH_FORCE_TTY even when its
-  # output is a pipe, and NO_COLOR does not override them; the reply
-  # then carries ANSI escapes, JSON.parse raises, and the whole forge
-  # half is off for anyone who sets either in a shell profile.
-  #
-  # GH_HOST is deliberately left alone: it is how a GitHub Enterprise
-  # user names their host, and honouring it can only send the question
-  # somewhere the caller already chose.
-  FORGE_REDIRECTING_ENV_KEYS = %w[GH_REPO CLICOLOR_FORCE GH_FORCE_TTY].freeze
-
-  FORGE_ENV = CHILD_ENV.merge(FORGE_REDIRECTING_ENV_KEYS.to_h { |key| [key, nil] })
-                       .merge('NO_COLOR' => '1')
-                       .freeze
 
   # One branch's verdict and the rule that reached it. The verdict is
   # asked through the predicate rather than compared as a string, so
@@ -223,11 +177,7 @@ module StaleBranches
   # The parsed command line. Held as a value rather than a hash so a
   # stage reaching for a flag that does not exist fails where it is
   # written rather than reading as nil.
-  Options = Struct.new(:dir, :remote, :repo, :offline, :delete, :help) do
-    def offline?
-      offline
-    end
-
+  Options = Struct.new(:dir, :remote, :delete, :help) do
     def delete?
       delete
     end
@@ -245,18 +195,6 @@ module StaleBranches
   # requires of an acceptance pattern.
   VALUE_NOT_FLAG = /\A[^-].*\z/m
 
-  # What gh accepts for --repo: OWNER/NAME, optionally preceded by a
-  # host. Narrowed here for the same reason -C and --remote are, and
-  # with one extra: the host component decides which server the question
-  # -- and the credentials for it -- are sent to, so a typo there is
-  # worth refusing rather than forwarding.
-  REPO_NAME = %r{\A[\w.-]+/[\w.-]+(?:/[\w.-]+)?\z}
-
-  # The gh commands this tool runs, which Forge#gh checks each call
-  # against. gh-calls.txt lists them among the commands a replacement
-  # for gh would have to answer.
-  GH_CALLS = ['pr list'].freeze
-
   module_function
 
   # Parsed here rather than in the CLI class below because nothing about
@@ -264,15 +202,10 @@ module StaleBranches
   # the caller typed can still be refused for free.
   def parse_options(argv)
     values = {}
-    flags = { offline: false, delete: false, help: false }
+    flags = { delete: false, help: false }
     rest = permute(argv, values, flags)
-    # No default for :repo. Every other value here has an obvious one,
-    # and this does not: a guess would name a GitHub project nobody
-    # asked about, and gh answering for the wrong one is an empty
-    # result rather than an error. Left nil, the question of which
-    # project to ask is gh's to answer from the repository itself.
     options = Options.new(values.fetch(:dir, '.'), values.fetch(:remote, DEFAULT_REMOTE),
-                          values[:repo], flags[:offline], flags[:delete], flags[:help])
+                          flags[:delete], flags[:help])
     # A request for usage is answered rather than corrected. Someone
     # typing `stale-branches --help main` is asking what the command
     # takes, and telling them their argument is unexpected is a worse
@@ -280,10 +213,6 @@ module StaleBranches
     return options if options.help?
 
     raise Error, "unexpected extra arguments: #{rest.map(&:inspect).join(', ')}" unless rest.empty?
-    # Naming the project to ask and saying not to ask are opposite
-    # instructions. Silently honouring one is how a caller ends up
-    # believing the sweep consulted an upstream it never opened.
-    raise Error, '--repo and --offline contradict each other' if options.repo && options.offline?
 
     options
   end
@@ -304,14 +233,9 @@ module StaleBranches
            'the remote whose default branch is measured against') do |v|
         set_once(values, :remote, '--remote', v)
       end
-      o.on('--repo OWNER/NAME', REPO_NAME,
-           'the GitHub project whose pull requests are read') do |v|
-        set_once(values, :repo, '--repo', v)
-      end
       # Repeated booleans are accepted where a repeated value option is
       # refused: repeating one discards no input and leaves the sweep
       # acting on exactly what was typed.
-      o.on('--offline', 'do not consult pull requests at all') { flags[:offline] = true }
       o.on('--delete', 'delete the branches marked DELETE') { flags[:delete] = true }
       o.on('-h', '--help', 'print usage') { flags[:help] = true }
       # OptionParser answers --version itself unless told otherwise,
@@ -416,119 +340,6 @@ module StaleBranches
     "#{branch.ljust(branch_width)}  #{verdict.ljust(verdict_width)}  #{reason}"
   end
 
-  # Whether anybody still has a pull request open on this branch. Asked
-  # of the protected set rather than of proof (b), and so asked of every
-  # branch rather than only of the ones the content check could not
-  # answer for: the branch this protects is the one whose work has
-  # already landed by another route, and proof (b) never runs on those.
-  def open_pull_request?(records)
-    records.any? { |record| state?(record, 'OPEN') }
-  end
-
-  # trust_forks is what --repo buys. On a clone of a fork every one of
-  # your own pull requests goes from your fork to the project you named,
-  # so GitHub reports all of them as cross-repository -- and rejecting
-  # those would leave proof (b) unable to clear anything at all there,
-  # reporting "the merged pull request came from a fork" about the
-  # caller's own work. Naming the project explicitly is the caller
-  # saying where their pull requests live, so the clause stands down.
-  #
-  # What still does the work is headRefOid == tip, one clause below. A
-  # merged pull request into the default branch carrying this branch's
-  # exact tip means the content landed, whoever opened it: merging takes
-  # write access, and a stranger who pushed your commits to their fork
-  # and got them merged has landed your work rather than stolen it.
-  # Without --repo the question went to your own repository, where a
-  # cross-repository record really is somebody else's fork answering a
-  # question about a branch that merely shares a name -- so there the
-  # clause stays.
-  #
-  # The clause logic of proof (b): what a branch's pull requests, taken
-  # together, say about whether its work reached the default branch.
-  # Every pull request reaching here is finished, because an open one
-  # would have been protected before the content check ran.
-  # Pure, because every mistake available here is a comparison -- a
-  # state read case-sensitively, a base compared to the wrong name, the
-  # newest record read instead of the matching one -- and a comparison
-  # is cheapest to pin without a repository in the way.
-  #
-  # Each clause rejects RECORDS rather than the branch, which is what
-  # keeps a fork's merged pull request from taking your own out of
-  # consideration. The branch is only kept once nothing is left.
-  def pull_request_verdict(records, tip:, default:, trust_forks: false)
-    return ['KEEP', 'proof-b:no-pr'] if records.empty?
-
-    merged = merged_records(records)
-    return ['KEEP', 'proof-b:pr-closed'] if merged.empty?
-
-    same_repo = from_this_repository(merged, trust_forks: trust_forks)
-    return ['KEEP', 'proof-b:pr-from-fork'] if same_repo.empty?
-
-    on_default = same_repo.select { |record| record['baseRefName'] == default }
-    return ['KEEP', 'proof-b:pr-other-base'] if on_default.empty?
-
-    landed_here = on_default.any? { |record| record['headRefOid'] == tip }
-    landed_here ? ['DELETE', 'proof-b:pr-merged'] : ['KEEP', 'proof-b:pr-tip-differs']
-  end
-
-  def merged_records(records)
-    records.select { |record| state?(record, 'MERGED') }
-  end
-
-  def from_this_repository(merged, trust_forks:)
-    trust_forks ? merged : merged.select { |record| record['isCrossRepository'] == false }
-  end
-
-  # The branches a backup's name may be saying it backs up, most
-  # specific first: everything after backup/, then each shorter form
-  # cut at a hyphen, because a label follows the branch name
-  # (backup/<branch>-pre-squash) and nothing in the name says where
-  # one ends and the other begins. Empty for any other branch.
-  #
-  # A wrong guess costs a query and decides nothing. The name only
-  # finds a pull request; the backup is cleared on its tree.
-  def backed_up_names(branch)
-    return [] unless branch.start_with?(BACKUP_PREFIX)
-
-    words = branch.delete_prefix(BACKUP_PREFIX).split('-', -1)
-    words.length.downto(1).map { |count| words.first(count).join('-') }.reject(&:empty?)
-  end
-
-  # Which of a branch's pull requests put its work on the default
-  # branch, for the backup rule. The first two clauses are proof (b)'s
-  # own. The third is wider than proof (b)'s: a merged layer of a stack
-  # keeps the layer below as its base for good, so a base that is not
-  # the default branch counts when the commit that merged it is one the
-  # default branch contains. The block answers that for a commit.
-  #
-  # mergeCommit is the forge's text on its way to a git argument, so
-  # anything that is not a full object name is dropped here and the
-  # block never sees it.
-  def landed_records(records, default:, trust_forks: false)
-    from_this_repository(merged_records(records), trust_forks: trust_forks).select do |record|
-      next true if record['baseRefName'] == default
-
-      merge_commit = record['mergeCommit']
-      commit = merge_commit['oid'] if merge_commit.is_a?(Hash)
-      object_name?(commit) && yield(commit)
-    end
-  end
-
-  # What the forge reports as a commit is held to this before it is
-  # passed to git, where a ref name or a revision expression would
-  # resolve to something the forge never meant.
-  def object_name?(text)
-    text.is_a?(String) && text.match?(OBJECT_NAME)
-  end
-
-  # Compared without regard to case. gh spells these in capitals today,
-  # and the failure a case-sensitive test would produce is silent: every
-  # state goes unrecognized, which reads as closed and keeps every
-  # branch -- a sweep that has stopped working and still looks careful.
-  def state?(record, state)
-    record['state'].to_s.casecmp?(state)
-  end
-
   # The major and minor of what `git --version` prints, or nil where
   # that is not a version at all.
   def parse_git_version(output)
@@ -547,10 +358,7 @@ module StaleBranches
   # the repository is somewhere other than where this process is
   # standing.
   class Git
-    # The directory every child of this object runs in. Readable because
-    # the forge runs its own children in the same one, and the two
-    # disagreeing about which repository is being swept is not a state
-    # worth being able to reach.
+    # The directory every child of this object runs in.
     attr_reader :dir, :remote
 
     def initialize(dir:, remote:)
@@ -691,14 +499,6 @@ module StaleBranches
       sha("#{ref}^{tree}")
     end
 
-    # Whether `head` carries what `ref` holds: every commit on `ref` is
-    # one of its ancestors, or a commit it has and `ref` lacks has the
-    # tree `ref` has.
-    def carries?(head, ref)
-      ancestor?(ref, head) ||
-        lines('log', '--format=%T', head, '--not', ref).include?(tree_of(ref))
-    end
-
     # nil rather than a failure where the ref is absent or is not
     # symbolic, both of which are ordinary states rather than problems.
     def symbolic_ref(name)
@@ -831,174 +631,14 @@ module StaleBranches
     end
   end
 
-  # The only code that runs the GitHub CLI, and the only place this tool
-  # asks anything of a network. gh is run with the swept repository as
-  # the child's working directory rather than being told which
-  # repository to ask about, so it applies its own resolution rules --
-  # `gh repo set-default`, enterprise hosts, insteadOf rewrites -- and
-  # refuses a remote that is not GitHub. Deriving owner/name here
-  # instead would mean a GitLab remote resolving to a same-named
-  # github.com repository, whose pull requests would then be read as
-  # evidence about these branches.
-  class Forge
-    # The fields this reads, and no others. gh refuses a field name it
-    # does not know, so this list is checked by the first query rather
-    # than by a verdict that quietly went wrong. headRefName is read
-    # only to confirm the reply is about the branch that was asked
-    # about, and mergeCommit only by the backup rule; the other four
-    # are what the verdict turns on.
-    FIELDS = %w[state headRefName headRefOid baseRefName isCrossRepository mergeCommit].freeze
-
-    # gh truncates at 30 by default and says nothing when it does. A
-    # branch with more pull requests than this is not a shape worth
-    # designing for, but silently reading the first 30 of them is, so
-    # the limit is stated rather than inherited. Truncation stays
-    # silent, and gh returns newest first while the clearing record may
-    # be an older one. A truncated reply usually costs a deletion the
-    # sweep could have made -- but it can also drop an OPEN record, and
-    # that costs a keep the sweep promises, which is why the limit is
-    # far above any real branch's count rather than merely stated.
-    LIMIT = 100
-
-    attr_reader :failure
-
-    # Whether any branch got a real answer before the forge stopped
-    # answering. A sweep that failed on its first question and one that
-    # failed halfway through report the same verdicts for the branches
-    # below the failure and different ones above it, and the caller
-    # cannot tell which rows are which without being told.
-    def answered_any?
-      @answered
-    end
-
-    # Whether the caller named the project rather than leaving it to gh.
-    # Proof (b) reads this: see pull_request_verdict on what it changes.
-    def named_repo?
-      !@repo.nil?
-    end
-
-    def initialize(dir:, repo: nil, offline: false)
-      @dir = dir
-      @repo = repo
-      @records = {}
-      @offline = offline
-      @available = !offline
-      @answered = false
-    end
-
-    # Asked for rather than suffered. The verdicts are the same either
-    # way, and what differs is whether the caller chose them: a sweep
-    # that could not reach gh has to say so and refuse to delete, and
-    # one told not to try has already been told.
-    def offline?
-      @offline
-    end
-
-    def available?
-      @available
-    end
-
-    # The pull requests naming this branch, or nil when the forge could
-    # not be reached at all. nil and [] are the distinction the whole
-    # degradation rests on: [] is an answer, and nil is the absence of
-    # one, and reporting the first where the second is true is claiming
-    # a branch has no pull request without having looked.
-    #
-    # Answered once per branch. Open-pull-request protection and proof
-    # (b) both read this, and paying twice for one answer would double
-    # the network cost of every sweep.
-    def pull_requests(branch)
-      return nil unless @available
-
-      @records.fetch(branch) { @records[branch] = ask_about(branch) }
-    end
-
-    private
-
-    # ENOENT is gh not installed -- the ordinary state of a machine that
-    # has never needed it -- or the swept directory no longer being
-    # there; EACCES is a gh that exists and cannot be run. Neither is exceptional enough to end a sweep that
-    # still has a content check to run, so both degrade like any other
-    # failure to answer.
-    def ask_about(branch)
-      stdout, stderr, status = gh(query_for(branch))
-      return unavailable(first_line(stderr)) unless status.success?
-
-      answered(records_from(JSON.parse(stdout), branch))
-    rescue Errno::ENOENT, Errno::EACCES => e
-      unavailable(e.message)
-    rescue JSON::ParserError => e
-      unavailable("its answer was not the JSON this asked for: #{e.message}")
-    end
-
-    # Valid JSON of the wrong shape is not a parse error, and both wrong
-    # shapes end somewhere bad: a bare object reads as "no pull request"
-    # for every branch, silently, and reaches the verdict logic where
-    # indexing an Array with a String raises past this CLI's one rescue.
-    # A wrapper or proxy answering with an envelope is all it takes.
-    #
-    # The reply is also confirmed to be about the branch that was asked
-    # about. Everything downstream trusts that gh honoured --head, and
-    # nothing here would notice if it had not.
-    def records_from(parsed, branch)
-      return unavailable('its answer was not a list of pull requests') unless parsed.is_a?(Array)
-      return unavailable('its answer held something that is not a pull request') unless
-        parsed.all?(Hash)
-
-      parsed.select { |record| record['headRefName'] == branch }
-    end
-
-    # The one place gh is started. An undeclared call is a mistake in
-    # this file and not a failure to answer, so it raises where a gh
-    # that could not be run degrades.
-    def gh(args)
-      call = args.first(2).join(' ')
-      raise ArgumentError, "gh #{call} is not in GH_CALLS" unless GH_CALLS.include?(call)
-
-      Open3.capture3(FORGE_ENV, 'gh', *args, chdir: @dir)
-    end
-
-    # gh's failures run to several lines and carry their own advice
-    # block, and this ends up inside a parenthetical in a warning
-    # somebody reads before authorising deletions. Git#fallback_detail
-    # takes the first line for the same reason.
-    def first_line(stderr)
-      line = stderr.lines.first.to_s.strip
-      line.empty? ? 'it said nothing about why' : line
-    end
-
-    def query_for(branch)
-      args = ['pr', 'list', '--head', branch, '--state', 'all',
-              '--limit', LIMIT.to_s, '--json', FIELDS.join(',')]
-      @repo ? args + ['--repo', @repo] : args
-    end
-
-    # A forge that failed once is treated as unreachable for the rest of
-    # the run. Whatever went wrong -- not installed, not authenticated,
-    # not a GitHub remote, no network -- is a fact about the repository
-    # and not about the branch that happened to be asked first, so
-    # asking again would buy one failure per candidate and no answers.
-    def answered(records)
-      @answered = true unless records.nil?
-      records
-    end
-
-    def unavailable(detail)
-      @available = false
-      @failure = detail
-      nil
-    end
-  end
-
   # Gathers the facts and reaches the verdicts. The CLI hands it a way
-  # to talk to git and a way to talk to the forge; it hands back rows to
-  # print and warnings to say first.
+  # to talk to git; it hands back rows to print and warnings to say
+  # first.
   class Sweep
     attr_reader :default, :measured_ref, :warnings, :branches, :rows, :candidates
 
-    def initialize(git:, forge:)
+    def initialize(git:)
       @git = git
-      @forge = forge
       @warnings = []
       @rows = []
       @candidates = []
@@ -1014,13 +654,9 @@ module StaleBranches
       @warnings << fallback_warning unless @default.from_remote?
       @measured_ref = @git.default_ref(@default.name)
       note_stale_tracking_ref
-      note_stale_head_ref
       partition_branches
       clear_by_ancestry
-      protect_open_pull_requests
       decide_by_content
-      decide_by_pull_request
-      note_unreachable_forge
       self
     end
 
@@ -1044,11 +680,11 @@ module StaleBranches
     private
 
     # Refused rather than degraded, because the vocabulary this report
-    # speaks has no honest word for it. Every remaining reason states
-    # something that was observed -- a conflict seen, content compared
-    # -- and reporting one of those for a check that never ran is the
-    # same mistake as claiming a pull request was absent without
-    # looking. So an old git ends the run, naming what it needs.
+    # speaks has no honest word for it. Every reason states something
+    # that was observed -- a conflict seen, content compared -- and
+    # reporting one of those for a check that never ran states
+    # something nobody observed. So an old git ends the run, naming
+    # what it needs.
     def assert_content_check_available!
       return if StaleBranches.content_check_available?(@git.version)
 
@@ -1056,142 +692,26 @@ module StaleBranches
                    "check, found #{@git.version&.join('.') || 'no readable version'}"
     end
 
-    # Said once for the run rather than once per branch, and only when
-    # the forge was actually asked and could not answer: available? is
-    # true until something fails, so a sweep that never needed to ask
-    # says nothing.
-    #
-    # Which way the verdicts are wrong is the whole message, and they
-    # are wrong in both directions at once. The dangerous direction is
-    # the deletion: a branch whose work reached the default branch by
-    # another route while its own pull request is still open is CLEARED
-    # by the content check, and nothing is left to protect it. The mild
-    # direction is the keep, where a conflict is reported as an
-    # unanswered question rather than as a branch holding unlanded work.
-    def note_unreachable_forge
-      return if @forge.available?
-
-      @warnings << (@forge.offline? ? offline_warning : unreachable_warning)
-    end
-
-    def offline_warning
-      'pull requests were not consulted (--offline), so a branch whose work has landed ' \
-        'while its own pull request is still open is marked DELETE here'
-    end
-
-    def unreachable_warning
-      "could not read pull requests from GitHub through gh (#{@forge.failure}); " \
-        "#{scope_of_the_gap} a " \
-        'branch whose work has landed while its own pull request is still open is marked ' \
-        'DELETE here, and a branch whose merge conflicts is kept for want of an answer ' \
-        'rather than because its work is unlanded'
-    end
-
-    # A run that failed partway through has real answers above the
-    # failure and none below it, and saying "every verdict" of that run
-    # states something about rows this did check. Which rows are which
-    # is not worth reconstructing for the report; that it happened is.
-    def scope_of_the_gap
-      return 'every verdict below was reached without them, so' unless @forge.answered_any?
-
-      'it stopped answering partway through, so the verdicts below it were reached ' \
-        'without pull requests and the ones before it were not --'
-    end
-
-    # Somebody still has a pull request open on this branch, so the
-    # sweep does not get an opinion about its content. This is the one
-    # protection that costs a network call, and it runs ahead of the
-    # content check rather than after it for a reason a keep-count
-    # cannot show: a branch whose work has already landed by another
-    # route is CLEARED by that check, so a sweep asking about open pull
-    # requests afterwards would have deleted it before the question came
-    # up. Which pull requests are open is also all this stage reads, so
-    # a fork's open pull request protects too -- gh matches --head on
-    # branch name alone and nothing in the reply says whose branch it
-    # describes, and protection is the direction where being wrong costs
-    # a branch kept rather than work destroyed.
-    #
-    # The ancestry pass runs before this one and settles what it clears,
-    # so a branch already merged into the default branch is deleted
-    # without the forge being asked even if a pull request on it is
-    # open. That is the one exemption, and it is safe for a reason the
-    # protection itself does not have: every commit is already on the
-    # remote's default branch, so the pull request survives the deletion
-    # and so does the work.
-    #
-    # With no forge reachable, this decides nothing and every branch
-    # falls through to the checks that need no network.
-    def protect_open_pull_requests
-      decide do |branch|
-        records = @forge.pull_requests(branch)
-        next if records.nil?
-
-        ['KEEP', 'protected:open-pr'] if StaleBranches.open_pull_request?(records)
-      end
-    end
-
     # What ancestry cannot answer. A branch squash-merged into the
     # default branch is an ancestor of nothing, yet merging it back
     # produces the default branch's own tree -- so the comparison is of
     # trees, and equality means the content is already there.
     #
-    # The three outcomes are three states of knowledge, and the report
-    # keeps them apart. A different tree is a positive local fact: this
-    # branch definitely adds something. A conflict is neither fact --
-    # the check could not run, so nothing available offline can clear
-    # the branch, and it is the only outcome a pull-request record
-    # could improve on.
+    # The outcomes are states of knowledge, and the report keeps them
+    # apart. A different tree is a positive local fact: this branch
+    # definitely adds something. A conflict is neither fact: the check
+    # could not run, and the branch is kept on an unanswered question.
     def decide_by_content
       landed = @git.tree_of(@measured_ref)
 
       decide do |branch|
         ref = "refs/heads/#{branch}"
         tree, merged = @git.merge_tree(@measured_ref, ref)
-        # A conflict is the one outcome this stage does not report on.
-        # It is left undecided for the forge, which is the only thing
-        # that can improve on it -- and when the forge cannot answer
-        # either, the stage below reports the conflict as the reason.
-        next unless merged
+        next ['KEEP', 'proof-a:conflict'] unless merged
         next ['KEEP', 'kept:not-landed'] unless tree == landed
         next ['DELETE', 'proof-a:content-landed'] if history_landed?(ref, landed)
 
-        backup_verdict(branch) || ['KEEP', 'proof-a:tip-only']
-      end
-    end
-
-    # Proof (a) refuses to clear a branch whose history holds content the
-    # default branch never received, because deleting the branch takes
-    # its reflog and that content is then reachable from nothing. This
-    # stage needs no counterpart, and the difference is the pull request
-    # itself: a merged one means the forge holds that head commit at
-    # refs/pull/<n>/head permanently, and every commit on the branch is
-    # an ancestor of it. Verified against this repository -- the head of
-    # pull request 95 still resolves there, long after its branch was
-    # deleted. Proof (a) has no such witness: content-landed can be a
-    # purely local squash that no forge ever saw.
-    #
-    # What the forge says about the branches the content check could not
-    # answer for. Every one of them is a conflict, so a branch reaching
-    # here has no local evidence either way and the pull requests naming
-    # it are all there is.
-    #
-    # With no forge reachable, the conflict itself is the reason -- an
-    # unanswered question reported as one. What must never happen is
-    # this stage reporting "no pull request" for a branch nothing was
-    # ever asked about, which is an absence stated without looking.
-    def decide_by_pull_request
-      decide do |branch|
-        records = @forge.pull_requests(branch)
-        next ['KEEP', 'proof-a:conflict'] if records.nil?
-
-        own = StaleBranches.pull_request_verdict(records, tip: @git.sha("refs/heads/#{branch}"),
-                                                          default: @default.name,
-                                                          trust_forks: @forge.named_repo?)
-        # A branch its own merged pull request clears is cleared on
-        # that, the stronger evidence, whatever its name suggests.
-        next own if own.first == 'DELETE'
-
-        backup_verdict(branch) || own
+        ['KEEP', 'proof-a:tip-only']
       end
     end
 
@@ -1210,61 +730,6 @@ module StaleBranches
       @git.lines('rev-list', "#{@measured_ref}..#{ref}").all? do |commit|
         tree, merged = @git.merge_tree(@measured_ref, commit)
         merged && tree == landed
-      end
-    end
-
-    # The backup rule: what the pull requests of the branch a backup was
-    # taken from say about the backup, or nil where they say nothing and
-    # the row keeps the reason it would have had: not a backup, the
-    # forge unread, or no pull request for that branch that reached the
-    # default branch.
-    #
-    # A backup is taken before a squash, a reword or a rebase, and the
-    # commits it holds are the ones that rewrite replaced. Once the
-    # rewritten branch has merged, a backup whose tree is one that
-    # branch held has nothing left to restore, and it is deleted on
-    # that. This is weaker evidence than proof (b) has and is meant to
-    # be: no commit on the backup is an ancestor of anything the forge
-    # keeps, so the commits themselves, and whatever a middle one held
-    # that the last did not, go with the branch. Discarding those is
-    # what the rewrite was for.
-    #
-    # Called only for a branch whose tip the content check found adds
-    # nothing, or could not answer for. One it found adds something is
-    # kept before this is reached, whatever a pull request says -- a
-    # backup of work the default branch later reverted is that case
-    # when the merge runs cleanly. Where it conflicts instead, the
-    # backup is cleared on its pull request as any branch is by proof
-    # (b), which reads no later history either.
-    def backup_verdict(branch)
-      heads = merged_heads_of_the_branch_backed_up(branch)
-      return if heads.nil?
-
-      present = heads.select { |head| StaleBranches.object_name?(head) && @git.object?(head) }
-      return ['KEEP', 'proof-b:backup-head-absent'] if present.empty?
-
-      ref = "refs/heads/#{branch}"
-      carried = present.any? { |head| @git.carries?(head, ref) }
-      carried ? ['DELETE', 'proof-b:backup-landed'] : ['KEEP', 'proof-b:backup-differs']
-    end
-
-    # The heads of the first candidate name with a pull request that
-    # reached the default branch. A longer name that only a closed pull
-    # request answers to is passed over, since the label after a branch's
-    # name can itself be some other branch's name. nil where no candidate
-    # has one, which is also what an unread forge comes to.
-    def merged_heads_of_the_branch_backed_up(branch)
-      StaleBranches.backed_up_names(branch).each do |name|
-        reached = records_that_reached_the_default_branch(@forge.pull_requests(name) || [])
-        return reached.map { |record| record['headRefOid'] } unless reached.empty?
-      end
-      nil
-    end
-
-    def records_that_reached_the_default_branch(records)
-      StaleBranches.landed_records(records, default: @default.name,
-                                            trust_forks: @forge.named_repo?) do |commit|
-        @git.object?(commit) && @git.ancestor?(commit, @measured_ref)
       end
     end
 
@@ -1367,32 +832,6 @@ module StaleBranches
 
       :diverged
     end
-
-    # A stale refs/remotes/<remote>/HEAD is harmless to the verdicts
-    # above -- those were measured against what the remote just said --
-    # and harmful everywhere else, since every `origin/HEAD` shorthand
-    # the caller types resolves through it. Having asked the remote
-    # already, saying so costs one comparison.
-    def note_stale_head_ref
-      # Only where the remote actually answered. In the fallback, the
-      # name this would compare against is the sweep's own guess -- so
-      # the warning would claim the remote said something it was never
-      # asked, and advise `set-head --auto`, which needs the same
-      # unreachable remote and would overwrite a correct ref with the
-      # guess.
-      return unless @default.from_remote?
-
-      target = @git.symbolic_ref("refs/remotes/#{@git.remote}/HEAD")
-      return unless target
-
-      named = target.sub(%r{\Arefs/remotes/#{Regexp.escape(@git.remote)}/}, '')
-      return if named == @default.name
-
-      @warnings << "refs/remotes/#{@git.remote}/HEAD still names #{named}, but " \
-                   "#{@git.remote} says #{@default.name}; run " \
-                   "`git remote set-head #{@git.remote} --auto`. This sweep asked the " \
-                   'remote, so its own verdicts are unaffected'
-    end
   end
 
   # The half that talks to the outside world: everything above is a pure
@@ -1407,41 +846,20 @@ module StaleBranches
       return puts(USAGE) if options.help?
 
       git = Git.new(dir: options.dir, remote: options.remote)
-      forge = Forge.new(dir: git.dir, repo: options.repo, offline: options.offline?)
-      sweep = Sweep.new(git: git, forge: forge).run
+      sweep = Sweep.new(git: git).run
       # Warnings come before the report rather than after it: a caller
       # reading a piped report from the top must meet the caveats
       # before the rows they apply to.
       sweep.warnings.each { |warning| warn "stale-branches: #{warning}" }
-      # And one of them is repeated into the report itself, because the
-      # warnings go to stderr and the report to stdout: `stale-branches
-      # > report.txt` keeps the rows and drops every caveat, and this is
-      # the caveat that changes what the rows mean.
-      puts UNCONSULTED_NOTICE unless forge.available?
       print StaleBranches.render_report(sweep.rows)
       return offer_deletion(sweep) unless options.delete?
 
-      refuse_blind_deletion(forge)
       delete_marked(sweep)
     rescue Error => e
       abort "stale-branches: #{e.message}"
     end
 
     private
-
-    # Deleting on verdicts the forge never saw is the one combination
-    # this refuses. The warning above says a branch whose work landed
-    # while its pull request is still open is marked DELETE, and going
-    # ahead anyway would leave that sentence doing no work. --offline
-    # is how a caller says they mean it.
-    def refuse_blind_deletion(forge)
-      return if forge.available? || forge.offline?
-
-      raise Error, 'not deleting: pull requests could not be read, so nothing above is ' \
-                   'protected by an open one. Deleting on the local evidence alone ' \
-                   'takes --offline, and --offline also deletes a branch whose work ' \
-                   'has landed while its pull request is still open.'
-    end
 
     # The object name goes out with each line because it is the only
     # way back to a branch this just removed the reflog of.

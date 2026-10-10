@@ -13,7 +13,6 @@ require_relative 'cli_test_case'
 require 'open3'
 
 load File.expand_path('../bin/gh-issue-sync', __dir__)
-load File.expand_path('../bin/stale-branches', __dir__)
 
 class GhCallsTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
@@ -27,7 +26,7 @@ class GhCallsTest < Minitest::Test
               stack status variable workflow].freeze
   # Each tool under bin/ that runs gh, and the module holding its
   # GH_CALLS. A new one goes here.
-  TOOLS = { 'bin/gh-issue-sync' => GhIssueSync, 'bin/stale-branches' => StaleBranches }.freeze
+  TOOLS = { 'bin/gh-issue-sync' => GhIssueSync }.freeze
   # Commands that take no second word.
   BARE = %w[browse status].freeze
   # Flags that take a value, which can stand between a command's words.
