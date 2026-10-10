@@ -238,11 +238,9 @@ declaration present:
   put `PRJ-NNN` with the issue's title on the body's first line
   instead. A Linear or Shortcut issue's pull request follows that
   tracker's convention.
-- **Machine tokens stay `#NNN`:** `Closes #NNN`, `Refs: #NNN`,
-  `(deferred to #NNN)`, and "filed as #NNN" notes -- GitHub links
-  and closes by number, and the housekeeping skill cross-references
-  "filed as #NNN". `gh` and `gh-issue-sync` arguments take the bare
-  number.
+- **Machine tokens stay `#NNN`:** `Closes #NNN`, `Refs: #NNN`, and
+  `(deferred to #NNN)` notes -- GitHub links and closes by number.
+  `gh` and `gh-issue-sync` arguments take the bare number.
 - **A key Linear also uses here is ambiguous:** when the project's
   files say any of this repo's work is tracked in Linear under the
   same key, ask which tracker `PRJ-NNN` means before any tracker call.
