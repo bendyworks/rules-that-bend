@@ -85,8 +85,8 @@ overriding, and troubleshooting.
 - A GitHub-hosted repository and the GitHub CLI (`gh`), installed and
   authenticated. Everything that reads pull requests or GitHub issues
   goes through `gh`: the commands the skills and guidance give a
-  session, `stale-branches`, and `gh-issue-sync`. `targeted-specs` uses
-  it only as a fallback when resolving a repo's default branch. A
+  session and `gh-issue-sync`. `targeted-specs` uses it only as a
+  fallback when resolving a repo's default branch. A
   GitHub Enterprise host counts, since `gh` reaches it through its own
   host setting, though stacked pull requests may not be enabled there.
   Linear and Shortcut are supported as issue trackers, and a project
@@ -103,15 +103,10 @@ overriding, and troubleshooting.
   the default branch, and deletes them with `--delete`. It needs git
   2.38 or newer for `merge-tree --write-tree`, the check that
   recognizes a squash-merged branch, and refuses to run on older git
-  rather than reporting verdicts it could not reach. It also reads pull
-  requests through `gh`, which is what keeps a branch somebody still has
-  open from being deleted. When `gh` cannot read them it says so in a
-  warning and refuses `--delete` outright, because the verdicts then
-  cut both ways: a branch whose merge conflicts is kept for want of an
-  answer rather than because its work is unlanded, and a branch whose
-  work has already landed while its own pull request is still open is
-  marked DELETE. `--offline` is how you ask for a sweep on local
-  evidence alone and mean it.
+  rather than reporting verdicts it could not reach. It decides from
+  the repository alone and reads no pull request: a branch whose merge
+  conflicts is kept as an unanswered question, and a branch whose work
+  has landed is marked DELETE while a pull request for it is open.
 - `gauntlet` is tuned for Ruby on Rails projects (RSpec, RuboCop, Pundit).
   It runs elsewhere, but its audit prompts are Rails-flavored. It would be easy to re-focus a forked copy if you wish.
 - `markdown-to-pdf` needs a Chromium-based browser or wkhtmltopdf, plus a
