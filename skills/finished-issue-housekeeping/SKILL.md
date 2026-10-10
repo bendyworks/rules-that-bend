@@ -277,32 +277,37 @@ something different, and they need different responses:
 - **`kept:commit-not-landed` -- a commit on the branch did not land by
   itself.** The branch's net diff is empty, but merging one of its
   commits alone into the default branch does not give the default
-  branch's tree. Either that commit added content that reached nowhere
-  else, and deleting the branch removes the last reference to it, or a
-  later commit on the branch rewrote the same lines, as happens when a
-  branch whose commits correct each other is squash-merged. The
-  comparison under `kept:conflict` tells them apart: no difference
-  from the head that merged means the second. A `backup/` branch taken
-  before a squash reads this way when its commits rewrote each other's
-  lines; one whose commits did not is an ordinary `landed:content` row.
+  branch's tree. Either that commit holds content that reached nowhere
+  else, such as a file a later commit removed, or a later commit on the
+  branch changed the same or neighboring lines, as happens when a
+  branch whose commits build on each other is squash-merged. The
+  report cannot tell the two apart. When the branch's tip is the head
+  its pull request merged (`git rev-parse 'refs/heads/<branch>'`
+  prints the head SHA the command under `kept:conflict` gives), GitHub
+  keeps every commit on it under that pull request, and deleting the
+  local branch loses nothing. A `backup/` branch taken before a
+  rewrite often reads this way once its branch has merged.
 
 **Delete a `backup/` branch the tool kept under a `kept:` reason,
-without asking, when you can account for everything it holds, unless
-the user said this session they are still using it.** It was taken
-before a rewrite of the branch it names: `backup/<branch>`, sometimes
-with a label after it
-(`backup/<branch>-pre-squash`). Find that branch's merged pull request
-with the `gh pr list` command above, trying the whole name after
-`backup/` first and then each shorter name cut at a hyphen from the
-right. It counts when exactly one merged pull request has that head
-and its base is the default branch. Then run
-`git diff 'refs/heads/<backup>' <head sha>`, under the same rules as
-above. No difference, or only lines that the branch's own commits
-after the backup changed, means the backup has nothing left to
-restore: read its tip with `git rev-parse 'refs/heads/<backup>'`,
-delete it with `git branch -D -- '<backup>'`, and name it in the
-Step 10 summary with that SHA. No such pull request, or a difference
-you cannot account for, stays a question for the user.
+without asking, when you can account for everything its tip holds,
+unless the user said this session they are still using it.** It was
+taken before a rewrite of the branch it names: `backup/<branch>`,
+sometimes with a label after it (`backup/<branch>-pre-squash`). Find
+that branch's merged pull request with the `gh pr list` command above,
+trying the whole name after `backup/` first and then each shorter
+name cut at a hyphen from the right. A name counts when it has
+exactly one merged pull request and that one's base is the default
+branch. Then run `git diff 'refs/heads/<backup>' <head sha>`, under
+the same rules as above. No difference, or only lines that the
+branch's own commits after the backup changed, means the backup has
+nothing left to restore: read its tip with
+`git rev-parse 'refs/heads/<backup>'`, delete it with
+`git branch -D -- '<backup>'`, and name it in the Step 10 summary
+with that SHA. The comparison is of the backup's tip. What one of its
+earlier commits held and a later one removed goes with the backup,
+as it did in the rewrite the backup was taken before. No such pull
+request, or a difference you cannot account for, stays a question for
+the user.
 
 A deletion carries a reason too, and each deserves the same glance:
 `landed:ancestor`, every commit already on the default branch; and
