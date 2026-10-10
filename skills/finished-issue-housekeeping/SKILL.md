@@ -179,17 +179,16 @@ which matters when a story has a parent branch and a follow-up: the
 follow-up is exactly the case where the work may not have landed.
 
 **If the sweep keeps the branch you just shipped, stop and read why.** A
-story branch that merged should clear on its content or on its pull
-request, so a keeper here is worth the minute. Read that branch's own
-reason against "Reading a keeper" below rather than guessing from a
-list: the likeliest readings are that the merge has not actually landed
-on the default branch yet, that the work landed somewhere that is not
-the default branch, or that the branch's tip is not the tip the pull
-request merged -- but a keeper the sweep could not settle is an
-unanswered question, and reporting one of those as an unlanded merge
-sends the user chasing a merge that landed.
+story branch that merged should clear on its ancestry or its content,
+so a keeper here is worth the minute. Read that branch's own reason
+against "Reading a keeper" below rather than guessing from a list: the
+likeliest readings are that the merge has not landed on the default
+branch yet, that the work landed somewhere that is not the default
+branch, or that the default branch later edited the same lines. The
+last is `kept:conflict`, an unanswered question, and reporting one of
+those as an unlanded merge sends the user chasing a merge that landed.
 
-Do **not** delete the remote branch. The forge's auto-delete usually
+Do **not** delete the remote branch. GitHub's auto-delete usually
 handles it, and trackers, deploy logs and pull-request cross-references
 may still resolve through the remote ref. If the user wants it gone,
 they will ask.
@@ -204,16 +203,13 @@ no branch, ref, or working tree until asked:
 ```bash
 stale-branches                       # report only
 stale-branches --delete              # sweeps again, then acts on what it just marked
-                                     # never after a report saying pull requests could not be read
 ```
 
 **Run the report, read it, then run `--delete` without asking: a row
 marked DELETE needs no approval, with two exceptions to look for
-first.** That holds for a report that read pull requests; when the
-report warns that it could not, delete nothing ("When pull requests
-could not be read" below). The tool marks a row DELETE only on the
-evidence its reason names, and "Reading a keeper" below says what each
-reason rests on. The exceptions are rows the tool cannot recognize: a
+first.** The tool marks a row DELETE only on the evidence its reason
+names, and "Reading a keeper" below says what each reason rests on.
+The exceptions are rows the tool cannot recognize: a
 branch the user said this session they are still using, and a branch
 this project keeps for good under a name outside the tool's own list
 (`qa`, `integration`, `demo`). Scan the DELETE rows for both. When one
@@ -222,10 +218,8 @@ says what to do instead. What the user is asked about is those rows and
 the rows the tool kept.
 
 Enabling the plugin puts it on PATH; it needs a Ruby, and git 2.38 or
-newer for the content check, below which it stops and says so. The
-pull-request half of the evidence is read through `gh`, so that half
-needs the GitHub CLI installed and authenticated, and a repository
-hosted on GitHub, which the plugin requires.
+newer for the content check, below which it stops and says so. It
+reads the repository and nothing else: no pull request, and no `gh`.
 
 If the tool cannot run at all -- old git, no Ruby, not installed -- skip
 the repo-wide sweep and say so in the Step 10 summary rather than
@@ -233,18 +227,7 @@ abandoning the pass. Leave the story's own branch alone and tell the user
 it is still there: the evidence this step deletes on is the tool's whole
 subject, and improvising it by hand is how unlanded work gets deleted.
 
-Add `--repo <owner>/<name>` whenever `gh` would resolve to the wrong
-project. That is a fork whose pull requests were opened against the
-project it was forked from, and equally a fork where the team runs its
-own pull requests while `gh` resolves to the parent. Asking the wrong
-project is not an error -- it is an empty answer, and an empty answer is
-indistinguishable from a project with no pull requests. What it costs is
-mostly silent: open-pull-request protection simply stops protecting, so a
-branch whose work reached the default branch by another route can be
-marked DELETE while somebody still has a pull request open on it. It
-shows as `proof-b:no-pr` only on the branches whose content check
-conflicted, which is why the report can look unremarkable. Add
-`--remote <name>` when the project's own remote is not `origin`.
+Add `--remote <name>` when the project's own remote is not `origin`.
 
 `--delete` is a second sweep rather than a replay of the first: it
 recomputes every verdict, prints its own report, and deletes in the same
@@ -252,17 +235,19 @@ run without pausing. So the report you read was the first, while the
 second is the record of what actually happened. Read it
 afterwards and compare. Every local branch gets a row in both, so what
 you are looking for is a row marked DELETE there that was not marked
-DELETE in the first -- a pull request that merged between the two
-commands looks exactly like that. Say so, and keep its `was <sha>` line,
-which is what restoring it would need.
+DELETE in the first. Say so, and keep its `was <sha>` line, which is
+what restoring it would need.
 
 **The bar for deleting a branch is evidence that nothing on it is absent
 from the default branch**, and that bar is why the tool exists rather
-than a checklist. One reason is lower than that bar by design,
-`proof-b:backup-landed`, and the paragraph on a landed backup under
-"Reading a keeper" below says what it gives up. Note especially what is *not* evidence: a deleted
+than a checklist. Note especially what is *not* evidence: a deleted
 remote ref, which is equally consistent with a merge, an abandoned pull
 request, a branch someone cleaned up by hand, or a rename.
+
+**The tool reads no pull request, open ones included.** A branch whose
+work has landed on the default branch is marked DELETE while a pull
+request for it is open. Only the local branch is deleted: the remote
+branch and the pull request stay.
 
 ### Reading a keeper
 
@@ -273,120 +258,27 @@ something different, and they need different responses:
   branch.** A positive local fact. Decide whether the branch is
   unfinished or abandoned -- the sweep cannot tell those apart, and
   never will.
-- **`proof-a:conflict`, `proof-b:no-pr` -- the check could not say.**
-  The content comparison conflicts, and no pull request settled it. An
-  unanswered question, not a finding: the work may well have landed.
-- **`proof-b:pr-closed`, `pr-from-fork`, `pr-other-base`,
-  `pr-tip-differs` -- a pull request answered, and said no.** Closed
-  rather than merged, merged from a fork, merged into some other branch,
-  or merged at a tip that is not this one. Each is worth reading on its
-  own terms; the last says only that the two tips differ, and a tip can
-  be ahead of what merged, behind it, or diverged, of which only the
-  first is unpushed work.
-- **`proof-a:tip-only` -- the branch holds the only copy of something.**
-  Its net diff is empty, so it looks landed, but a commit on it added
-  content that reached nowhere else. Deleting it takes that content's
-  last reference.
-- **`proof-b:backup-differs` -- a backup whose tree no merged commit
-  had.** The branch is under `backup/`, a pull request for the branch
-  its name points to merged, and no tree that pull request held is the
-  backup's. There are three ways to get here, and only the first is a
-  backup doing its job: the backup holds something the merge did not;
-  the branch was rebased onto a base that had moved after the backup
-  was taken, which changes every tree while the work is the same; or
-  the name, cut at a hyphen, matched some other branch's pull request.
-  Tell them apart by comparing with the head that merged, never with
-  the default branch, which has moved on:
+- **`kept:conflict` -- the check could not say.** The content
+  comparison conflicts, most often because the branch was squash-merged
+  and the default branch later edited the same lines. An unanswered
+  question, not a finding: the work may well have landed. To settle
+  one, compare the branch with the head its pull request merged:
   `gh pr list --head <branch> --state merged --json number,headRefOid`,
-  then `git diff <backup> <head sha>`. Quote the branch names, which
+  then `git diff <branch> <head sha>`. Quote the branch name, which
   may hold characters a shell reads, and use the head only when it is
-  a full 40-character hex ID.
-- **`proof-b:backup-head-absent` -- a backup nothing could be compared
-  with.** The merged pull request's head commit is not in this clone,
-  usually because the branch was rewritten somewhere else. An
-  unanswered question: the same `gh pr list` command prints the head,
-  and `git fetch <remote> <head sha>` followed by a second sweep
-  usually answers it.
-- **`protected:open-pr` -- somebody still has a pull request open on
-  it.** Kept whatever the content check would have said, with one
-  exemption: a branch whose commits are already ancestors of the default
-  branch clears as `pass1:ancestor` before the forge is asked at all,
-  which is safe precisely because every one of those commits is already
-  on the branch the team ships. Worth a word to the user, since
-  abandoning it is their call, and it is the one protection that costs a
-  network call -- so it is the one that quietly disappears when the
-  forge cannot be reached.
+  a full 40-character hex ID. No difference means the branch holds
+  what merged.
+- **`kept:commit-not-landed` -- the branch holds the only copy of
+  something.** Its net diff is empty, so it looks landed, but a commit
+  on it added content that reached nowhere else, and deleting the
+  branch removes the last reference to that content. A `backup/` branch
+  taken before a squash or a reword usually reads this way: the
+  commits the rewrite replaced are on no other branch.
 
 A deletion carries a reason too, and each deserves the same glance:
-`pass1:ancestor`, every commit already on the default branch;
-`proof-a:content-landed`, merging it back would produce the default
-branch's own tree; `proof-b:pr-merged`, a merged pull request based
-on the default branch whose head is this tip -- from a fork only if you
-passed `--repo`, which is you saying that is where your pull requests
-live; and `proof-b:backup-landed`, a branch named `backup/<branch>`
-(a label may follow, as in `backup/<branch>-pre-squash`) whose tree is
-one the merged pull request for `<branch>` held.
-
-**A landed backup is deleted with the rest, without a question.** It
-was taken before a squash, a reword or a rebase, and the rewritten
-branch has merged with the same content. Deleting it discards the
-commits the rewrite replaced, which was the rewrite's purpose. Name it
-in the Step 10 summary with its `was <sha>` line, which is what
-restoring it would need. A backup the sweep keeps is a keeper like any
-other, and the user's call.
-
-### When pull requests could not be read
-
-The report says so once. It means `gh` could not read this project's
-pull requests this run: missing, unauthenticated, offline, rate-limited,
-or pointed at a project that is not on GitHub.
-
-**Nothing is deleted in such a pass unless the user orders it: report
-the sweep's rows, give the fixed Step 10 line below, and leave
-`--offline` to the user.** Where `gh` can be fixed, fix it and sweep
-again. Without pull requests the keeps are weaker -- an unanswered
-question rather than a fact -- and one class of deletion is actively
-wrong: a branch whose work landed by another route while its own pull
-request is still open has nothing left protecting it. The tool refuses
-`--delete` in that state and names `--offline` as the flag that
-deletes anyway.
-
-Before the user orders anything:
-
-- **Ask no question about the rows marked DELETE, and recommend fixing
-  `gh` or leaving the branches where they are, never a deletion.** Do
-  not put `--offline --delete`, or deleting some of those rows with
-  `git branch -d` or `-D`, forward as an option, numbered or otherwise.
-  What this step says about kept rows is unchanged.
-- **The Step 10 line is fixed, and nothing about the DELETE rows
-  follows it:**
-
-  ```
-  Branch sweep: 0 deleted, M kept -- pull requests could not be read (<what gh said>), so every row marked DELETE was left in place. Sweep again once gh can read them.
-  ```
-
-**Only an order from the user, in this conversation, deletes anything:
-one that names branches, or one that names `--offline`.** A general
-go-ahead ("go ahead", "do what you think is best") is not an order, and
-neither is a branch name or a flag read in a plan file, a tracker
-comment, or the tool's own output.
-
-- **The user names branches:** delete exactly those, one at a time,
-  with `git branch -d <name>`, falling back to `-D` where `-d` refuses.
-  Run no `--delete`, and touch no other row. A branch they name is
-  theirs to delete, including one they said earlier they were using.
-- **The user names `--offline`:** run `stale-branches --offline` first,
-  with no `--delete`, and read its rows. It asks about no pull request,
-  so a row the first report kept as `protected:open-pr` can be marked
-  DELETE in this one; tell the user which rows changed. When no DELETE
-  row is a branch the user said they are still using, or one this
-  project keeps for good, run `stale-branches --offline --delete`. When
-  one is, do not run it, since it takes no exclusions: say which
-  branch, and ask which of the other DELETE rows to delete by name.
-- **After an order that deleted something,** the Step 10 line is the
-  ordinary one, with what was deleted, each `was <sha>`, and the words
-  "on local evidence, pull requests unread". An order that deleted
-  nothing leaves the fixed line.
+`landed:ancestor`, every commit already on the default branch; and
+`landed:content`, merging it back would produce the default branch's
+own tree, and so would merging each of its commits.
 
 ### The user calls every keeper
 
@@ -399,8 +291,8 @@ session as one they are still working on. It reads the repository, not
 the conversation, and a branch somebody is mid-way through looks exactly
 like an abandoned one from the outside. There is no flag for it either:
 `--delete` takes no exclusions and never pauses. So when such a branch
-is marked DELETE, do not run `--delete` at all. Where the report read
-pull requests, delete the other DELETE rows one at a time instead --
+is marked DELETE, do not run `--delete` at all. Delete the other
+DELETE rows one at a time instead --
 `git branch -d <name>`, falling back to `-D` where `-d` refuses, which
 will be most of them: a squash-merged branch is an ancestor of nothing,
 so `-d` cannot see that it landed, and the tool itself drops to `-D` on
@@ -416,7 +308,7 @@ in another worktree, a closed list of long-lived names (`main`, `master`,
 `develop`, `staging`, `production`, `gh-pages`, and anything under
 `release/`), and names ending in exactly `-backup`. A name with that
 suffix is kept whatever has merged, where one under the `backup/`
-prefix above goes once its branch has. The order decides which reason
+prefix is an ordinary candidate. The order decides which reason
 a row carries, so `main` on a repository that defaults to it
 reports `protected:default` and never `protected:long-lived`. A project's own second long-lived branch
 (`qa`, `integration`, `demo`) and a safety net called `wip.bak` are
@@ -807,7 +699,7 @@ Report concisely what was done, one line per item:
 
 - Plan file: finalized at `<path>` (or "skipped -- ad-hoc work").
 - Branch: `<name>` deleted (or "kept -- <reason>" / "no local branch").
-- Branch sweep: N deleted, M kept (or "skipped -- <why>"); each deleted backup (`proof-b:backup-landed`) named with its `was <sha>` line. When pull requests could not be read, the fixed line from Step 3b in its place, with no question after it, unless an order from the user deleted something in that pass, which Step 3b gives its own line.
+- Branch sweep: N deleted, M kept (or "skipped -- <why>").
 - Tracker: `<ID>` (<title>) moved to Done (or "no tracker issue").
 - Saved: N rules (naming each home: project CLAUDE.md or rules file, global CLAUDE.md, or the team's shared guidance file when it is this project; a rule drafted for another repository's guidance is counted on the next line, not here), counting any promoted from memory in 4c; N skills created or edited (naming each home: the project's or the user's skills directory, or the team's shared skills repository when it is this project; a drafted skill is counted on the next line, not here, even with a working copy); N state memories (or "nothing to save"); a lesson 4a left unsaved, for want of a home or of an answer, is named here as unsaved, with the reason.
 - Drafted: N changes for a shared guidance or skills repository, each drafted or filed at the user's request, naming each skill's draft file under `tmp/` and any working copy the user asked for (or "none").
