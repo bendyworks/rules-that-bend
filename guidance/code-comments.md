@@ -77,8 +77,8 @@ the future reader, not for insiders of the current moment.
   - Forms that tooling parses stay exactly as the tooling expects,
     with nothing inserted inside them: `Closes #45` (never
     `Closes [#45 ...](...)`), commit trailers (`Refs: ABC-123`),
-    branch names, command arguments, and the `filed as #45` and
-    `(deferred to #45)` notes a skill or script matches on. The same
+    branch names, command arguments, and the `(deferred to #45)`
+    note a skill or script matches on. The same
     follow-up mentioned in a comment or message to people still gets
     its title. In a PR body, a title may follow the reference after a
     closing keyword, as in `Closes #45 (Retry Webhook Deliveries)` or
