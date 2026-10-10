@@ -370,16 +370,9 @@ bundle exec rspec <selected files> 2>&1 | tee -a "$LOG"
    the full gate would run it.
 2. **One spec invocation over the whole subset**, appended to the same
    log. Adapt both commands to the project's usual runners (container,
-   binstub, parallel runner). A caller standing in for a
-   coverage-bearing gate (e.g. the gauntlet) may ask for this
-   invocation with coverage instrumentation on; delete the previous
-   run's raw coverage results first (for SimpleCov,
-   `coverage/.resultset.json` and its `.lock`) so the caller reads
-   this run rather than a union with an earlier one, then keep the
-   coverage artifacts alongside the log for it to consume. Grep the
-   captured log for details; never re-run the subset just to re-read
-   its output (the clean-and-green guidance's capture rule, where a
-   team imports it).
+   binstub, parallel runner). Grep the captured log for details;
+   never re-run the subset just to re-read its output (the
+   clean-and-green guidance's capture rule, where a team imports it).
 3. An **empty subset skips the spec invocation entirely, however it got
    empty** -- only no-spec-impact files, only named gaps, only deleted
    specs, and no pins. Lint alone decides, and the verdict reports 0 spec
