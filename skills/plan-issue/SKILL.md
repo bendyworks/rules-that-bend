@@ -974,7 +974,7 @@ Draft a plan with:
    2. Run the gauntlet skill (bundled in this plugin) via the Skill
       tool. The gauntlet is a multi-front quality pass that *requires*
       clean-and-green as its starting state -- it dispatches parallel
-      sub-agents to audit cruft, idioms, test quality, validation
+      sub-agents to audit idioms, test quality, validation
       bypass, and security, then fixes the clear-cut findings and
       batches the judgment calls into questions. Run it after step 1
       because it expects specs and lint to already pass; run it before
