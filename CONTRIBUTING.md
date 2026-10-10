@@ -398,8 +398,8 @@ on the arms.
 The plugin requires a GitHub-hosted repository, on github.com or a
 GitHub Enterprise host, and the GitHub CLI (`gh`) installed and
 authenticated. Everything that reads pull requests or GitHub issues goes
-through `gh`: the commands the skills and guidance give a session,
-`bin/stale-branches`, and `bin/gh-issue-sync`. Issue trackers are a
+through `gh`: the commands the skills and guidance give a session, and
+`bin/gh-issue-sync`. Issue trackers are a
 separate matter: Linear and Shortcut are supported where the skills
 name them, and a project tracked there still needs GitHub for its pull
 requests.
@@ -415,10 +415,8 @@ not always the project's own repository.
 runs or tells a session to run. Support for another host arrives one of
 two ways: as a `gh`-compatible command for that host that answers those
 commands, or as a change that adds an equivalent beside each call. A
-command of the first kind runs with the user's credentials and decides
-which branches the sweep deletes, so it has to be one the team trusts.
-`test/fixtures/stub_gh.rb` shows the one call `stale-branches` depends
-on, with the fields it reads.
+command of the first kind runs with the user's credentials, so it has
+to be one the team trusts.
 
 `test/gh_calls_test.rb` compares the list with the commands named under
 `skills/`, `guidance/`, and `bin/`, in both directions. Name a new `gh`
@@ -510,9 +508,9 @@ built one per test and ran for over seven minutes. To write a new
 
 - Ask first whether the test needs a repository. A verdict that is a
   function of gathered facts is tested against the pure module with no
-  repository, the way `ProtectionTest` and `PullRequestVerdictTest` are.
-- Where it does, take the copy through `with_flat_fixture`,
-  `with_gitflow_fixture` or `with_backup_fixture`. The copy belongs to
+  repository, the way `ProtectionTest` is.
+- Where it does, take the copy through `with_flat_fixture` or
+  `with_gitflow_fixture`. The copy belongs to
   the test, which may move HEAD, add a remote or delete branches in it.
 - Where it needs a repository no fixture builds, change the copy inside
   the test. Add a branch to a fixture only when a row of its oracle

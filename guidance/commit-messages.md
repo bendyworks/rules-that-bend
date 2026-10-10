@@ -261,13 +261,10 @@ Refs: #123
   `<branch>-backup`.** A label may follow the branch's name:
   `backup/<branch>-pre-squash`. The prefix says the backup is meant to
   go once the rewritten branch has merged, and carrying the branch's
-  name lets cleanup tooling find that branch's merged pull request and
-  check the backup against it. (Teams using the bendyworks plugin get
-  that from its `stale-branches` sweep, which deletes such a backup
-  once the merged pull request held the same tree, as it does after a
-  squash or a reword, and never touches a name ending in `-backup`. A
-  backup from before a rebase onto a base that had moved matches no
-  tree, and the sweep keeps it for the developer to decide.) Keep the
+  name says which merged pull request to check the backup against
+  before deleting it. (For teams using the bendyworks plugin, its
+  `stale-branches` sweep never deletes a name ending in `-backup`, and
+  treats one under `backup/` as it does any other branch.) Keep the
   `-backup` suffix for a branch someone means to keep.
 - **A pushed commit message cannot be edited without rewriting
   history, so check the visibility of the repository it is going to
