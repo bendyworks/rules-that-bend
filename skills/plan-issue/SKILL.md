@@ -934,6 +934,8 @@ Draft a plan with:
      reports, exports, mailers, JS, fixtures, seeds).
    - For bug fixes: include a step to search for sibling bugs of the
      same shape elsewhere in the codebase, beyond just the reported one.
+     A sibling found is fixed in this story or put to the user with a
+     recommendation; the plan never files an issue for one unasked.
 6. **Out of scope** -- a short list of things not being done, mirroring
    the interview.
 7. **To-dos** as numbered `- [ ]` checkboxes, in execution order, each
@@ -1105,7 +1107,8 @@ The critique must consider:
 - Does it sufficiently emphasize a TDD spec that will *prove the fix
   or feature continues to work into the future*? A spec that only
   passes incidentally is not enough.
-- For bug fixes: does it search for sibling bugs of the same shape?
+- For bug fixes: does it search for sibling bugs of the same shape,
+  and fix each one found or put it to the user?
 - For features: does it cover the ripple effects across affected
   parts of the app?
 - Are there assumptions baked in that we should validate before
