@@ -22,19 +22,17 @@
 #                           has none in either.
 #   protected:backup        a name ending in -backup
 #   landed:ancestor         already an ancestor of the default branch
-#   landed:content          merging it into the default branch would
-#                           produce the default branch tree unchanged, and
-#                           so would merging each commit it does not
-#                           share with that branch
-#   kept:commit-not-landed  merging the branch adds nothing, but a commit
-#                           on it would: content that reached no other
-#                           branch, which no ref would reach once this
-#                           branch is deleted
-#   kept:conflict           that merge conflicts, so the check cannot say
-#                           either way
-#   kept:not-landed         the merge runs cleanly and produces a
+#   kept:conflict           merging it into the default branch conflicts,
+#                           so the check cannot say either way
+#   kept:not-landed         that merge runs cleanly and produces a
 #                           different tree, so the branch adds something
 #                           the default branch does not have
+#   landed:content          that merge produces the default branch tree
+#                           unchanged, and so does merging each commit
+#                           the branch does not share with it
+#   kept:commit-not-landed  that merge adds nothing, but merging one of
+#                           the commits alone does not produce the
+#                           default branch tree
 #
 # kept:conflict and kept:not-landed both end in a keep, and the
 # difference between them is the point: the first is an unanswered

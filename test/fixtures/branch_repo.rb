@@ -73,8 +73,6 @@ module Fixtures
     # current-branch protection at all then scores full marks on every row
     # of both tables. It also leaves the default-branch rule itself only
     # half-graded, since the two rules were covering for each other.
-    #
-    # Created after the closing fetch, so it has no upstream.
     def stand_on_a_non_default_branch
       git('checkout', '-qb', CURRENT)
     end

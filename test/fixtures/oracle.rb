@@ -39,10 +39,10 @@ module Fixtures
       protected:long-lived
       protected:backup
       landed:ancestor
-      landed:content
-      kept:commit-not-landed
       kept:conflict
       kept:not-landed
+      landed:content
+      kept:commit-not-landed
     ].freeze
 
     # The prefix before the colon names the kind of answer: protected,

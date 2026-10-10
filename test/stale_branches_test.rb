@@ -1970,12 +1970,7 @@ class ContentCheckTest < OracleTestCase
   end
 end
 
-# The content check needs git 2.38, where `merge-tree --write-tree`
-# arrived. On older git the same command is a different tool with a
-# different signature, so it fails -- and a sweep reading that failure
-# as it reads any other non-zero exit would call every branch in the
-# repository conflicted and report a table of unanswered questions.
-# git missing entirely, which is a plain sentence rather than a
+# git missing entirely is reported as a plain sentence, never a
 # backtrace. Nothing here touches a repository: the point is what
 # happens before one could be reached.
 class MissingGitTest < Minitest::Test
