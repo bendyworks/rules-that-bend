@@ -179,14 +179,16 @@ which matters when a story has a parent branch and a follow-up: the
 follow-up is exactly the case where the work may not have landed.
 
 **If the sweep keeps the branch you just shipped, stop and read why.** A
-story branch that merged should clear on its ancestry or its content,
+story branch that merged usually clears on its ancestry or its content,
 so a keeper here is worth the minute. Read that branch's own reason
-against "Reading a keeper" below rather than guessing from a list: the
-likeliest readings are that the merge has not landed on the default
-branch yet, that the work landed somewhere that is not the default
-branch, or that the default branch later edited the same lines. The
-last is `kept:conflict`, an unanswered question, and reporting one of
-those as an unlanded merge sends the user chasing a merge that landed.
+against "Reading a keeper" below rather than guessing from a list. The
+likeliest readings: the merge has not landed on the default branch
+yet; the work landed somewhere that is not the default branch; the
+default branch later edited the same lines (`kept:conflict`); or the
+branch was squash-merged after one of its commits rewrote lines an
+earlier one added (`kept:commit-not-landed`). The last two are
+unanswered questions, and reporting one of those as an unlanded merge
+sends the user chasing a merge that landed.
 
 Do **not** delete the remote branch. GitHub's auto-delete usually
 handles it, and trackers, deploy logs and pull-request cross-references
@@ -209,17 +211,19 @@ stale-branches --delete              # sweeps again, then acts on what it just m
 marked DELETE needs no approval, with two exceptions to look for
 first.** The tool marks a row DELETE only on the evidence its reason
 names, and "Reading a keeper" below says what each reason rests on.
-The exceptions are rows the tool cannot recognize: a
-branch the user said this session they are still using, and a branch
-this project keeps for good under a name outside the tool's own list
-(`qa`, `integration`, `demo`). Scan the DELETE rows for both. When one
-is there, do not run `--delete`; "The user calls every keeper" below
-says what to do instead. What the user is asked about is those rows and
-the rows the tool kept.
+The exceptions are rows the tool cannot recognize: a branch the user
+said this session they are still using, and a branch this project
+keeps for good under a name outside the tool's own list (`qa`,
+`integration`, `demo`). Scan the DELETE rows for both. When one is
+there, do not run `--delete`; "The user calls every keeper" below says
+what to do instead. What the user is asked about is those rows and the
+rows the tool kept, apart from a backup that "Reading a keeper" has
+you delete.
 
 Enabling the plugin puts it on PATH; it needs a Ruby, and git 2.38 or
 newer for the content check, below which it stops and says so. It
-reads the repository and nothing else: no pull request, and no `gh`.
+reads the repository and asks the remote which branch is the default.
+It reads no pull request and does not run `gh`.
 
 If the tool cannot run at all -- old git, no Ruby, not installed -- skip
 the repo-wide sweep and say so in the Step 10 summary rather than
@@ -263,28 +267,41 @@ something different, and they need different responses:
   and the default branch later edited the same lines. An unanswered
   question, not a finding: the work may well have landed. To settle
   one, compare the branch with the head its pull request merged:
-  `gh pr list --head <branch> --state merged --json number,headRefOid`,
-  then `git diff <branch> <head sha>`. Quote the branch name, which
-  may hold characters a shell reads, and use the head only when it is
-  a full 40-character hex ID. No difference means the branch holds
-  what merged.
-- **`kept:commit-not-landed` -- the branch holds the only copy of
-  something.** Its net diff is empty, so it looks landed, but a commit
-  on it added content that reached nowhere else, and deleting the
-  branch removes the last reference to that content. A `backup/` branch
-  taken before a squash or a reword usually reads this way: the
+  `gh pr list --head '<branch>' --state merged --json number,headRefOid,baseRefName`,
+  then `git diff 'refs/heads/<branch>' <head sha>`. Quote the branch
+  name, which may hold characters a shell reads, and use the head only
+  when it is a full 40-character hex ID from a pull request whose base
+  is the default branch. If git does not have that commit, run
+  `git fetch <remote> <head sha>` first. No difference means the
+  branch holds what merged.
+- **`kept:commit-not-landed` -- a commit on the branch did not land by
+  itself.** The branch's net diff is empty, but merging one of its
+  commits alone into the default branch does not give the default
+  branch's tree. Either that commit added content that reached nowhere
+  else, and deleting the branch removes the last reference to it, or a
+  later commit on the branch rewrote the same lines, as happens when a
+  branch whose commits correct each other is squash-merged. The
+  comparison under `kept:conflict` tells them apart: no difference
+  from the head that merged means the second. A `backup/` branch taken
+  before a squash or a reword usually reads this way, since the
   commits the rewrite replaced are on no other branch.
 
 **Delete a kept `backup/` branch without asking when you can account
-for everything it holds.** It was taken before a rewrite of the branch
-it names (`backup/<branch>`, with an optional label after it). When
-that branch's pull request has merged, run
-`git diff <backup> <head sha>` against the head that merged, found as
-under `kept:conflict` above. No difference, or only lines that the
-branch's own commits after the backup changed, means the backup has
-nothing left to restore: delete it with `git branch -D` and name it in
-the Step 10 summary with the tip it had. A difference you cannot
-account for stays a question for the user.
+for everything it holds, unless the user said this session they are
+still using it.** It was taken before a rewrite of the branch it
+names: `backup/<branch>`, sometimes with a label after it
+(`backup/<branch>-pre-squash`). Find that branch's merged pull request
+with the `gh pr list` command above, trying the whole name after
+`backup/` first and then each shorter name cut at a hyphen from the
+right. It counts when exactly one merged pull request has that head
+and its base is the default branch. Then run
+`git diff 'refs/heads/<backup>' <head sha>`, under the same rules as
+above. No difference, or only lines that the branch's own commits
+after the backup changed, means the backup has nothing left to
+restore: delete it with `git branch -D -- '<backup>'` and name it in
+the Step 10 summary with the `was` SHA git prints. No such pull
+request, or a difference you cannot account for, stays a question for
+the user.
 
 A deletion carries a reason too, and each deserves the same glance:
 `landed:ancestor`, every commit already on the default branch; and
@@ -294,20 +311,21 @@ own tree, and so would merging each of its commits.
 ### The user calls every keeper
 
 Report the sweep's own table as it stands. The user decides what happens
-to anything kept, and to the protected set. Do not delete those without
-an explicit instruction naming them.
+to anything kept, and to the protected set. Apart from a backup
+deleted under "Reading a keeper", do not delete those without an
+explicit instruction naming them.
 
 The sweep has no way to know about a branch the user mentioned this
 session as one they are still working on. It reads the repository, not
 the conversation, and a branch somebody is mid-way through looks exactly
 like an abandoned one from the outside. There is no flag for it either:
 `--delete` takes no exclusions and never pauses. So when such a branch
-is marked DELETE, do not run `--delete` at all. Delete the other
-DELETE rows one at a time instead --
-`git branch -d <name>`, falling back to `-D` where `-d` refuses, which
-will be most of them: a squash-merged branch is an ancestor of nothing,
-so `-d` cannot see that it landed, and the tool itself drops to `-D` on
-its own evidence for that same reason. Or offer to rename the branch the
+is marked DELETE, do not run `--delete` at all. Delete the other DELETE
+rows one at a time instead, with `git branch -d <name>`, falling back
+to `-D` where `-d` refuses, which will be most of them: a
+squash-merged branch is an ancestor of nothing, so `-d` cannot see
+that it landed, and the tool itself drops to `-D` on its own evidence
+for that same reason. Or offer to rename the branch the
 user is still using to something the tool protects, `<name>-backup`, and
 sweep again -- offer it rather than do it, since renaming a branch
 somebody is working on is their call.
@@ -319,9 +337,10 @@ in another worktree, a closed list of long-lived names (`main`, `master`,
 `develop`, `staging`, `production`, `gh-pages`, and anything under
 `release/`), and names ending in exactly `-backup`. A name with that
 suffix is kept whatever has merged, where one under the `backup/`
-prefix is an ordinary candidate. The order decides which reason
-a row carries, so `main` on a repository that defaults to it
-reports `protected:default` and never `protected:long-lived`. A project's own second long-lived branch
+prefix is an ordinary candidate. The order decides which reason a row
+carries, so `main` on a repository that defaults to it reports
+`protected:default` and never `protected:long-lived`. A project's own
+second long-lived branch
 (`qa`, `integration`, `demo`) and a safety net called `wip.bak` are
 ordinary candidates, so scan the report for this project's own before
 running `--delete`, and treat one marked DELETE as a branch the user
@@ -710,7 +729,7 @@ Report concisely what was done, one line per item:
 
 - Plan file: finalized at `<path>` (or "skipped -- ad-hoc work").
 - Branch: `<name>` deleted (or "kept -- <reason>" / "no local branch").
-- Branch sweep: N deleted, M kept (or "skipped -- <why>"); each backup deleted under Step 3b named with the tip it had.
+- Branch sweep: N deleted, M kept (or "skipped -- <why>"); a backup deleted under Step 3b is counted in N and named with the SHA it had.
 - Tracker: `<ID>` (<title>) moved to Done (or "no tracker issue").
 - Saved: N rules (naming each home: project CLAUDE.md or rules file, global CLAUDE.md, or the team's shared guidance file when it is this project; a rule drafted for another repository's guidance is counted on the next line, not here), counting any promoted from memory in 4c; N skills created or edited (naming each home: the project's or the user's skills directory, or the team's shared skills repository when it is this project; a drafted skill is counted on the next line, not here, even with a working copy); N state memories (or "nothing to save"); a lesson 4a left unsaved, for want of a home or of an answer, is named here as unsaved, with the reason.
 - Drafted: N changes for a shared guidance or skills repository, each drafted or filed at the user's request, naming each skill's draft file under `tmp/` and any working copy the user asked for (or "none").
