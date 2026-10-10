@@ -30,8 +30,7 @@
 #   refs/remotes/<remote>/HEAD is read in exactly one place -- the
 #   offline fallback, where an older answer from the remote beats a
 #   hardcoded guess -- and never when the remote can be asked. That ref
-#   is a local
-#   cache written when the repository was cloned and not updated since,
+#   is a local cache written when the repository was cloned and not updated since,
 #   so where the default branch has changed it names the old one -- and
 #   names a branch that really exists and really is pushed, so nothing
 #   about reading it fails or looks wrong. Every verdict downstream is
@@ -358,8 +357,7 @@ module StaleBranches
   # the repository is somewhere other than where this process is
   # standing.
   class Git
-    # The directory every child of this object runs in.
-    attr_reader :dir, :remote
+    attr_reader :remote
 
     def initialize(dir:, remote:)
       @dir = dir
@@ -679,8 +677,8 @@ module StaleBranches
 
     private
 
-    # Refused rather than degraded, because the vocabulary this report
-    # speaks has no honest word for it. Every reason states something
+    # Refused rather than degraded, because no reason key describes a
+    # check that never ran. Every reason states something
     # that was observed -- a conflict seen, content compared -- and
     # reporting one of those for a check that never ran states
     # something nobody observed. So an old git ends the run, naming
@@ -699,8 +697,9 @@ module StaleBranches
     #
     # The outcomes are states of knowledge, and the report keeps them
     # apart. A different tree is a positive local fact: this branch
-    # definitely adds something. A conflict is neither fact: the check
-    # could not run, and the branch is kept on an unanswered question.
+    # definitely adds something. A conflict is no fact about the branch:
+    # the merge could not be computed, and the branch is kept on an
+    # unanswered question.
     def decide_by_content
       landed = @git.tree_of(@measured_ref)
 
