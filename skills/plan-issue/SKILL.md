@@ -1426,7 +1426,6 @@ via the Skill tool. It will:
   merge has usually already done it, so this is normally a
   verification), and remove its `in progress` label once it is
   closed.
-- Verify sibling-audit follow-ups got filed.
 - On GitHub, where the project has priority labels, count the open
   issues waiting for a priority and, past a threshold, offer to label
   the oldest.
