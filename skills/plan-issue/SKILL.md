@@ -1438,8 +1438,11 @@ via the Skill tool. It will:
   plan file, rule and skill files, the settings diff): to the default
   branch where the project declares that, otherwise on a draft pull
   request.
+- End on one sentence saying whether the session is safe to leave,
+  with each reason when it is not.
 
-Relay the housekeeping skill's summary to the user when it finishes.
+Relay the housekeeping skill's summary and that closing sentence to
+the user when it finishes.
 
 ---
 

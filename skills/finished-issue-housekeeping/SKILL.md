@@ -1,6 +1,6 @@
 ---
 name: finished-issue-housekeeping
-description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory with a Done entry and prunes MEMORY.md back within its size budget, stops any dev server started for verification, clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep (via the /fewer-permission-prompts built-in, when available), and commits the files the pass wrote, to the default branch where the project declares that and otherwise on a draft pull request. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
+description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory with a Done entry and prunes MEMORY.md back within its size budget, stops any dev server started for verification, clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep (via the /fewer-permission-prompts built-in, when available), commits the files the pass wrote (to the default branch where the project declares that, otherwise on a draft pull request), and says whether the session is safe to leave. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
 ---
 
 # Finished issue housekeeping
@@ -589,7 +589,7 @@ skill (a Claude Code built-in, not part of this plugin).
 
 ## Step 9b -- Commit what the pass wrote
 
-**Every file this pass wrote inside the project's repository is committed on a housekeeping branch and pushed before the summary: behind one draft pull request, or to the default branch where the project declares that and the branch is unprotected.** A file left uncommitted on the default branch rides into the next story's first commit, and the person who would have to notice it has just read "Housekeeping complete."
+**Every file this pass wrote inside the project's repository is committed on a housekeeping branch and pushed before the summary: behind one draft pull request, or to the default branch where the project declares that and the branch is unprotected.** A file left uncommitted on the default branch rides into the next story's first commit, and the person who would have to notice it has just read the pass's summary.
 
 The summary names any file this step could not commit, with the reason; the parts below say when that happens.
 
@@ -748,4 +748,11 @@ Report concisely what was done, one line per item:
 - Task list: N completed tasks cleared.
 - Permission-prompt sweep: N additions in `<settings file>`, which the Committed or Uncommitted line accounts for (or "nothing approved" / "skipped -- built-in unavailable").
 
-Then mark the run-housekeeping task completed and delete it (deferred from Step 8), and end with "Housekeeping complete."
+**Last, check now, from the repository, GitHub, and this session, never from memory or an earlier step's result, whether this session is safe to leave, and end the pass on one sentence: "This session is safe to leave." or "This session is not safe to leave:" followed by each reason.** Each of these is a reason, along with anything else the check finds held or owed:
+
+- A stash or worktree made on the story's branch, a commit of the story's or this pass's that no remote has, or an uncommitted change to a file this session wrote or the story's pull requests changed.
+- A draft this session wrote that is not posted or filed, or a question or approval it is still waiting on.
+- An open pull request that names the story, whoever opened it, other than a housekeeping pull request.
+- A run of the default branch's checks since the story's last merge that failed or has not finished, even when a later run passed.
+
+An item the developer has said to leave as it is is not a reason: name it after the sentence. This check reports and fixes nothing. Between the check and its sentence, mark the run-housekeeping task completed and delete it (deferred from Step 8).
