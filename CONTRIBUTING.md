@@ -51,7 +51,8 @@ against a real project, with the plugin loaded from your working tree.
 **Invocation.** Run from the target project's directory and point
 `--plugin-dir` at your clone of this repo. Headless (`-p`) sessions
 cannot answer permission prompts, so pre-approve the tools the skill
-needs and no more.
+needs and no more. `--setting-sources project` needs Claude Code 2.1.101
+or later: on an older build it deletes conversation history.
 
 ```bash
 cd path/to/target-project
@@ -70,11 +71,9 @@ output against it.
 
 `--no-session-persistence` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
 together stop the arm leaving a session folder under
-`~/.claude/projects/`. Two kinds of arm leave one of them off and
-remove their folder afterward: an arm that will be resumed leaves the
-first off on every turn, since a session run with it cannot be resumed,
-and an arm of a skill that reads or writes memory leaves the variable
-off, or its planted `MEMORY.md` is never read.
+`~/.claude/projects/`. An arm that will be resumed and an arm of a
+skill that reads or writes memory each leave one of them off, as their
+paragraphs below say, and remove their folder afterward.
 
 **Models.** Run arms on Opus and Sonnet, the two models the plugin
 supports (the README's Requirements section names them), and on no
@@ -170,7 +169,8 @@ gets an auto-memory directory derived from its working directory:
 working directory with every character other than a letter or digit
 turned into `-`. To test how a skill handles memory, plant the
 `MEMORY.md` an arm needs at that path before the run, and remove the
-whole `~/.claude/projects/<path>` directory after it.
+whole `~/.claude/projects/<path>` directory after it. Run that arm
+without `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, or the file is never read.
 
 **Give an arm a further turn when the rule is about an approval or a
 go-ahead.** A rule that makes a session propose and wait, or that
@@ -178,8 +178,10 @@ forbids an action, ends a one-turn arm on a question in the control and
 the treatment alike. Resume the session with its session id and a
 neutral turn that names no answer of its own ("Approved, go ahead.", "Do
 what you recommend."), repeat every isolation flag on that command, and
-grade each turn. Read the writes as attempted tool calls in the stream,
-since a headless run is denied writes outside its working directory.
+grade each turn. Leave `--no-session-persistence` off every turn: a
+session run with it cannot be resumed. Read the writes as attempted
+tool calls in the stream, since a headless run is denied writes outside
+its working directory.
 
 **Read what a grader scored before counting it.** A grader that
 recognizes a behavior by its wording misses other phrasings ("Does that
