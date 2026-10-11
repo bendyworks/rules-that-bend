@@ -199,6 +199,15 @@ class CheckArmIsolationTest < Minitest::Test
     refute_includes err, "#{@tmp}/.claude"
   end
 
+  def test_writes_a_leaked_file_with_a_tilde_when_home_ends_in_a_slash
+    _out, err, status = check(HOME: "#{@tmp}/",
+                              flagged: [['User', "#{@tmp}/.claude/CLAUDE.md"], ['Project', PROJECT_FILE]])
+
+    assert_equal 1, status.exitstatus, err
+    assert_includes err, '  ~/.claude/CLAUDE.md'
+    refute_includes err, "#{@tmp}/.claude"
+  end
+
   def test_cannot_tell_when_no_user_level_file_loads_even_without_the_flag
     out, err, status = check(plain: [['Project', PROJECT_FILE]])
 
@@ -325,6 +334,19 @@ class CheckArmIsolationTest < Minitest::Test
     assert_equal 2, status.exitstatus, out + err
     assert_match(/no-such-claude is not installed or not on PATH/, err)
     assert_no_arm_ran
+  end
+
+  # The version guard and the arms must run one file. A shell function
+  # or builtin comes back from the lookup as a bare word, which the
+  # guard would run and exec would not.
+  def test_refuses_a_claude_that_does_not_resolve_to_an_absolute_path
+    ['echo', './claude'].each do |name|
+      out, err, status = Dir.chdir(@tmp) { check(CLAUDE_BIN: name) }
+
+      assert_equal 2, status.exitstatus, "#{name}: #{out}#{err}"
+      assert_match(/Set CLAUDE_BIN to the absolute path of claude/, err, name)
+      refute File.exist?(@calls), "an arm ran for #{name}"
+    end
   end
 
   # --- the version guard ---

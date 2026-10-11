@@ -48,12 +48,21 @@ cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
 
 [ "$#" -eq 0 ] || { say "usage: $0" >&2; exit 2; }
 # Looked up once, so the version guard below and the arms run one file.
+# The arms run from the scratch directory, where a relative path points
+# nowhere, and a shell function or builtin comes back as a bare word the
+# guard would run and exec would not.
 CLAUDE="$(command -v -- "${CLAUDE_BIN:-claude}")" || cannot_tell "${CLAUDE_BIN:-claude} is not installed or not on PATH."
+case "$CLAUDE" in
+  /*) ;;
+  *) cannot_tell "${CLAUDE_BIN:-claude} resolves to $CLAUDE, not to a file's absolute path. Set CLAUDE_BIN to the absolute path of claude." ;;
+esac
 
 # Copies stdin with a leading home directory written as ~, so a report
-# pasted into an issue carries no home-directory path.
+# pasted into an issue carries no home-directory path. A HOME ending in
+# a slash would match the front of no path.
 tilde() {
   local line home="${HOME:-}"
+  home="${home%/}"
   while IFS= read -r line; do
     if [ -n "$home" ]; then
       case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
