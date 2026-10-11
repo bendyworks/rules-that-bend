@@ -55,8 +55,9 @@ needs and no more.
 
 ```bash
 cd path/to/target-project
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
 claude --plugin-dir path/to/rules-that-bend \
-  --setting-sources project --model sonnet \
+  --setting-sources project --no-session-persistence --model sonnet \
   -p "Invoke the <name> skill from the bendyworks plugin on the current
       branch, following it exactly. Report what it produces." \
   --allowedTools "Bash(git diff *),Bash(git log *),Read,Grep,Glob"
@@ -66,6 +67,14 @@ Keep the prompt neutral: do not tell the session what outcome you
 expect, or the run stops being a test. Decide the expected answer
 beforehand from your own reading of the project's state, then grade the
 output against it.
+
+`--no-session-persistence` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
+together stop the arm leaving a session folder under
+`~/.claude/projects/`. Two kinds of arm leave one of them off and
+remove their folder afterward: an arm that will be resumed leaves the
+first off on every turn, since a session run with it cannot be resumed,
+and an arm of a skill that reads or writes memory leaves the variable
+off, or its planted `MEMORY.md` is never read.
 
 **Models.** Run arms on Opus and Sonnet, the two models the plugin
 supports (the README's Requirements section names them), and on no
@@ -109,8 +118,8 @@ your user-level `CLAUDE.md` and the files it imports, the files under
 copies of this repo's skills among them, which an arm could follow
 instead of your branch), and the plugins and MCP servers in your user
 settings. It still loads the project's `CLAUDE.md`, `.claude/rules/` and
-`.claude/settings.json`, the `--plugin-dir` skills, and the arm
-directory's auto-memory.
+`.claude/settings.json`, the `--plugin-dir` skills, and, unless the
+variable above turns it off, the arm directory's auto-memory.
 
 The flag needs Claude Code 2.1.101 or later: before that, a session run
 with it deleted conversation history older than 30 days. Whether it
