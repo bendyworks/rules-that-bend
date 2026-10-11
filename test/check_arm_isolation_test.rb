@@ -29,10 +29,9 @@ class CheckArmIsolationTest < Minitest::Test
   # arm without the flag) or STUB_FLAGGED through every InstructionsLoaded
   # hook in the JSON settings the script passed with --settings, with
   # every hook open at once and the payload shaped as Claude Code shapes
-  # it. A Project load is reported
-  # only when the working directory holds a CLAUDE.md to load. It
-  # records its arguments, settings, working directory, and process ID
-  # for the test to read. Knobs, each also taking an arm-specific form
+  # it. A Project load is reported only when the working directory holds
+  # a CLAUDE.md to load. It records its arguments, working directory, and
+  # process ID for the test to read. Knobs, each also taking an arm-specific form
   # (STUB_PLAIN_EXIT, STUB_FLAGGED_STDERR): STUB_EXIT and STUB_STDERR.
   # STUB_VERSION and STUB_VERSION_EXIT set what --version says, and
   # STUB_NEW_ONLY_IN names the one directory it reports a new build
@@ -50,7 +49,7 @@ class CheckArmIsolationTest < Minitest::Test
     given = ARGV[ARGV.index('--settings') + 1]
     settings = JSON.parse(given)
     File.open(ENV.fetch('STUB_CALLS'), 'a') do |log|
-      log.puts JSON.generate('argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid, 'settings' => settings,
+      log.puts JSON.generate('argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid,
                              'project_file' => File.exist?('CLAUDE.md'),
                              'auto_memory_off' => ENV['CLAUDE_CODE_DISABLE_AUTO_MEMORY'])
     end
@@ -66,21 +65,13 @@ class CheckArmIsolationTest < Minitest::Test
                   'file_path' => path, 'memory_type' => type, 'load_reason' => 'session_start' }
       hooks.map do |hook|
         io = IO.popen(['sh', '-c', hook['command']], 'w')
-        begin
-          io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
-          io.flush
-        rescue Errno::EPIPE
-          nil # a hook may exit without reading its input
-        end
+        io.write(ENV['STUB_SPACED'] ? JSON.generate(payload, space: ' ') : JSON.generate(payload))
+        io.flush
         io
       end
     end
     sleep 0.05
-    pipes.each do |io|
-      io.close
-    rescue Errno::EPIPE
-      nil
-    end
+    pipes.each(&:close)
     stderr = ENV["STUB_#{arm}_STDERR"] || ENV['STUB_STDERR']
     warn stderr if stderr
     exit Integer(ENV["STUB_#{arm}_EXIT"] || ENV.fetch('STUB_EXIT', '0'))
