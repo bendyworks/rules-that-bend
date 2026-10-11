@@ -47,15 +47,11 @@ description, a whole new audit lane in gauntlet.
 
 The cheapest faithful test of a skill is a headless Claude session run
 against a real project, with the plugin loaded from your working tree.
-Three techniques cover most skills:
 
 **Invocation.** Run from the target project's directory and point
 `--plugin-dir` at your clone of this repo. Headless (`-p`) sessions
 cannot answer permission prompts, so pre-approve the tools the skill
-needs and no more, and pass `--setting-sources project` so the run
-leaves your own user-level files out. Read "Keep your own rules out of
-every arm" below before the first run: the flag needs Claude Code
-2.1.101 or later.
+needs and no more.
 
 ```bash
 cd path/to/target-project
@@ -66,184 +62,98 @@ claude --plugin-dir path/to/rules-that-bend \
   --allowedTools "Bash(git diff *),Bash(git log *),Read,Grep,Glob"
 ```
 
-**Models.** Run arms on Opus and Sonnet, the two models the plugin
-supports (the README's Requirements section names them), and on no
-smaller one. Text is never reworded to suit a model the plugin does not
-support. When both pass a scenario on the text as it stood before your
-change, that scenario gives no reason to add a rule: drop the rule, or
-find the scenario where one of them fails. A fix to text that says
-something wrong is a different case, which "A control that passes does
-not clear the text" below covers. After rewording text that arms
-already cover, re-run those arms on Sonnet.
-
-Keep the prompt neutral -- do not tell the session what outcome you
+Keep the prompt neutral: do not tell the session what outcome you
 expect, or the run stops being a test. Decide the expected answer
 beforehand from your own reading of the project's state, then grade the
 output against it.
 
-**Mind the CLAUDE.md a run inherits.** A session started from a
-directory inside this repo picks up the root `CLAUDE.md`, including its
-Deploy-on-Merge declaration. It can hand the run an answer the skill
-under test was supposed to supply, which quietly turns a test into a
-tautology, and so can your own user-level files (next paragraph). Run
-each arm from a throwaway project directory that carries exactly the
-rules that arm is meant to have. The related trap when writing a
-project declaration for an arm: state the *fact* the project is
-asserting, never the behavior you expect the skill to produce, or the
-session will simply follow your wording.
+**Models.** Run arms on Opus and Sonnet, the two models the plugin
+supports (the README's Requirements section names them), and on no
+smaller one. After rewording text that arms already cover, re-run those
+arms on Sonnet.
+
+**When the control passes on both models, the rule does not ship.** The
+control is the same arm run on the text as it stood before your change.
+Drop the rule, or find the scenario where one model fails. Two kinds of
+change ship on other evidence, and the pull request says which:
+
+- *Text that says something wrong.* A capable model often does the
+  sensible thing where the text tells it otherwise, so the control
+  passes. Run the text's own commands, in order, in a scratch repository
+  in the state the finding names. The fix rests on that run.
+- *A behavior only long real sessions show.* A short headless session
+  may never produce it. Count it in real history: the same model on the
+  same project, either side of the date the rule arrived.
+
+The pull request states, for each rule it adds, the control's score on
+each model.
+
+**Run the control again beside every treatment batch.** The same text,
+byte for byte, caught a planted error in 3 of 6 runs in one batch and 0
+of 6 in the next. Two wordings cannot be told apart on fewer than twenty
+runs per arm; with fewer, report the spread.
+
+**Give each arm a throwaway project directory that carries exactly the
+rules it is meant to have.** A session started inside this repo picks up
+the root `CLAUDE.md`, its Deploy-on-Merge declaration included, and a
+`CLAUDE.md` in any directory above the arm's loads too. Either can hand
+the run the answer the skill was supposed to supply. When writing a
+project declaration for an arm, state the fact the project asserts,
+never the behavior you expect from the skill.
 
 **Keep your own rules out of every arm.** Pass
-`--setting-sources project` on every arm, and again on every
-`--resume` turn: the flag covers one invocation. Seen on Claude Code
-2.1.285, 2.1.288, and 2.1.289, a resumed turn without the flag loaded
-the user-level files again, and an arm run with it started without:
+`--setting-sources project` on every arm, and again on every `--resume`
+turn: the flag covers one invocation. An arm run with it starts without
+your user-level `CLAUDE.md` and the files it imports, the files under
+`~/.claude/rules/`, personal skills under `~/.claude/skills` (synced
+copies of this repo's skills among them, which an arm could follow
+instead of your branch), and the plugins and MCP servers in your user
+settings. It still loads the project's `CLAUDE.md`, `.claude/rules/` and
+`.claude/settings.json`, the `--plugin-dir` skills, and the arm
+directory's auto-memory.
 
-- your user-level `CLAUDE.md` and every file it imports;
-- files under `~/.claude/rules/`;
-- personal skills under `~/.claude/skills`, including synced copies of
-  this repo's skills, which an arm without the flag loads beside the
-  `--plugin-dir` working tree and can follow instead of your branch;
-- plugins and MCP servers enabled in your user settings.
-
-It still loads the project's own `CLAUDE.md` and `.claude/rules/`, the
-project's `.claude/settings.json` with its permission rules and hooks,
-any `CLAUDE.md` in a directory above the arm's, the `--plugin-dir`
-skills, and the arm directory's auto-memory.
-
-**The flag needs Claude Code 2.1.101 or later.** Before that, a session
-run with it deleted conversation history older than 30 days, whatever
-your settings said.
-
-Whether the flag does this has differed between builds, so confirm it
-on yours before a batch that relies on it, and again after an update:
+The flag needs Claude Code 2.1.101 or later: before that, a session run
+with it deleted conversation history older than 30 days. Whether it
+isolates has differed between builds, so confirm it on yours before a
+batch, and again after an update:
 
 ```bash
 scripts/check-arm-isolation.sh
 ```
 
-It runs two one-word sessions, one with the flag and one without, and
-reads which instruction files Claude Code itself reports loading. It
-passes when user-level files load without the flag and none load with
-it. It observes instruction files only; skills, plugins, and MCP
-servers come from the same user source but are not checked. The
-session without the flag is a real one with your own settings: it runs
-your hooks and loads your plugins, though with no tools and no MCP
-servers, and each session makes one small model request. It starts no
-session at all on a build older than 2.1.101.
-"Cannot tell" comes with its reason. The three you are likeliest to
-see: an arm failed, and if it is the one with the flag, your sign-in may
-come from your user settings, which is the first case under "When the
-flag will not do" below; nothing user-level loaded either way, because
-you have no such files; or your `CLAUDE.md` sits in a park lock, which
-"Never move your user-level files aside" below explains.
+It runs two one-word sessions, one with the flag and one without (a real
+session on your own settings), and reads which instruction files Claude
+Code reports loading. "Cannot tell" comes with its reason. When it
+reports that a user-level file loaded with the flag, run no batch on
+that build: install one the check passes on (`claude install <version>`)
+and open an issue here with the output. Read the output first, since it
+names files on your machine and this repo is public.
 
-The flag drops everything else in your user settings too, so an arm
-gets none of your permission rules, hooks, or model choice. That
-includes your `deny` rules and any hook that guards a tool, which
-apply to an arm run without the flag. Pass `--model` on every arm, and
-give `--allowedTools` only what the skill needs (`Bash(git diff *)`
-rather than `Bash` or `Bash(git *)`, which still allows a push or a
-hard reset), restating a deny you rely on with `--disallowedTools` and
-a guard hook you rely on with `--settings`. `--allowedTools`
-pre-approves and does not limit; `--tools` sets which built-in tools
-an arm has at all. Read a run's stream for permission denials before
-grading it: a denied tool changes what the arm does.
-
-The flag stops Claude Code loading those files, not an arm reading
-them: `Read`, `Grep`, and `Glob` as the example grants them reach any
-file you can read, so an arm can still open `~/.claude/CLAUDE.md` or a
-stale skill copy off disk. Where that matters, add
+The flag drops your permission rules, hooks, and model choice too. Pass
+`--model` on every arm, and give `--allowedTools` only what the skill
+needs (`Bash(git diff *)`, never `Bash(git *)`, which allows a push or a
+hard reset), restating a deny you rely on with `--disallowedTools`.
+`--allowedTools` pre-approves and does not limit; `--tools` sets which
+built-in tools an arm has at all. Read a run's stream for permission
+denials before grading it. The flag stops Claude Code loading your
+files, not an arm reading them, so where that matters add
 `--disallowedTools "Read(~/.claude/**)"`. The tell for a contaminated
 run is an arm citing a rule only your own files carry, or skill wording
-that matches main rather than your branch.
-
-**When the flag will not do.** Two cases. Both are settled on the
-arm's own command line, so nothing outside the arm changes.
-
-*Your arms need something from your user settings to run at all*, such
-as a sign-in that comes from an `apiKeyHelper` there. Put that one
-setting in a file of its own and pass it beside the flag:
-
-```bash
-claude --setting-sources project --settings ~/dry-run/sign-in.json ...
-```
-
-Seen on Claude Code 2.1.289, an arm run this way consulted the file's
-`apiKeyHelper`, applied its `env` block, and ran its hooks, while the
-flag still kept the user-level files out. Claude Code keeps only the
-last `--settings` it is given, so a guard hook you restate goes in the
-same file. Variables from an `env` block need no file at all: export
-them in the shell that runs the batch. The file names a command that
-fetches a key and never holds the key itself. Keep it outside this
-repo, as the path above is. Hand the isolation check the same file, so
-its arm with the flag can sign in; that arm is a real session, so the
-file's `apiKeyHelper` and hooks run there too:
-
-```bash
-ARM_SETTINGS=~/dry-run/sign-in.json scripts/check-arm-isolation.sh
-```
-
-*The check reports that a user-level file loaded with the flag.* Run no
-batch that relies on the flag on that build. Install a build the check
-passes on (`claude install <version>`), run the check again, and open
-an issue here with the output of the failing run. The check's output
-names files and directories on your machine and can quote an error
-from `claude` or `ruby`, and this repo is public, so read it before you
-post it.
-
-Until a build passes, an arm can run on a config directory of its own,
-which has no user-level files in it to load. Pointing
-`CLAUDE_CONFIG_DIR` at an empty directory leaves a run logged out, so
-the arm also needs a sign-in token in its environment. Make one with
-`claude setup-token`, keep it in your system's secret store, and read
-it from there on the command line (on macOS, `security
-find-generic-password -s <item> -w`):
-
-```bash
-CLAUDE_CONFIG_DIR="$(mktemp -d)" \
-  CLAUDE_CODE_OAUTH_TOKEN="$(<command that prints the token>)" \
-  claude --model sonnet -p "..." --allowedTools "..."
-```
-
-Seen on Claude Code 2.1.289: with an empty config directory and no
-token, a headless run answered "Not logged in"; with the token it ran,
-and loaded the project's `CLAUDE.md` and no user-level file. The token
-is a credential for your account: never write it to a file, a script,
-or a settings file, and never paste it into a session. Claude Code
-writes session state into the directory, so delete it when the batch
-ends. `scripts/check-arm-isolation.sh` does not check this route; it
-tests the flag.
-
-**Never move your user-level files aside for a batch.** Every Claude
-Code session on your machine reads the one user-level `CLAUDE.md`. A
-session started in any project while that file is moved away runs
-without your rules, and nothing tells it or you: it behaves plausibly
-and no command fails. Older checkouts of this repo, and harnesses
-written against them, carry `scripts/park-claude-md.sh`, which moved
-the file into a `CLAUDE.md.park-lock` directory beside it for the
-length of a batch. Do not run it. `scripts/check-arm-isolation.sh`
-looks for that directory before it starts a session, and again once
-its sessions finish. When it finds one, it says which checkout and
-process took it, where the directory records one, and what to do next:
-the commands that put the file back, or, when a `CLAUDE.md` is also in
-place, to compare the two first.
+that matches main and not your branch.
 
 **Trigger injection.** To force a specific code path (an escalation
 rule, an edge case), plant an untracked dummy file that matches the
 trigger instead of mutating anything real -- e.g.
 `touch spec/factories/zz_dry_run.rb` to trip a rule keyed on
-`spec/factories/**`. It exercises the genuine path end to end, risks
-nothing in the target repo, and one `rm` reverts it. When the skill
-claims to produce an artifact (a log file, a report), verify it exists
-on disk.
+`spec/factories/**`. When the skill claims to produce an artifact (a
+log file, a report), verify it exists on disk.
 
 **Selection-only paper runs.** For judgment-heavy rules that would be
 slow or side-effectful to execute, prompt the session to apply the
 skill's rules against real code but run nothing: stipulate a
 hypothetical diff ("pretend the branch diff were exactly: ..."), tell it
 to substitute real files when a stipulated one does not exist and say
-so, and require the full decision output. This validates heuristics in
-one pass without paying for their execution.
+so, and require the full decision output.
 
 **Plant the memory directory for memory behavior.** A headless session
 gets an auto-memory directory derived from its working directory:
@@ -251,147 +161,27 @@ gets an auto-memory directory derived from its working directory:
 working directory with every character other than a letter or digit
 turned into `-`. To test how a skill handles memory, plant the
 `MEMORY.md` an arm needs at that path before the run, and remove the
-whole `~/.claude/projects/<path>` directory after it. An arm about a
-project with no auto-memory needs no `MEMORY.md` there. Give each arm
-its own working directory, so each gets its own memory directory.
+whole `~/.claude/projects/<path>` directory after it.
 
-**Give an approval rule a turn that approves.** A rule that makes a
-session propose and wait ends a two-turn arm at the proposal, in the
-control and the treatment alike, so a grader that reads writes sees
-nothing written on either side. Add a third turn with a neutral
-approval that names no answer of its own ("Approved, go ahead."), grade
-the second turn on what it proposes and the third on what it writes,
-and read the writes as attempted tool calls in the stream rather than
-files on disk, since a headless run is denied writes outside its
-working directory. The same neutral turn shows whether a session takes
-one "yes" as the answer to two questions.
+**Give an arm a further turn when the rule is about an approval or a
+go-ahead.** A rule that makes a session propose and wait, or that
+forbids an action, ends a one-turn arm on a question in the control and
+the treatment alike. Resume the session with its session id and a
+neutral turn that names no answer of its own ("Approved, go ahead.", "Do
+what you recommend."), repeat every isolation flag on that command, and
+grade each turn. Read the writes as attempted tool calls in the stream,
+since a headless run is denied writes outside its working directory.
 
-**Read an arm the grader failed before counting it.** A grader that
-looks for approval-seeking wording ("approve", "should I", a closing
-question mark) misses phrasings like "Does that text work for you? If
-so, I'll write it." When an arm is graded as not waiting but wrote
-nothing, read its final message before scoring it, and widen the
-pattern rather than correcting the score by hand.
-The same miss applies to any behavior a grader recognizes by its
-wording: an offer phrased "I can create it if you want", or a stop
-phrased "someone else may already be working on it", reads as absent
-until the pattern learns it.
-
-**A word match counts a report that repeats a claim as one that caught
-it.** A tally that looked for a planted wrong claim's key words scored a
-report saying "verified: wraps fields in double quotes" as a catch, and
-turned 2 of 6 into 3 of 6. Where an arm passes by naming a problem, read
-whether the report calls the claim wrong, or make the pattern require
-the contradiction and not the topic.
-
-**Stub a CLI on the same words the real one dispatches on.** A stub
-`gh` that switched on its first two arguments sent `gh api user` to its
-"unsupported" branch instead of its `api` handler, and a strong model
-then correctly reported that the login lookup had failed: a harness
-fault that read as a finding. Match subcommands the way the real tool
-parses them, and run each command the skill under test newly relies on
-once through the stub before the batch.
-
-**Test a shell snippet a skill ships by lifting it from the skill file
-as written, never from a copy typed into the test.** A filter shipped
-inside single quotes held an apostrophe in a comment, which ended the
-quote; a retyped copy would not have had the comment, and would have
-passed.
-
-**Trace the tool calls before rewording a rule that never fires.** A
-rule keyed on an event ("a line added because the test failed without
-it") cannot fire for a session that never has the event. In one guidance
-story one model ignored such a rule in every run, and its tool calls
-showed why: it wrote the line into the test's first draft, copied from a
-neighboring test, so the test never failed. The rule was rewritten to
-key on what the line does, however it got there. When a rule scores the
-same on control and treatment, print each run's tool calls in order from
-its stream-json log and find the step where the rule should have
-applied, before changing a word. A model that never consults the rule at
-that step is a limit to record, not a wording to tune.
-
-**When a rule tells a session to hold something back, check that what
-the reader asked for is still there.** A grader built to catch a
-pattern scores its absence as a pass, and cannot see what left with it.
-In one guidance story a rule moved reassurance behind the explanation.
-The control answered a yes/no question in ten runs of ten; the
-treatment answered it in none of fifteen, and every grader passed those
-drafts, because no scenario listed the answer as a required fact and
-the rubric scored "Yes, it is working again" as the pattern. Give each
-scenario a list of facts a good output must still contain, the answer
-to any question asked among them, and compare their survival between
-control and treatment.
-
-**Fix the runs each pattern is counted over before the first run.** A
-pattern that only two of six scenarios can produce reads as 8 of 30
-over all six and 8 of 10 over the two, and a pass bar set as a share
-gives a different verdict on each. Write down, per pattern, which
-scenarios invite it, before any output exists. A pool changed after
-seeing results is reported as changed, with both figures.
-
-**Run the control again beside every treatment batch, and never compare
-wordings on six runs.** The same brief, byte for byte, caught a planted
-error in 3 of 6 runs in one batch and 0 of 6 in the next. Three rewordings scored 0 of 6, 2 of 6 and 1 of 10 in
-between, and each read as a regression until the unchanged text scored
-inside that spread. A rate that low needs at least twenty runs per arm
-before two wordings can be told apart. With fewer, report the spread,
-and where you can, change the design so it no longer depends on the
-difference.
-
-**Pin a container to one CPU to reproduce a race that fails only in
-CI.** A test that wrote to the pipe of a child process which exits
-without reading passed 30 runs of 30 in a Linux container with every
-core available, and failed 28 of 40 with
-`docker run --cpuset-cpus 0`: on one core the child runs, and exits,
-before the parent writes. When a test passes locally and fails on a
-shared runner with a broken pipe or a timeout, try the one-core
-container before reading the failure as a flake.
-
-**A control that passes does not clear the text.** A capable model
-often does the sensible thing where the text says the wrong thing, so
-an arm written to reproduce a bug can pass on the unfixed text. In one
-story a model cut a fresh branch where the text told it to build on a
-stale one, and the arm was green. The bug was real: running the text's
-own commands, in order, in a scratch repository reproduced it. When a
-finding names commands and a state, run those commands in that state
-before deciding the finding is wrong, and record which fixes rest on
-that run and not on an arm.
-
-**Give an arm a second turn when the rule is about what a session does
-with a go-ahead.** A rule that says "delete nothing here" was first
-tested with one-turn arms, and the text it replaced passed them: Opus and
-Sonnet asked before deleting, so the turn ended on a question in
-control and treatment alike. A second turn saying only "Do what you
-recommend." separated them. On the unfixed text all 20 runs on one
-fixture had deleted branches by the end of that turn; on the final text
-none of 6 had. Resume the session with the first turn's session id,
-repeat every isolation flag on the second command, and grade both turns
-from the tool's call log. A session that offers the forbidden action as
-a choice, then takes it on the go-ahead, fails in a way the first turn
-does not show.
-
-**When a passage has taken three rounds of patches, write it again from
-the cases it has to cover.** One section of a skill was patched four
-times in a story. Each patch closed the gap a review had found, and the
-review of each patch found a new one where two sentences could be read
-against each other: a fixed summary line beside a deletion the user may
-order, an exception that closed the only command safe to run. A patch
-adds a sentence that every other sentence in the passage then has to
-agree with. Past the second round, list the situations the passage must
-answer (here: before the user says anything, the user names branches,
-the user names a flag) and write one answer for each. The rewritten
-section passed its arms.
-
-**A short headless session may not produce what a long real one does.**
-Rules against rhetorical habits measured in months of commit history
-could not be tested the usual way: on the unfixed text the control
-produced almost none of the habits, on any model, whether the session
-was handed a finished change, made to find and fix the bug itself, or
-run in a project whose history was written in that style. Where a
-behavior comes from long sessions, look for a before and an after in
-real history (the same model on the same project, either side of the
-date the rule arrived), and say which rules rest on that count and which
-on the arms.
+**Read what a grader scored before counting it.** A grader that
+recognizes a behavior by its wording misses other phrasings ("Does that
+text work for you? If so, I'll write it."). When an arm is graded as not
+waiting but wrote nothing, read its final message, and widen the pattern
+instead of correcting the score by hand. A word match counts a report
+that repeats a planted claim ("verified: wraps fields in double quotes")
+as one that caught it, so make the pattern require the contradiction.
+And a grader built to catch a pattern scores its absence as a pass: give
+each scenario a list of facts a good output must still contain, the
+answer to any question asked among them.
 
 ## GitHub is required
 
