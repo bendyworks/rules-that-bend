@@ -137,10 +137,13 @@ that build: install one the check passes on (`claude install <version>`)
 and open an issue here with the output. Read the output first, since it
 names files on your machine and this repo is public.
 
-The flag drops your permission rules, hooks, and model choice too. Pass
-`--model` on every arm, and give `--allowedTools` only what the skill
-needs (`Bash(git diff *)`, never `Bash(git *)`, which allows a push or a
-hard reset), restating a deny you rely on with `--disallowedTools`.
+The flag drops your permission rules, hooks, and model choice too, and a
+sign-in that comes from your user settings (an `apiKeyHelper`): pass
+that one setting beside it with `--settings <file>`, and expect the
+check to answer "cannot tell" unless it finds a leak. Pass `--model` on
+every arm, and give `--allowedTools` only what the skill needs
+(`Bash(git diff *)`, never `Bash(git *)`, which allows a push or a hard
+reset), restating a deny you rely on with `--disallowedTools`.
 `--allowedTools` pre-approves and does not limit; `--tools` sets which
 built-in tools an arm has at all. Read a run's stream for permission
 denials before grading it. The flag stops Claude Code loading your
@@ -179,9 +182,10 @@ the treatment alike. Resume the session with its session id and a
 neutral turn that names no answer of its own ("Approved, go ahead.", "Do
 what you recommend."), repeat every isolation flag on that command, and
 grade each turn. Leave `--no-session-persistence` off every turn: a
-session run with it cannot be resumed. Read the writes as attempted
-tool calls in the stream, since a headless run is denied writes outside
-its working directory.
+session run with it cannot be resumed. Run with
+`--output-format stream-json --verbose` to get the session id and the
+tool calls, and read the writes as attempted tool calls there, since a
+headless run is denied writes outside its working directory.
 
 **Read what a grader scored before counting it.** A grader that
 recognizes a behavior by its wording misses other phrasings ("Does that
