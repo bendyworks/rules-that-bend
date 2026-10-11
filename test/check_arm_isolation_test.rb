@@ -30,8 +30,9 @@ class CheckArmIsolationTest < Minitest::Test
   # hook in the JSON settings the script passed with --settings, with
   # every hook open at once and the payload shaped as Claude Code shapes
   # it. A Project load is reported only when the working directory holds
-  # a CLAUDE.md to load. It records its arguments, working directory, and
-  # process ID for the test to read. Knobs, each also taking an arm-specific form
+  # a CLAUDE.md to load. It records its arguments, working directory,
+  # process ID, whether a CLAUDE.md was there, and the auto-memory
+  # variable for the test to read. Knobs, each also taking an arm-specific form
   # (STUB_PLAIN_EXIT, STUB_FLAGGED_STDERR): STUB_EXIT and STUB_STDERR.
   # STUB_VERSION and STUB_VERSION_EXIT set what --version says, and
   # STUB_NEW_ONLY_IN names the one directory it reports a new build
@@ -164,6 +165,15 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 1, status.exitstatus, err
     assert_includes err, USER_FILE
+  end
+
+  def test_a_leak_is_reported_even_when_an_arm_then_fails
+    %w[STUB_FLAGGED_EXIT STUB_PLAIN_EXIT].each do |failing_arm|
+      _out, err, status = check(flagged: [['User', USER_FILE], ['Project', PROJECT_FILE]], failing_arm => '1')
+
+      assert_equal 1, status.exitstatus, "#{failing_arm}: #{err}"
+      assert_includes err, USER_FILE, failing_arm
+    end
   end
 
   def test_reads_a_report_written_with_spaces_after_its_colons

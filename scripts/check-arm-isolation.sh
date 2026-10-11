@@ -30,8 +30,8 @@
 #   1  a user-level file loaded with the flag, so an arm run with it on
 #      this build reads your own rules; CONTRIBUTING.md says what to do
 #   2  cannot tell, and the message says why: among other reasons, claude
-#      is older than 2.1.101, an arm failed, or nothing user-level
-#      loaded even without the flag
+#      is older than 2.1.101, an arm failed without reporting a leak, or
+#      nothing user-level loaded even without the flag
 #
 # The arm without the flag is what makes a pass mean something: with the
 # user-level files absent, an arm loads none either way.
@@ -174,8 +174,6 @@ arm_failed() {
   } >&2
   exit 2
 }
-[ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
-[ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
 
 # The paths of the files of kind $1 (User or Project) in arm $2's log,
 # as the log writes them. The pattern steps over an escaped quote, so a
@@ -198,8 +196,12 @@ if [ -n "$leaked" ]; then
   exit 1
 fi
 
-# Checked after the leak, so a leak is reported however little else the
-# flagged arm said.
+# Everything below is checked after the leak, so a leak is reported
+# however little else the flagged arm said, and whether or not an arm
+# went on to fail.
+[ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
+[ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
+
 if [ -z "$(loaded Project flagged)" ]; then
   cannot_tell "the arm with the flag did not report loading its own project file, so the hook may not fire under the flag on $version, and its silence about user-level files proves nothing."
 fi
