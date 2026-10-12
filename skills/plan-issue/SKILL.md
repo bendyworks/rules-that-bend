@@ -425,49 +425,31 @@ returns exactly 200 may have been cut short the same way: raise the
 limit and read again. Then take the first of these that fits:
 
 - **The project declines them** in its checked-in CLAUDE.md (or a
-  rules file every session loads), in wording like:
-
-  > This project does not use priority labels on its GitHub issues.
-
-  The declaration states only that fact; this section owns what
-  follows from it: never propose a priority and never apply a priority
-  label unasked, even when the repository has some. Everywhere this
-  skill says "has priority labels", a declining project has none.
-  Recognize the decline by meaning, but hold a floor: it must say that
-  the project does not use priority labels on its GitHub issues. Prose
-  about priorities in general ("we don't fuss about priority here") is
+  rules file every session loads), with a statement that the project
+  does not use priority labels on its GitHub issues. It has none, even
+  when the repository has some. Prose about priorities in general is
   not a decline, and neither is anything said in conversation.
-- **Otherwise, the project states its set** in the same checked-in
-  files: which labels are its priority levels, and which one means
-  nobody has judged the issue yet (`P0` to `P3` and `unsorted`, say).
-  Use that set, after checking each stated label against the label
-  read. A stated label the repository does not have is never proposed,
-  and the reply names it, on a project left with no scale too. With
-  fewer than two stated levels left, the project has none, and the
-  name test below is not tried: the project has said its labels are
-  others.
-- **Otherwise, the name test:** the repository's labels whose names
-  start with `priority` followed by the same separator (`:`, `/`, `-`,
-  or a space; spaces around a `:`, `/`, or `-` do not matter), in any
-  case -- `priority: high` and `priority: low`, or `Priority/P1` and
-  `Priority/P2`. Among them, a label whose value is `untriaged`,
-  `triage`, or `needs triage` is the not-yet-judged label, in any case
-  and with its words joined by a space, a hyphen, or an underscore
-  (`needs-triage`); the rest are the levels. **Two or more levels make
-  a scale, and fewer make none.** Where two labels both read as not
-  yet judged, ask which one the project uses, the first time one is
-  needed; the other is then neither that nor a level.
-- **Otherwise, the project has none.** Say nothing about priority in
-  the draft or the reply, beyond naming a stated label the repository
-  lacks, and never offer to create priority labels. The in-progress
-  label is offered once because it is one label with one meaning; a
-  priority scale is a design decision the project has not made.
-  **Never propose a lone `priority: high`, or a label the name test
-  does not match (`P1`, `urgent`, `sev-2`), as a priority, and never
-  apply one unasked, whatever the user says about such labels in
-  conversation, until CLAUDE.md states the set.** Only when the user
-  calls them the project's priorities, say once that sessions will use
-  the set when CLAUDE.md states it.
+- **Otherwise, the project states its set** in those files: which
+  labels are its priority levels, and which one means nobody has
+  judged the issue yet. Use the stated labels the read returned, and
+  tell the user of any the repository does not have. With fewer than
+  two levels among them, the project has none.
+- **Otherwise, the name test:** the labels whose names start with
+  `priority` followed by the same separator (`:`, `/`, `-`, or a
+  space), in any case. Among them, one whose value is `untriaged`,
+  `triage`, or `needs triage`, its words joined by a space, a hyphen,
+  or an underscore, is the not-yet-judged label, and the rest are the
+  levels. Two or more levels make a scale, and fewer make none.
+- **Otherwise, the project has none.** Never offer to create priority
+  labels, and never propose or apply a lone `priority: high`, or a
+  label the name test does not match (`P1`, `urgent`), as a priority,
+  whatever is said about such labels in conversation.
+
+A project declines in wording like "This project does not use priority
+labels on its GitHub issues." The declaration states only that fact;
+this section owns what follows from it. Where two labels both read as
+not yet judged, ask which one the project uses the first time one is
+needed.
 
 **A label of the project's set that the user names in the request for
 an issue is already confirmed for that issue, and so is a request to
