@@ -1,17 +1,13 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Tests that the two skills which restate the test for whether a project
-# has priority labels state it in the same words. The plan-issue skill's
-# "Priority label" section owns the rule. The
-# finished-issue-housekeeping and architecture-survey skills each carry
-# the four-bullet test themselves, because each runs on its own and a
-# session running one has no reason to open another skill's file. A
-# bullet edited in one skill and not the other would have sessions
-# classify the same repository's labels differently with no error
-# anywhere. Line wrapping differs between the files, so the comparison
-# ignores whitespace. The check does not compare the copies with the
-# plan-issue section, which is longer and worded for its own steps.
+# Tests that the three skills which carry the test for whether a project
+# has priority labels state it in the same words. Each skill carries the
+# four bullets itself, because each runs on its own and a session running
+# one has no reason to open another skill's file. A bullet edited in one
+# skill and not the others would have sessions classify the same
+# repository's labels differently with no error anywhere. Line wrapping
+# differs between the files, so the comparison ignores whitespace.
 # Coverage records nothing here: the project measures only bin/*.
 # Run: ruby test/priority_label_test_copies_test.rb
 
@@ -19,7 +15,7 @@ require_relative 'cli_test_case'
 
 class PriorityLabelTestCopiesTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
-  SKILLS = %w[finished-issue-housekeeping architecture-survey].freeze
+  SKILLS = %w[plan-issue finished-issue-housekeeping architecture-survey].freeze
   FIRST = '- **The project declines them**'
   LAST = '- **Otherwise, the project has none.**'
   BULLET_LEADS = [

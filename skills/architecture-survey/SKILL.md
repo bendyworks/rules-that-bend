@@ -298,29 +298,26 @@ a priority scale added later is not among them. A read that returns
 exactly 200 may have been cut short the same way: raise the limit and
 read again. Then take the first of these that fits:
 
-- **The project declines them** in its checked-in CLAUDE.md (or a rules
-  file every session loads), with a statement that the project does not
-  use priority labels on its GitHub issues. It has none, even when the
-  repository has some. Prose about priorities in general ("we don't fuss
-  about priority here") is not a decline, and neither is anything said
-  in conversation.
-- **Otherwise, the project states its set** in those files: which labels
-  are its priority levels, and which one means nobody has judged the
-  issue yet. Use the stated labels the read returned, and tell the user
-  of any stated label the repository does not have. With fewer than two
-  levels among them, the project has none, and the name test is not
-  tried: the project has said its labels are others.
+- **The project declines them** in its checked-in CLAUDE.md (or a
+  rules file every session loads), with a statement that the project
+  does not use priority labels on its GitHub issues. It has none, even
+  when the repository has some. Prose about priorities in general is
+  not a decline, and neither is anything said in conversation.
+- **Otherwise, the project states its set** in those files: which
+  labels are its priority levels, and which one means nobody has
+  judged the issue yet. Use the stated labels the read returned, and
+  tell the user of any the repository does not have. With fewer than
+  two levels among them, the project has none.
 - **Otherwise, the name test:** the labels whose names start with
-  `priority` followed by the same separator (`:`, `/`, `-`, or a space;
-  spaces around a `:`, `/`, or `-` do not matter), in any case. Among
-  them, one whose value is `untriaged`, `triage`, or `needs triage` is
-  the not-yet-judged label, in any case and with its words joined by a
-  space, a hyphen, or an underscore (`needs-triage`), and the rest are
-  the levels. Two or more levels make a scale, and fewer make none.
+  `priority` followed by the same separator (`:`, `/`, `-`, or a
+  space), in any case. Among them, one whose value is `untriaged`,
+  `triage`, or `needs triage`, its words joined by a space, a hyphen,
+  or an underscore, is the not-yet-judged label, and the rest are the
+  levels. Two or more levels make a scale, and fewer make none.
 - **Otherwise, the project has none.** Never offer to create priority
-  labels, and never propose or apply a lone `priority: high`, or a label
-  the name test does not match (`P1`, `urgent`), as a priority, whatever
-  is said about such labels in conversation.
+  labels, and never propose or apply a lone `priority: high`, or a
+  label the name test does not match (`P1`, `urgent`), as a priority,
+  whatever is said about such labels in conversation.
 
 Where the project has them, show all the drafts in one message, each as
 its title, then `Priority: <label> -- <one-line reason>`, then its body,
@@ -364,9 +361,7 @@ On a GitHub project with no priority labels, step 3's "proposed
 priority" and step 4's "lowest / no priority" have nothing to carry
 them: write no priority into an issue's body or the reply, and apply no
 label for one. Those two phrases stay as written for a tracker with a
-priority field of its own, such as Linear. The plan-issue skill (bundled
-in this plugin) owns the reasoning and the rarer cases in its "Priority
-label" section.
+priority field of its own, such as Linear.
 
 **Process observations are NOT code candidates.** A survey routinely surfaces
 organizational costs -- merge/deploy gatekeeping, interrupt-driven priority
