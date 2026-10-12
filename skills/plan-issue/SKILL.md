@@ -1,6 +1,6 @@
 ---
 name: plan-issue
-description: Plan a story end-to-end -- interview the user about a tracker issue (Linear, Shortcut, or GitHub Issues), research the code, propose a plan, optionally challenge the plan from a fresh perspective, record it as a markdown file under `.claude/plans/` and start working through the to-dos, then finish by confirming the work shipped and cleaning up the local branch. Use when the user says "let's plan a new issue", "let's work on a new issue", "plan this story", "challenge the plan", "record the plan", "write up the plan", "finish up the plan", "we shipped X, clean it up", or similar.
+description: Plan a story end-to-end -- interview the user about a tracker issue (Linear, Shortcut, or GitHub Issues), research the code, propose a plan, have a fresh reader challenge it, record it as a markdown file under `.claude/plans/` and start working through the to-dos, then finish by confirming the work shipped and cleaning up the local branch. Use when the user says "let's plan a new issue", "let's work on a new issue", "plan this story", "challenge the plan", "record the plan", "write up the plan", "finish up the plan", "we shipped X, clean it up", or similar.
 ---
 
 # Plan an issue
@@ -12,8 +12,8 @@ matches the user's request:
 - **create** (default) -- start a new plan for an issue. Triggered by "let's
   work on a new issue", "let's plan ...", or a tracker issue URL (Linear,
   Shortcut, or GitHub) with no other context.
-- **challenge** -- critique the current plan. Triggered by "challenge the
-  plan", "poke holes in the plan", or after the user says the plan looks done.
+- **challenge** -- a fresh reader critiques the plan. Runs after create,
+  and again on "challenge the plan" or "poke holes in the plan".
 - **record** -- write the agreed plan to a file and start executing.
   Triggered by "record the plan", "write up the plan", "start working
   through it".
@@ -24,9 +24,10 @@ matches the user's request:
   "we're done with X", or similar.
 
 If the user invokes the skill without specifying a phase, default to
-**create**. After **create** finishes, do NOT auto-advance into challenge or
-record -- wait for the user. Likewise, do NOT auto-advance from **record**
-into **finish**: finish runs only once the user says the work is wrapped up.
+**create**. When **create** has a plan to propose, run **challenge**
+straight away, without asking, and show the user the plan with the
+challenge's result. Do NOT auto-advance into **record** -- wait for the
+user. Likewise, do NOT auto-advance from **record** into **finish**: finish runs only once the user says the work is wrapped up.
 On a project where merge and production deploy are distinct events, it also
 waits for the deploy.
 
@@ -1061,42 +1062,59 @@ Draft a plan with:
       correct, not a bug; the finish phase's reconcile edits the
       closed issue's body later.
 
-Present the plan inline for the user to discuss and refine. Do not
-write it to disk yet -- that happens in the **record** phase.
+Then run the **challenge** phase on the plan, without asking, and
+present the plan inline, with the challenge's changes folded in and
+its verdict line, for the user to discuss and refine. Do not write it
+to disk yet -- that happens in the **record** phase.
 
 ---
 
 ## Phase: challenge
 
-The goal of this phase is an honest second opinion on the current plan,
-not a rationalization of it.
+**This phase runs straight after create proposes a plan, without
+asking, and again whenever the user asks for it.** The plan drives all
+the work that follows, and a reader who was not in the conversation
+costs a minute or two.
 
-**Strongly prefer dispatching this to a fresh subagent** so the critique
-is not anchored to the same conversation that produced the plan. Use
-`Agent` with `subagent_type: "general-purpose"` (or `Plan`), and pass
-the plan text plus the issue description in the prompt. Tell the agent
-to read it cold and report back.
+**Dispatch the critique to a fresh subagent**, so it is not anchored
+to the conversation that produced the plan: `Agent` with
+`subagent_type: "general-purpose"` (or `Plan`). Give it the plan text
+and the issue description, and nothing about what you expect it to
+find. Where no subagent can be dispatched, do the critique yourself
+and say so. The brief tells the agent:
 
-The critique must consider:
+- **Read the plan cold, and the code it names.**
+- **A plan that needs no change is an ordinary result, and the report
+  then says so.** Propose a change only where the plan as written
+  would give a worse result than the change would: a wrong
+  assumption, something the issue asks for that the plan leaves out,
+  a test that would pass without the fix, a simpler path to the same
+  outcome. A preference between two sound choices, or a hardening
+  nobody asked for, is not a proposal.
+- **Each proposal says what it gives and what it costs.**
+- **The report ends on one line: "Nothing to change." or "N changes
+  proposed."**
 
-- Is the plan creating unnecessary complexity? Is there a simpler,
-  more elegant path?
-- Where does it deviate from team or community conventions for this
-  stack (Rails idioms, Pundit policies, RSpec / shoulda-matchers /
-  FactoryBot patterns, project conventions in CLAUDE.md)?
-- Does it sufficiently emphasize a TDD spec that will *prove the fix
-  or feature continues to work into the future*? A spec that only
-  passes incidentally is not enough.
-- For bug fixes: does it search for sibling bugs of the same shape,
-  and fix each one found or put it to the user?
-- For features: does it cover the ripple effects across affected
-  parts of the app?
-- Are there assumptions baked in that we should validate before
-  building?
+The critique considers:
+
+- Is the plan more complex than the issue needs? Is there a simpler
+  path?
+- Where does it leave the project's conventions, or the stack's?
+- Will its test prove the fix or feature keeps working, or would it
+  pass without the change?
+- For a bug fix: does it look for the same bug elsewhere, and fix
+  each one found or put it to the user?
+- For a feature: does it cover the other parts of the app the change
+  reaches?
+- Which of its assumptions should be checked before building?
 
 Value code quality and ease of maintenance over saving development
-time. Only **propose** improvements -- do not assume the plan will
-change. The user is asking to stress-test the plan, not to redo it.
+time. **Relay the verdict line as the agent gave it.** Fold into the
+plan the proposals you would stand behind, say which, and put to the
+user only a proposal that is theirs to decide. The plan the user sees
+is the plan with those changes in it. On a plan already recorded,
+make the same changes in the plan file and its to-dos (record Step 2
+says where the to-dos are kept).
 
 ---
 
