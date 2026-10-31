@@ -555,8 +555,17 @@ Draft a plan with:
    seeds). For a bug fix, include a step that searches for the same bug
    elsewhere; one found is fixed in this story or put to the user with a
    recommendation, and the plan never files an issue for one unasked.
-6. **Out of scope:** a short list, from the interview.
-7. **To-dos**, under a `## To-dos` heading, as numbered `- [ ]`
+6. **Pull requests, sized in lines.** Estimate the lines each planned
+   pull request will change, production code and specs together,
+   judged against recent merged pull requests. Never size one in
+   hours, even where a client's quote divides the work that way. Plan
+   any likely to pass 400 lines, the easy-review threshold, as stack
+   layers from the start: one layer per independently reviewable
+   change, each with its own specs and its own estimate. Build them as
+   a stack; the pull-requests guidance, where the team imports it, says
+   how.
+7. **Out of scope:** a short list, from the interview.
+8. **To-dos**, under a `## To-dos` heading, as numbered `- [ ]`
    checkboxes in execution order:
    `- [ ] **1.** Identify the example payment`. The numbers are
    permanent: an item that completes becomes `- [x] **1.**`, and new
@@ -564,6 +573,7 @@ Draft a plan with:
 
 **The to-dos end with the ship tail, in this order.** A tail that leaves
 an item out still numbers the plan's to-dos consecutively.
+Where the plan has stack layers, items 1 to 3 repeat for each layer.
 
 1. **Run the project's full lint and test suite once**, with its
    complete output captured to a uniquely named log under `/tmp` and
@@ -765,9 +775,17 @@ each group of them:
 4. Tick the finished items in the plan file, add any new work, and on a
    GitHub-tracked repository sync the issue's checklist.
 5. Show the user the updated to-do list with its numbers.
-6. Say how many lines the PR has changed and how that compares with the
-   400-line easy-review threshold. When the size or the scope is
-   drifting, say so and offer to split.
+6. Say how many lines this layer has changed, measured against the layer
+   below and leaving out generated files, and how that compares with its
+   estimate and the 400-line easy-review threshold. When it still holds
+   code to-dos and has passed 400, or its next to-do would carry it past,
+   move those to-dos to a new stack layer, giving the plan that layer's
+   estimate and the branch below it. A plan with one ship tail keeps it
+   for the top layer. Give any layer without its own suite, gauntlet, and
+   draft PR to-dos a set under the next numbers, listed right after its
+   code. Say so and carry on without asking. Commits already pushed stay
+   where they are: the gauntlet's batch proposes any split of those. When
+   the scope is drifting, say so.
 
 ---
 
