@@ -1,6 +1,6 @@
 ---
 name: plan-issue
-description: Plan a story end-to-end -- interview the user about a tracker issue (Linear, Shortcut, or GitHub Issues), research the code, propose a plan, have a fresh reader challenge it, record it as a markdown file under `.claude/plans/` and start working through the to-dos, then finish by confirming the work shipped and cleaning up the local branch. Use when the user says "let's plan a new issue", "let's work on a new issue", "plan this story", "challenge the plan", "record the plan", "write up the plan", "finish up the plan", "we shipped X, clean it up", or similar.
+description: Plan a story end-to-end -- interview the user about a tracker issue (Linear, Shortcut, or GitHub Issues), research the code, propose a plan, have a fresh reader challenge it, record it as a markdown file under `.work/plans/` and start working through the to-dos, then finish by confirming the work shipped and cleaning up the local branch. Use when the user says "let's plan a new issue", "let's work on a new issue", "plan this story", "challenge the plan", "record the plan", "write up the plan", "finish up the plan", "we shipped X, clean it up", or similar.
 ---
 
 # Plan an issue
@@ -76,7 +76,7 @@ plugin) knows how to satisfy.
 ## One canonical title; three artifacts share it
 
 One short title, chosen up front, is the base for the tracker issue's
-title, the plan filename under `.claude/plans/`, and the git branch
+title, the plan filename under `.work/plans/`, and the git branch
 name. Aim for about 40 characters: a verb-led phrase with one concept.
 When the existing issue title is long or sentence-shaped, propose a
 rename **before** creating the plan file or branch. **Take the branch
@@ -674,10 +674,31 @@ says where the to-dos are kept).
 ### Step 1 -- Write the plan file
 
 Write the agreed plan (the Why, the approach, the to-dos, and what the
-challenge changed) to `.claude/plans/<slug>.md`, with `- [ ]` for each
+challenge changed) to `.work/plans/<slug>.md`, with `- [ ]` for each
 open to-do. The slug is the branch's, or the plan's own when one issue
-has several plans. Write the file directly; only if the write fails for
-want of the directory, run `mkdir -p .claude/plans` and retry.
+has several plans. Plans and gauntlet records live here, not under
+`.claude/`, because Claude Code puts every write to a `.claude/` directory
+behind a prompt no permission rule can answer, and a session waiting on it
+cannot run unattended.
+
+**Before writing the plan, when `.work/.gitignore` does not exist, write
+it containing `*`.** Git then ignores the directory, with no change to
+the project's own files. Where `git ls-files -- .claude/plans .work/plans`
+prints files, the project commits its plans: write these lines instead,
+and tell the user to commit the file, so new plans stay in git and gauntlet
+records stay out:
+
+```gitignore
+/*
+!/.gitignore
+!/plans/
+```
+
+Then write the plan file directly; only if the write fails for want of
+the directory, run `mkdir -p .work/plans` and retry.
+
+A plan made before `.work/` existed stays at `.claude/plans/<slug>.md`:
+look in `.work/plans/` first, then there, and edit the file where it is.
 
 ### Step 2 -- Load the to-dos into the task list
 
@@ -710,7 +731,7 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   body as well:**
 
   ```bash
-  gh-issue-sync checklist NNN --plan .claude/plans/<slug>.md
+  gh-issue-sync checklist NNN --plan <plan file>
   ```
 
   It regenerates a marked checklist section from the plan file, ticked

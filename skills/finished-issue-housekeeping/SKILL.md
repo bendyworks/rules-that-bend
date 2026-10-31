@@ -66,7 +66,7 @@ If any of these is "no", **stop** and delete nothing: the branch may still be ne
 
 ## Step 2 -- Plan file finalization
 
-Without a plan file (the skill was invoked for work that had none), skip this step. The plan-issue skill puts plans at `.claude/plans/<slug>.md`; ask when unsure where another plan lives, and treat each of several plan files for one issue the same way.
+Without a plan file (the skill was invoked for work that had none), skip this step. The plan-issue skill puts plans at `.work/plans/<slug>.md`, or at `.claude/plans/<slug>.md` for one made before `.work/` existed, so look in that order; ask when unsure where another plan lives, and treat each of several plan files for one issue the same way.
 
 **When git tracks the plan file (`git ls-files --error-unmatch <plan file>` exits 0), classify here but write nothing to it until Step 3 has checked out and pulled the default branch.** An edit made first blocks that checkout, and the merged copy on the default branch is the one to finalize. Make this step's edits and its reconcile after Step 3's pull and before Step 3b; where Step 3 cannot check the default branch out, make them after its fetch, on the detached checkout. Step 9b commits the result.
 
@@ -92,7 +92,7 @@ surfaced, and any issues that got filed>
 
 Use the real dates, PR numbers, and SHAs, looked up with `gh pr view` or `git log` when the conversation does not have them. Name the identifier the project has: a release version where releases exist, the merge commit where merging is the deploy.
 
-On a GitHub-tracked repository, then reconcile the issue-body checklist with the `gh-issue-sync` CLI bundled in this plugin: `gh-issue-sync reconcile NNN --plan .claude/plans/<slug>.md`, with the bare issue number and the same `--heading <slug>` the earlier syncs used, if they used one. It refuses to run while a to-do is still a bare `- [ ]`, which means the classification above was skipped. An abort saying the section "holds arbitrary content" means a content section was written under the plan's own slug: re-create it under another slug with `gh-issue-sync section`, delete the colliding one (`gh-issue-sync section NNN --slug <plan-slug> --delete`), and re-run.
+On a GitHub-tracked repository, then reconcile the issue-body checklist with the `gh-issue-sync` CLI bundled in this plugin: `gh-issue-sync reconcile NNN --plan <plan file>`, with the bare issue number and the same `--heading <slug>` the earlier syncs used, if they used one. It refuses to run while a to-do is still a bare `- [ ]`, which means the classification above was skipped. An abort saying the section "holds arbitrary content" means a content section was written under the plan's own slug: re-create it under another slug with `gh-issue-sync section`, delete the colliding one (`gh-issue-sync section NNN --slug <plan-slug> --delete`), and re-run.
 
 **The ticked finish-tail boxes do not prove a pass completed.** A session that finds them ticked with the record unclear re-runs the remaining steps: each is idempotent or safe to check again.
 
