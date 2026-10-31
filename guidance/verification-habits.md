@@ -93,3 +93,18 @@ gathered another way is reported beside it, and the check stays listed
 as outstanding until then. A check the developer drops is reported as
 dropped at their direction, never as passed. The browser-checks guidance
 covers a check that needs a signed-in browser.
+
+## An estimate rests on recent actuals
+
+**A time estimate rests only on how long recent work took this developer
+and their sessions together: tracked hours and session timestamps from
+the most recent weeks, sized against the nearest comparable work.** It
+never rests on how long a team of people would take, or on durations
+read anywhere else, and it says which actuals it rests on and how many
+pieces of work they cover. With no actuals to read, say so and ask for
+them; give no number.
+
+**A time estimate exists only for a person who asked for one, such as
+a client wanting a quote, and it never plans or sizes the work.** No
+to-dos spread over calendar days, and no pull request sized by hours:
+the pull-requests guidance sizes those in lines.
