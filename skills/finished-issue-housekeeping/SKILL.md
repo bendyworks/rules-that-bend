@@ -1,6 +1,6 @@
 ---
 name: finished-issue-housekeeping
-description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory, stops any dev server started for verification, clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep, commits the files the pass wrote (to the default branch where the project declares that, otherwise on a draft pull request), and says whether the session is safe to leave. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
+description: Post-ship cleanup for a story that has shipped -- merged AND live in production, or merged alone on a project in Deploy-on-Merge Mode. Finalizes the plan file, sweeps stale local git branches repo-wide with the just-finished story's among them, saves the story's lessons as rules or skills, updates auto-memory, stops any dev server started for verification, clears completed tasks from the conversation task list, runs an approval-gated permission-prompt sweep, commits the files the pass wrote (to the default branch where the project declares that, otherwise on a draft pull request), reports the trend in the developer's open items, and says whether the session is safe to leave. Use when the user says "finish up the plan", "we shipped X, clean it up", "post-ship cleanup", "we're done with X", "housekeeping for <issue>", or invokes the finished-issue-housekeeping skill. Also invoked at the end of `plan-issue`'s `finish` phase.
 ---
 
 # Finished issue housekeeping
@@ -502,6 +502,10 @@ git switch <default> && git merge --ff-only chore/housekeeping && git branch -d 
 
 **Last, go back to each memory 4c kept for a rule or skill this step handled.** When the commit is on the default branch, finish what 4c says to do with the memory. Otherwise note in it where the rule is.
 
+## Step 9c -- Open items
+
+Invoke the review-open-items skill (bundled in this plugin) through the Skill tool, saying it runs as a step of this pass. **This step never stops the pass:** when the skill offers fixes, show the offer and go on to Step 10 without waiting for an answer. When the skill is not available or fails, say so in one line and go on.
+
 ## Step 10 -- Summary
 
 Report what was done, one line per item:
@@ -517,6 +521,7 @@ Report what was done, one line per item:
 - Memory: Done entry added; MEMORY.md pruned (now <size> KB) (or "skipped -- no auto-memory").
 - Issues filed: each issue this pass filed, with the priority label the read-back showed on it or "filed unjudged"; each drafted issue the user chose not to file now; and each plan item ticked `(deferred, no issue filed)` (or "none").
 - Waiting for a priority: what Step 6 counted and did: "M labelled now, L left as they were, K still waiting", "N waiting, offer declined", "N waiting, under both thresholds, no offer" (or "none waiting"). Leave the line out where the project has no priority labels or does not track its issues on GitHub.
+- Open items: what the skill reported, and any fixes offered and not yet answered (or "skipped -- <why>").
 - Dev server: stopped (or "none was running").
 - Task list: N completed tasks cleared.
 - Permission-prompt sweep: N additions in `<settings file>` (or "nothing approved" / "skipped -- built-in unavailable").
@@ -528,4 +533,4 @@ Report what was done, one line per item:
 - An open pull request that names the story, whoever opened it, other than a housekeeping pull request.
 - A run of the default branch's checks since the story's last merge that failed or has not finished, even when a later run passed.
 
-An item the developer has said to leave as it is is not a reason: name it after the sentence. This check reports and fixes nothing. Between the check and its sentence, mark the run-housekeeping task completed and delete it (deferred from Step 8).
+An item the developer has said to leave as it is is not a reason, and neither is the open-items offer from Step 9c: name each after the sentence. This check reports and fixes nothing. Between the check and its sentence, mark the run-housekeeping task completed and delete it (deferred from Step 8).
