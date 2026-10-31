@@ -200,8 +200,12 @@ class UsageErrorsTest < LinearTestCase
     assert_includes abort_message(['list']), 'Usage: linear list --team KEY'
   end
 
-  def test_list_requires_project_or_since
+  def test_list_requires_project_since_or_mine
     assert_includes abort_message(%w[list --team ABC]), 'Usage: linear list --team KEY'
+  end
+
+  def test_list_mine_needs_no_project_or_since
+    assert_equal TOKEN_MISSING, abort_message(%w[list --team ABC --mine])
   end
 
   def test_list_since_requires_iso_date
@@ -522,6 +526,88 @@ end
 
 # Pure-helper tests stay on Minitest::Test: they never invoke the CLI,
 # so they need neither the env scrub nor the abort capture.
+class ListFilterTest < Minitest::Test
+  OPEN_STATES = { type: { nin: %w[completed canceled duplicate] } }.freeze
+
+  def test_filters_by_team_and_open_state_alone_by_default
+    assert_equal({ team: { key: { eq: 'ABC' } }, state: OPEN_STATES }, Linear.list_filter(team_key: 'ABC'))
+  end
+
+  def test_all_includes_finished_issues
+    refute Linear.list_filter(team_key: 'ABC', all: true).key?(:state)
+  end
+
+  def test_project_and_since_narrow_the_list
+    filter = Linear.list_filter(team_key: 'ABC', project_name: 'P', since: '2026-01-02')
+    assert_equal({ name: { containsIgnoreCase: 'P' } }, filter[:project])
+    assert_equal({ gte: '2026-01-02' }, filter[:createdAt])
+  end
+
+  def test_mine_selects_assigned_issues_and_ones_i_filed_with_no_assignee
+    me = { isMe: { eq: true } }
+    assert_equal({ team: { key: { eq: 'ABC' } }, state: OPEN_STATES,
+                   or: [{ assignee: me }, { and: [{ creator: me }, { assignee: { null: true } }] }] },
+                 Linear.list_filter(team_key: 'ABC', mine: true))
+  end
+
+  def test_without_mine_there_is_no_owner_condition
+    refute Linear.list_filter(team_key: 'ABC').key?(:or)
+  end
+end
+
+# Runs a command against a client that records the query and returns an
+# empty page, so a test can read what the command would send to Linear.
+class QuerySentTest < LinearTestCase
+  QueryRecorder = Struct.new(:graphql, :variables) do
+    def query(graphql, variables = {})
+      self.graphql = graphql
+      self.variables = variables
+      { 'data' => { 'issues' => { 'nodes' => [], 'pageInfo' => {} } } }
+    end
+  end
+
+  # What a check comparing an issue with its pull request reads from --json.
+  CHECK_FIELDS = ['state { name type }', 'assignee { name', 'cycle { endsAt }',
+                  'attachments { nodes { url title } }', 'branchName'].freeze
+
+  def setup
+    @recorder = QueryRecorder.new
+    recorder = @recorder
+    @real_new = Linear::Client.method(:new)
+    Linear::Client.define_singleton_method(:new) { recorder }
+  end
+
+  def teardown
+    real_new = @real_new
+    Linear::Client.define_singleton_method(:new) { |*args| real_new.call(*args) }
+  end
+
+  def test_mine_goes_into_the_list_query
+    cli_stdout(%w[list --team ABC --mine --json])
+    assert_equal Linear.list_filter(team_key: 'ABC', mine: true), @recorder.variables[:filter]
+  end
+
+  def test_all_goes_into_the_list_query_beside_mine
+    cli_stdout(%w[list --team ABC --mine --all --json])
+    assert_equal Linear.list_filter(team_key: 'ABC', mine: true, all: true), @recorder.variables[:filter]
+  end
+
+  def test_list_asks_for_what_the_checks_read_and_when_each_issue_changed
+    cli_stdout(%w[list --team ABC --mine --json])
+    (CHECK_FIELDS + ['updatedAt']).each { |field| assert_includes @recorder.graphql, field }
+  end
+
+  def test_list_leaves_out_teammates_email_addresses
+    cli_stdout(%w[list --team ABC --mine --json])
+    refute_includes @recorder.graphql, 'email'
+  end
+
+  def test_get_asks_for_what_the_checks_read
+    cli_stdout(%w[get ABC-1 --json])
+    CHECK_FIELDS.each { |field| assert_includes @recorder.graphql, field }
+  end
+end
+
 class PureHelpersTest < Minitest::Test
   def test_parse_limit_accepts_base_ten
     assert_equal 25, Linear.parse_limit('25')
