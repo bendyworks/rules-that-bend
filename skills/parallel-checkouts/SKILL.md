@@ -428,7 +428,7 @@ open.
   skipping `tmp/`, `log/`, `node_modules/`, `coverage/`,
   `vendor/bundle/`, `public/assets/`, `public/packs*/`, `storage/`,
   editor and OS state (`.DS_Store`, `.ruby-lsp/`, `.idea/`), and
-  `.claude/` and `.envrc`, which the next steps handle.
+  `.claude/`, `.work/` and `.envrc`, which the next steps handle.
   Copy the ones the app reads (`config/master.key`,
   `config/credentials/*.key`, `.env`, a local tool-versions file)
   into the new checkout and nowhere else, and tell the user which
@@ -693,7 +693,7 @@ about it, and nothing that belongs to one session:
   `git -C <primary> ls-files --others --directory -- .claude`.
   Then add each linked path to the new checkout's
   `.git/info/exclude`, with no trailing slash: a symlink is not a
-  directory, so the primary's `.claude/plans/`-style ignore patterns do
+  directory, so a trailing-slash ignore pattern in the primary does
   not match it, and the links would otherwise show as untracked.
 - **Never link** Claude Code's per-session runtime state:
   `.claude/worktrees/`, `scheduled_tasks.*`, `checkpoints/`,
@@ -701,6 +701,30 @@ about it, and nothing that belongs to one session:
   `assistant-daemon-state.json`, `routines/.state/`,
   `agent-memory-local`. The new checkout's own worktrees must live in
   the new checkout.
+- **The project's `.work/` directory,** which holds plans and gauntlet
+  records. When `git -C <primary> ls-files -- .work .claude/plans` prints
+  files, the project commits its plans, and they reach this checkout
+  through git: link nothing, and skip the grant below. Otherwise, if the
+  primary has no `.work/.gitignore`, create the directory and write that
+  file containing `*`, so the link never dangles. Then link `.work` whole,
+  as a relative symlink, and add `.work` to the new checkout's
+  `.git/info/exclude`, with no trailing slash.
+- **The grant that lets a session write through that link.** The write
+  resolves outside the new checkout, so Claude Code refuses it unless
+  the primary's `.work` is an allowed directory, and it does not honor
+  that grant from a linked `settings.local.json`. Unless the user's
+  `~/.claude/settings.json` already has it, show the user this entry,
+  say what it allows, and add it on their yes. Every checkout of the
+  project shares the one entry. With it, a session in any project on the
+  machine can read that directory with no prompt, plans that name private
+  work included, and can write there wherever its permission mode
+  approves edits:
+  ```json
+  { "permissions": { "additionalDirectories": ["<absolute primary path>/.work"] } }
+  ```
+  On a no, replace the link with a real `.work/` holding its own
+  `.gitignore` containing `*`, and tell the user this checkout's plans are
+  its own.
 
 Tell the user what the links share, because two sessions can now
 write to the same files: one memory directory (a finish-up pass in
@@ -792,6 +816,10 @@ removes the checkout rather than only the link.
    (`test -L <dir>/memory`), so the primary's memory is untouched.
 5. Delete the checkout: `rm -rf -- "<realpath>"`, then any symlink
    that pointed at it.
+6. When this was the project's last parallel checkout, show the user the
+   `additionalDirectories` entry for the primary's `.work` in
+   `~/.claude/settings.json`, which nothing needs now, and remove it on
+   their yes.
 
 ## Mode: move checkouts
 
@@ -982,8 +1010,8 @@ move.
   `cd ~/.claude/projects && ln -sfn ../<new-primary-key>/memory <new-key>/memory`,
   where `<new-key>` is that parallel checkout's. Check first that it
   is a link (`test -L`), never a real directory.
-- **The project's `.claude/` entries.** Each parallel checkout links
-  untracked entries of the primary's `.claude/` by relative paths
+- **The project's `.claude/` entries and `.work` link.** Each parallel
+  checkout links them from the primary by relative paths
   naming the primary's old directory. Recreate each link with the new
   name. A link's path in `.git/info/exclude` is relative to the
   checkout, so the excludes stay as they are.
@@ -997,7 +1025,8 @@ Then search for text that names an old path, listing file names only
 (`grep -rlF <old-path> ...`) so no secret is printed:
 
 - the Claude Code config directory: a skill's per-project cache, a
-  settings file, a memory file under the moved project folders that
+  settings file (the `additionalDirectories` entry for the primary's
+  `.work` among them), a memory file under the moved project folders that
   gives a command with the path in it (`~/.claude.json` and
   `history.jsonl` are Step 8's);
 - each checkout's untracked configuration: `.claude/settings.local.json`
@@ -1069,7 +1098,7 @@ Code session open, then start it again.
 - Every link Step 1 listed resolves (`test -e <link>`, at the path
   Step 1 recorded for it).
 - Each parallel checkout's `memory` resolves to the primary's, and its
-  `.claude/` links resolve.
+  `.claude/` and `.work` links resolve.
 - *(services)* `direnv exec <checkout> printenv PRJ_CHECKOUT_ROOT`
   prints the new path in each parallel checkout; a native primary
   leaves it unset, so it prints nothing there, as before the move.

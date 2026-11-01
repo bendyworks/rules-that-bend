@@ -305,7 +305,8 @@ that gap is acceptable for this branch.
 A story can pin specs that must run every time regardless of the diff.
 Look in the story's plan file -- the one the plan-issue skill (bundled in
 this plugin) maintains for the branch, by convention
-`.claude/plans/<branch-slug>.md` -- for this exact heading:
+`.work/plans/<branch-slug>.md`, or `.claude/plans/<branch-slug>.md` when
+it was made before `.work/` existed -- for this exact heading:
 
 ```markdown
 ## Always-run specs
