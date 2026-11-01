@@ -484,7 +484,7 @@ git branch -d chore/housekeeping      # the remote has it now
 # never --reviewer, gh pr ready, or gh pr merge: those are the developer's
 ```
 
-The title names the pass in the project's pull request title form, such as "Housekeeping after <story>". The body, written to a file outside the working tree, opens with why the pull request exists, says what each commit holds, and refers to the story without a closing keyword. Until the pull request merges, nothing on it is in effect on the default branch: say so in the summary.
+The title names the pass in the project's pull request title form, such as "Housekeeping after <story>". The body, written to a file outside the working tree, opens with one bold line naming what the pull request does and a plain sentence on why it exists, with nothing in backticks in either and nothing that belongs in them (file names, setting keys, commands, which start after them), then says what each commit holds, and refers to the story without a closing keyword. Until the pull request merges, nothing on it is in effect on the default branch: say so in the summary.
 
 **Direct route:**
 

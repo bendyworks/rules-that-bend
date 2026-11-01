@@ -72,31 +72,57 @@ whatever approval the team requires.
 
 ## Lead with why
 
-Open every PR description with a short Why paragraph: the user-visible
-outcome or the reason the change exists, before any What or mechanism
-content. A tracker-reference line (an issue link with the issue's
-title in its link text, or `Closes #NNN` when the PR fully resolves
-the issue, never wrapped in a link, since GitHub reads the keyword
-only when the issue reference follows it directly) may sit above it,
-but the first prose paragraph is the Why. This is the same why-first
-principle commit titles follow in the commit-messages guidance:
-motivation first, mechanism second. For a change that remedies
-something, the strongest Why names the concrete cost of leaving things
-as they were, and what prompted the change: the report, the error, or
-the issue, linked where the description's readers can open the link.
-Label that old behavior as before the change: "before this change, any
-signed-in user could open any repository", never "any signed-in user
-can open any repository today", which reads after the merge as a hole
-still open. The writing-about-change guidance covers tense in the rest
-of the body.
+**Open every PR description with a TL;DR: one bold line naming what
+the pull request does, then one or two plain sentences saying why it
+matters.** Write it for someone who never opens the diff: a reviewer
+deciding how to read it, whoever decides when it deploys. **Nothing in
+it goes in backticks, and nothing that belongs in them:** file names,
+commands, method names, error classes, and library internals start
+after it, and so does evidence such as the error itself. When the
+change fixes something a person hit, say what happened to them
+("before this change, the import stopped at a blank line"), not what
+raised. The bold line carries no "TL;DR" label.
+
+> **Stats database runs on the framework's own multi-database
+> support.** The next framework version will stop writing through the
+> connection setup the stats models had before this change, so this
+> moves them onto the setup the framework provides, ahead of the
+> upgrade.
+
+Outside a template, only a tracker-reference line (an issue link with
+the issue's title in its link text, or `Closes #NNN` when the PR fully
+resolves the issue, never wrapped in a link, since GitHub reads the
+keyword only when the issue reference follows it directly) may sit
+above it. In a project's template, the TL;DR opens the section that
+describes the change, such as `## Description` or `## Summary`,
+whatever sections come before it, and goes above the first heading
+when no section does. A tracker-reference line goes in the template's
+section for it, or else directly above the TL;DR.
+
+**A short Why paragraph follows when the reason needs more room: the
+user-visible outcome or the reason the change exists, before the list
+of what and any mechanism.** A small fix's TL;DR is its Why, and no
+paragraph repeats it. This is the same why-first principle commit
+titles follow in the commit-messages guidance: motivation first,
+mechanism second. For a change that remedies something, the strongest
+Why names the concrete cost of leaving things as they were, in the
+TL;DR or after it, and what prompted the change: the report, the
+error, or the issue, shown or linked after the TL;DR where the
+description's readers can open the link, with the issue linked in the
+tracker-reference line where there is one. Label that old behavior as
+before the change: "before this change, any signed-in user could open
+any repository", never "any signed-in user can open any repository
+today", which reads after the merge as a hole still open. The
+writing-about-change guidance covers tense in the rest of the body.
 
 ## Size the description to the change
 
-**A description is as long as the change needs: a small fix gets one or
-two sentences of why and up to three bullets of what.** A larger change
-earns more bullets, never more sections. The reviewer has the diff open
-beside the description, so it spends its words on what the diff cannot
-show: why, what was run, and what is open.
+**A description is as long as the change needs: a small fix gets its
+TL;DR and up to three bullets of what.** A larger change earns more
+bullets, never more sections, and its TL;DR stays one bold line and
+one or two sentences.
+The reviewer has the diff open beside the description, so it spends its
+words on what the diff cannot show: why, what was run, and what is open.
 
 **The what is a flat list, one line per item, each starting with a
 verb:** "Skip blank rows", "Replace `--csv` with `--format`". No
