@@ -62,7 +62,8 @@ misspelled key, or any other value.
 value. With no stored answer, ask the one question below before Phase 1, then
 end the turn: no branch checked out, nothing pushed, merged or written. With a
 stored answer, never ask it again.** A run nobody answers has done no harm and
-says what it needs.
+says what it needs. To change an answer, edit the file and the permission rules by
+hand, or remove the key to be asked again.
 
 First find out, by reading only, how this project deploys: its CLAUDE.md, a
 `bin/deploy` or similar, and any command that prints the commit production is
@@ -110,7 +111,8 @@ so a yes applies to the rest of this same run.
   and the commands found. `deploy_after_batch` is `auto` with both a deploy command
   and a live-commit command, `on-merge` where merging deploys, and `ask` otherwise;
   `live_commit_command` is the command found, or `~` when there is none. Keep any
-  other key an older file has. Then add the permission rules, in a tool call of
+  other key an older file has, and copy in any other dial the global copy supplied,
+  since the project file now replaces it. Then add the permission rules, in a tool call of
   their own, so a refusal leaves the answer stored. If they are refused, show the
   person the rules to add by hand and carry on: what they would have cleared gets
   reported as refused when the run reaches it.
@@ -121,10 +123,12 @@ so a yes applies to the rest of this same run.
 is ignored, writing the file is the whole job, and a yes given in one checkout
 stays in that checkout unless the others link to it: say so. Otherwise add the
 path to `$(git rev-parse --git-common-dir)/info/exclude`, so a later fast-forward
-pull is not refused, then open a one-file draft pull request from a separate
-worktree (`git worktree add`, `git add -f`) for a person to merge. Where the file
-is already tracked, make the edit only in that worktree and take this run's
-answer from there.
+pull is not refused, then open a one-file draft pull request for a person to merge,
+on the repository and default branch Phase 1's repo-of-record call names, from a
+separate worktree (`git worktree add -b <name> <path> <remote>/<default-branch>`,
+`git add -f`), and remove the worktree after. Where the file is already tracked,
+make the edit only in that worktree and take this run's answer from there; until it
+merges, each run asks again and opens no second draft.
 
 **On a project where merging deploys,** `merge_runtime_bumps: auto` ships a
 runtime dependency straight to production with no person in the loop, and Phase
@@ -147,8 +151,9 @@ compatibility score. Do not auto-merge under any circumstance:
   a changed file other than a manifest, lockfile or version pin
   (`gh pr view <n> --json commits,files`). A session's own fix at Phase 4 step 4
   counts.
-- Any **grouped** Dependabot branch (e.g. `dependabot/<ecosystem>/multi-*` or
-  similarly-named group branches) -- refuse to process and point the user at
+- Any **grouped** Dependabot pull request (its title reads `Bump the <name> group`,
+  or its diff moves more than one direct dependency; the branch name does not show
+  it) -- refuse to process and point the user at
   their `.github/dependabot.yml` config. This skill prefers individual
   bumps so a single bad upgrade can be reverted in isolation.
 
@@ -240,11 +245,10 @@ across all merges (UI, other tools, contributors). Adapt to the repo instead.
 **Set a pull request aside; do not stop the batch.** Wherever a phase says to set
 a pull request aside: leave it open, return to the default branch with a clean
 tree, record why for the summary, and carry on with the next one. Only a red
-default branch or a failed Phase 5 stops the whole run.
+default branch, a failed Phase 5 or a failed deploy stops the whole run.
 
-**Grouped-branch refusal.** If any PR branch matches the grouped-branch
-pattern (`dependabot/<ecosystem>/multi-*` or similar group prefix), refuse to
-process it and point the user at `.github/dependabot.yml`.
+**Grouped refusal.** If any PR is grouped (see Hard veto), refuse to process it and
+point the user at `.github/dependabot.yml`.
 
 **CI failure triage.** For each PR with `CI: fail`, fetch the failure trace
 (`gh run view <run-id> --log-failed`), match it against `known-flakes.md`
@@ -261,13 +265,14 @@ Order them, lowest blast radius first:
 3. Runtime patch bumps
 4. Runtime minor bumps
 5. Anything the Phase 4 gating table would not auto-merge, apart from a grouped
-   branch, which stays refused
+   pull request, which stays refused
 
 **Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
 6, so routine bumps ship without waiting on anything. The second takes group 5
 through Phase 4 steps 1 to 7, announces each green, and leaves it for a person.
 When a person merges one while the session is open, run Phases 5 and 6 again;
-Deploy veto line 1 will ask.
+Deploy veto line 1 will ask. Finish on the default branch, and hold any Phase 6
+question until the second pass is done.
 
 Surface the order to the user and proceed.
 
@@ -275,7 +280,8 @@ Surface the order to the user and proceed.
 
 For each PR in order:
 
-1. `gh pr checkout <n>` -- besides checking out the branch, this resolves
+1. `gh pr checkout <n> --force` -- `--force` resets a local copy an earlier run left
+   behind, and besides checking out the branch, this resolves
    the git remote for the whole loop: checkout records the remote whose
    URL matches the repo that owns the PR in `branch.<branch>.remote`.
    Read it once (`git config branch.<branch>.remote`) and use it as
@@ -285,12 +291,12 @@ For each PR in order:
    recorded shapes need repair before proceeding. An EMPTY read: gh
    writes tracking only when it creates the branch, so a pre-existing
    same-named local branch keeps none -- check out the default branch,
-   delete that stale local branch, and re-run `gh pr checkout <n>`, or
+   delete that stale local branch, and re-run the checkout, or
    pick the remote whose URL matches the repo of record. A URL in
    place of a remote name: gh's fallback when no configured remote
    points at the PR's repo -- add a real remote for the repo of
    record, then check out the default branch, delete the branch the
-   fallback checkout created, and re-run `gh pr checkout <n>`; a plain
+   fallback checkout created, and re-run the checkout; a plain
    re-checkout would keep the URL, since gh writes the value only at
    branch creation. Since
    Dependabot PRs always live on the repo they target, the one recorded
@@ -329,7 +335,7 @@ For each PR in order:
 
    | Condition | Action |
    |-----------|--------|
-   | Hard veto (major / runtime language / core framework / never-auto list / grouped) | Announce green, leave for a person |
+   | Hard veto (major / runtime language / core framework / never-auto list / more than a bump / grouped) | Announce green, leave for a person |
    | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, leave for a person |
    | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
    | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
@@ -350,7 +356,8 @@ aside, and never pass `--admin`.
 
 After the first pass, and again after any later merge. Skip this phase and Phase 6
 when this run merged nothing, a person's merge included, and `deploy_after_batch` is
-not `auto`.
+not `auto`. With `auto` and nothing merged, read Phase 6's range first, and skip both
+when `<live>` is `HEAD`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
    (the same `<remote>` Phase 4 resolved). If you did not retain the
@@ -367,15 +374,17 @@ If verification fails here, stop the run. Do not deploy.
 
 - **`on-merge`:** the merges already deployed. Say so, and ask nothing.
 - **`ask`, anything else, or `auto` with `deploy_command` unset:** ask whether to
-  deploy, naming the commits that would ship. On a yes, run steps 3 to 5. A project
+  deploy, naming the commits that would ship where `<live>` can be read. On a yes, run
+  steps 3 and 4, and step 5 with a `live_commit_command`; without one, report the
+  deploy as not confirmed. A project
   with no deploy command stops at reporting them.
 - **`auto`:** deploy without asking and without a pause, by these steps.
 
-1. **Read the range.** Run `live_commit_command`, likewise alone, then
+1. **Read the range.** Run `live_commit_command` as a Bash command of its own, then
    `git log --oneline <live>..HEAD`. When `<live>` is `HEAD`, there is nothing to
    deploy: report that and finish.
 2. **Check the Deploy veto.** If a line holds, ask, naming it, and run nothing
-   against production.
+   against production. On a yes, go on.
 3. **Deploy what Phase 5 verified.** Run `git fetch <remote> <default-branch>` and
    confirm `HEAD` equals both `<remote>/<default-branch>` and the commit Phase 5 ran
    on. If either differs, repeat Phase 5, then this phase from step 1.
