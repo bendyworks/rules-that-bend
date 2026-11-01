@@ -219,31 +219,36 @@ Do **not** change the repo's merge-method settings to enable squash -- repo
 policy is not scoped to this skill, so flipping it would change the default
 across all merges (UI, other tools, contributors). Adapt to the repo instead.
 
+**Set a pull request aside; do not stop the batch.** Wherever a phase says to set
+a pull request aside: leave it open, return to the default branch with a clean
+tree, record why for the summary, and carry on with the next one. Only a red
+default branch or a failed Phase 5 stops the whole run.
+
 **Grouped-branch refusal.** If any PR branch matches the grouped-branch
 pattern (`dependabot/<ecosystem>/multi-*` or similar group prefix), refuse to
 process it and point the user at `.github/dependabot.yml`.
 
-**CI failure triage.** For each PR with `CI: fail`:
-
-- Fetch the failure trace (`gh run view <run-id> --log-failed`)
-- Match against `known-flakes.md` fingerprints
-- If **all** failing PRs match known flake patterns -> per the
-  `separate_flake_fix_pr` dial, propose a standalone flake-fix PR first,
-  stop, and wait for the user to approve/merge it. After they do, re-run the
-  skill.
-- If **any** failure is not a known flake -> stop, surface the trace, and ask
-  the user. Do not proceed on that PR.
+**CI failure triage.** For each PR with `CI: fail`, fetch the failure trace
+(`gh run view <run-id> --log-failed`), match it against `known-flakes.md`
+fingerprints, and set the PR aside with the trace. When it matches a known flake
+and `separate_flake_fix_pr` is on, propose a standalone flake-fix PR in the
+summary.
 
 ## Phase 3: Merge order
 
-Propose an order, lowest blast radius first:
+Order them, lowest blast radius first:
 
 1. Dev-only patch bumps
 2. Dev-only minor bumps
 3. Runtime patch bumps
 4. Runtime minor bumps
-5. Anything requiring "ask" (majors, never-auto list, sub-floor compat,
-   runtime/core-framework bumps)
+5. Anything the Phase 4 gating table would not auto-merge
+
+**Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
+6, so routine bumps ship without waiting on anything. The second takes group 5
+through Phase 4 steps 1 to 7, announces each green, and leaves it for a person.
+When a person merges one while the session is open, run Phases 5 and 6 again;
+Deploy veto line 1 will ask.
 
 Surface the order to the user and proceed.
 
@@ -277,7 +282,7 @@ For each PR in order:
    or assume `main`). Skip the fetch half when step 8 refreshed
    `<remote>/<default-branch>` moments ago for the previous PR's merge;
    the rebase always runs.
-   - If rebase conflicts, stop and surface to the user
+   - If rebase conflicts, `git rebase --abort` and set the PR aside
 3. Install dependencies with the ecosystem's standard command (`bundle install`,
    `npm ci`, `pip install -r ...`, etc.)
 4. Run the verify command, capturing complete output to a uniquely-named log under /tmp to grep for follow-ups -- never re-run just to re-read output
@@ -293,12 +298,14 @@ For each PR in order:
    must be clean.
    - If linting surfaces new offenses (e.g. from a new cop / rule introduced
      by a linter-plugin bump), fix at source in one attempt. Never silence
-     with disable-comments. If not cleanly fixable in one pass, stop and ask.
+     with disable-comments. If not cleanly fixable in one pass, discard the attempt and
+     set the PR aside.
 5. `git push --force-with-lease <remote> HEAD` -- the remote named
    explicitly: a bare `git push` follows `remote.pushDefault` /
    `branch.<branch>.pushRemote` in triangular-push setups and can land
    elsewhere.
-6. Monitor CI with the Monitor tool polling `gh pr checks <n>`
+6. Monitor CI with the Monitor tool polling `gh pr checks <n>`. A failure goes
+   through CI failure triage (Phase 2).
 7. **Gating decision** once CI is `SUCCESS`:
 
    | Condition | Action |
@@ -308,6 +315,11 @@ For each PR in order:
    | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch` |
    | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch` |
    | Either dial set to `ask` | Announce green, wait for user merge |
+
+**Run each `gh pr merge` as a Bash command of its own.** A permission rule does
+not match a chained command, and auto mode denies a chain as a whole. A merge
+refused by branch protection or required approvals is a gate working: set the PR
+aside, and never pass `--admin`.
 
 8. After each auto-merge or user-reported merge,
    `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
@@ -370,21 +382,24 @@ Close the session with a table:
 | PR | Package | Bump | Outcome |
 |----|---------|------|---------|
 | #31 | foo-gem | 11.3.0 -> 11.3.1 | auto-merged |
-| #29 | bar-pkg | 2.1.0 -> 2.2.3 | awaiting user merge (compat N/A) |
+| #29 | bar-pkg | 2.1.0 -> 3.0.0 | left for a person (major bump) |
+| #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (rebase conflict) |
 | ... | ... | ... | ... |
 
 Plus:
 - Flake-fix PR (if any): number, status
-- Deploy: release identifier, health check result
+- Deploy: release identifier, commits shipped, health check result and live commit;
+  or the Deploy veto line that asked, or what failed and what production is serving
 
 ## Escalation rules (short reference)
 
-- Default-branch CI red at start -> stop
-- Rebase conflict -> stop, surface diff
-- Grouped-branch PR present -> refuse, point at config
-- CI failure with unknown fingerprint -> stop, surface trace, ask
-- Lint offense not cleanly fixable in one pass -> stop, ask
-- Deploy command non-zero exit -> stop, surface logs
+- Default-branch CI red at start -> stop the run
+- Phase 5 verification fails -> stop the run, do not deploy
+- Grouped-branch PR present -> refuse that PR, point at config, carry on
+- Rebase conflict, CI failure, lint offense not cleanly fixable, merge refused -> set
+  that PR aside, carry on
+- A Deploy veto line holds -> ask, naming the line
+- Deploy command non-zero exit, or live commit differs from HEAD -> stop, surface logs
 
 ## Flake-registry upkeep
 
