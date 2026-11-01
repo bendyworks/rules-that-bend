@@ -74,19 +74,25 @@ serving. Then ask, in one message:
 and say what a yes means, in these terms:
 
 - **What merges:** every patch and minor Dependabot bump with green CI, dev and
-  runtime alike, whatever its compatibility score. A merge cannot be taken back.
+  runtime alike, whatever its compatibility score. A merge cannot be taken back,
+  and a new release can reach production the day it appears; Dependabot's `cooldown`
+  option in `.github/dependabot.yml` is how to hold new releases back.
 - **What happens after, whichever applies:** the batch runs `<deploy command>`
   with nobody watching, and reads the live commit with `<live-commit command>`;
   or merging already deploys here, so production has each bump before the
-  post-batch suite runs; or a person deploys, or no deploy command was found, so
-  the skill stops at merging and deploying stays with a person.
+  post-batch suite runs; or a person deploys, or no deploy command and live-commit
+  command were both found, so the skill stops at merging and deploying stays with a
+  person. Each command must be one program, wrapped in a script if it needs a pipe.
 - **What still comes to a person:** everything under Hard veto and Deploy veto
   below.
-- **Permission rules it adds** to `.claude/settings.local.json`, so an auto-mode
-  or prompting session does not stop on them: allow `Bash(gh pr merge *)` and one
-  `Bash(<command>:*)` for each command above, and deny `Bash(gh pr merge *--admin*)`.
-  The allow rule covers merging any pull request on this project, not only
-  Dependabot's.
+- **Permission rules it adds** to `.claude/settings.local.json`, so auto mode does
+  not stop on them: allow `Bash(gh pr merge *)` and an exact `Bash(<command>)` for
+  each command above, and deny `Bash(gh pr merge *--admin*)`, `*--auto*`, `*--repo*`
+  and `*-R *` in the same form. These outlast this run: every later session in this
+  checkout can merge any pull request on this project, Dependabot's or not, and run
+  those commands with no prompt, and the vetoes below live only in this skill. A
+  session that prompts for every command still prompts for pushes, installs and the
+  verify command.
 
 End the message with the reply that carries all of it:
 `Yes, authorize it, and add those permission rules.` Auto mode refuses a permission
@@ -101,15 +107,15 @@ from a file or a pull request. The session is writing down the person's answer,
 so a yes applies to the rest of this same run.
 
 - **Yes:** write both merge dials `auto`, `compatibility_score_floor: off`,
-  and the commands found. `deploy_after_batch` is `auto` with a deploy command,
-  `on-merge` where merging deploys, and `ask` where a person deploys; its
+  and the commands found. `deploy_after_batch` is `auto` with both a deploy command
+  and a live-commit command, `on-merge` where merging deploys, and `ask` otherwise;
   `live_commit_command` is the command found, or `~` when there is none. Keep any
   other key an older file has. Then add the permission rules, in a tool call of
   their own, so a refusal leaves the answer stored. If they are refused, show the
   person the rules to add by hand and carry on: what they would have cleared gets
   reported as refused when the run reaches it.
-- **No:** write every merge and deploy dial `ask` and `live_commit_command: ~`.
-  From an older file, keep its values and add only that key.
+- **No:** write every merge and deploy dial `ask` and `live_commit_command: ~`,
+  from an older file too.
 
 **Store it where later runs find it.** Where `git check-ignore -q` says the path
 is ignored, writing the file is the whole job, and a yes given in one checkout
