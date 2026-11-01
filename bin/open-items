@@ -1,0 +1,136 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# open-items -- keeps a dated history of how many pull requests and
+# tracker issues a developer has open on one repository, and says what
+# changed. The review-open-items skill gathers the counts, since each
+# tracker reads differently, and hands them to this tool.
+#
+# The file lives in the developer's per-user state directory
+# ($XDG_STATE_HOME, usually ~/.local/state), keyed by repository, so
+# it stays out of git with no ignore line and parallel checkouts of one
+# repository share it.
+#
+# Stdlib-only (no gems).
+
+require 'date'
+
+module OpenItems
+  Error = Class.new(StandardError)
+
+  REVIEW_INTERVAL_DAYS = 7
+
+  HEADER = "date\tprs\tprs_stale\tissues\tissues_stale\treviewed"
+  COLUMNS = HEADER.split("\t").size
+  REPOSITORY = %r{\A(?!\.+/)\w[\w.-]*/(?!\.+\z)[\w.][\w.-]*\z}
+
+  Row = Struct.new(:date, :prs, :prs_stale, :issues, :issues_stale, :reviewed, keyword_init: true) do
+    def to_line
+      [date, prs, prs_stale, issues, issues_stale, reviewed ? 'yes' : ''].join("\t")
+    end
+  end
+
+  module_function
+
+  def state_path(repo, env = ENV)
+    xdg = env['XDG_STATE_HOME']
+    base = xdg && File.absolute_path?(xdg) ? xdg : File.join(home(env), '.local/state')
+    File.join(base, 'bendyworks/open-items', "#{repo}.tsv")
+  end
+
+  def home(env)
+    env.fetch('HOME') { raise Error, 'neither XDG_STATE_HOME nor HOME is set' }
+  end
+
+  def report(rows, today)
+    [
+      list_line('pull requests', :prs, :prs_stale, rows),
+      list_line('issues', :issues, :issues_stale, rows),
+      "changed: #{changed?(rows) ? 'yes' : 'no'}",
+      "review: #{review_due?(rows, today) ? 'due' : 'not due'}"
+    ]
+  end
+
+  def list_line(label, total, stale, rows)
+    newest = rows.last
+    return "#{label}: not counted" unless newest[total]
+
+    earlier = rows[0...-1].select { |row| row[total] }
+    head = "#{label}: #{newest[total]} (#{newest[stale]} stale)"
+    return "#{head}, first count" if earlier.empty?
+
+    baselines = [earlier.last, earlier.first].uniq(&:date)
+    changes = baselines.map do |row|
+      "#{signed(newest[total] - row[total])} (#{signed(newest[stale] - row[stale])} stale) since #{row.date}"
+    end
+    [head, *changes].join(', ')
+  end
+
+  def signed(number)
+    number.positive? ? "+#{number}" : number.to_s
+  end
+
+  # A count the newest row does not hold is unknown, which is not a change;
+  # a count with nothing earlier to compare with is news, which is.
+  def changed?(rows)
+    newest = rows.last
+    earlier = rows[0...-1]
+    return true if earlier.empty?
+
+    %i[prs prs_stale issues issues_stale].any? do |column|
+      next false unless newest[column]
+
+      previous = earlier.reverse_each.find { |row| row[column] }
+      previous.nil? || newest[column] != previous[column]
+    end
+  end
+
+  def review_due?(rows, today)
+    rows.none? { |row| row.reviewed && (today - Date.iso8601(row.date)) < REVIEW_INTERVAL_DAYS }
+  end
+
+  def parse_rows(text, path)
+    return [] if text.empty?
+    raise Error, "#{path} is not a snapshot file" unless text.valid_encoding?
+
+    header, *lines = text.chomp.split("\n", -1)
+    raise Error, "#{path} is not a snapshot file" unless header == HEADER
+
+    lines.map { |line| parse_line(line, path) }
+  end
+
+  def parse_line(line, path)
+    fields = line.split("\t", -1)
+    date, prs, prs_stale, issues, issues_stale, reviewed = fields
+    Date.iso8601(date.to_s)
+    damaged = fields.size != COLUMNS || issues.empty? != issues_stale.empty?
+    raise ArgumentError if damaged
+
+    Row.new(date: date, prs: Integer(prs, 10), prs_stale: Integer(prs_stale, 10), issues: count_or_nil(issues),
+            issues_stale: count_or_nil(issues_stale), reviewed: reviewed == 'yes')
+  rescue ArgumentError, TypeError
+    raise Error, "#{path} is not a snapshot file"
+  end
+
+  def count_or_nil(text)
+    text.empty? ? nil : Integer(text, 10)
+  end
+
+  def counted(values, total_name, stale_name)
+    total = parse_count("--#{total_name}", values[total_name])
+    stale = parse_count("--#{stale_name}", values[stale_name])
+    raise Error, "--#{stale_name} (#{stale}) is more than --#{total_name} (#{total})" if stale > total
+
+    [total, stale]
+  end
+
+  def parse_count(flag, text)
+    raise Error, "#{flag} must be a whole number, got #{text.inspect}" unless text.match?(/\A\d+\z/)
+
+    Integer(text, 10)
+  end
+
+  def check_repo!(repo)
+    raise Error, "--repo must be owner/name, got #{repo.inspect}" unless repo.match?(REPOSITORY)
+  end
+end
