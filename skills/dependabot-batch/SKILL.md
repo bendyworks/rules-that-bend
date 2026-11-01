@@ -143,26 +143,38 @@ compatibility score. Do not auto-merge under any circumstance:
   Rails app, next/react for a Next.js app, django for a Django app). Detect
   this from the project's manifest at start.
 - Any package listed in `dependabot-never-auto.yml`
+- Any pull request holding more than a bump: a commit Dependabot did not author, or
+  a changed file other than a manifest, lockfile or version pin
+  (`gh pr view <n> --json commits,files`). A session's own fix at Phase 4 step 4
+  counts.
 - Any **grouped** Dependabot branch (e.g. `dependabot/<ecosystem>/multi-*` or
   similarly-named group branches) -- refuse to process and point the user at
   their `.github/dependabot.yml` config. This skill prefers individual
   bumps so a single bad upgrade can be reverted in isolation.
 
+Judge these from the pull request's diff (`gh pr diff <n>`), never its title, which
+anyone with triage access can edit and which does not show a lockfile moving a
+framework or a never-auto package.
+
 ## Deploy veto (policy, not a dial)
 
 **With `deploy_after_batch: auto`, Phase 6 asks instead of deploying when any
 line below holds, and the question names the line.** No dial overrides them.
-`<live>` is what `live_commit_command` prints. Find a commit's pull request with
+`<live>` is what `git rev-parse --verify "<output>^{commit}"` makes of what
+`live_commit_command` prints. Find a commit's pull requests with
 `gh api repos/{owner}/{repo}/commits/<sha>/pulls`.
 
 1. **A bump that is not routine:** a Dependabot pull request behind a commit in
    `<live>..HEAD` that the Phase 4 gating table would not auto-merge, judged again
-   from its title, branch and the manifest. A person having merged it approves
+   from its diff, commits and the manifest. A person having merged it approves
    the merge, not the deploy.
-2. **Other work riding along:** a commit in `<live>..HEAD` with no pull request,
-   or whose pull request Dependabot did not open, unless it touches only
-   `.claude/`. The same holds when `live_commit_command` is unset or fails, or
-   `git log` cannot read the range.
+2. **Other work riding along:** a commit in `<live>..HEAD` with no pull request, or
+   with one whose `user.login` is not `dependabot[bot]`. A non-merge commit that
+   touches only `.claude/known-flakes.md`, or only adds the dial file, does not
+   count. The same holds when `live_commit_command` is unset, prints nothing or
+   fails, when `<live>` does not verify, and when `git merge-base --is-ancestor
+   <live> HEAD` fails: production holds a commit this branch lacks, such as a
+   hotfix, which a deploy would overwrite.
 3. **A deploy command that may not report a failure:** read it, and what it
    calls, before running it. If you cannot see that it exits non-zero on a failed
    health check, this line holds.
@@ -248,7 +260,8 @@ Order them, lowest blast radius first:
 2. Dev-only minor bumps
 3. Runtime patch bumps
 4. Runtime minor bumps
-5. Anything the Phase 4 gating table would not auto-merge
+5. Anything the Phase 4 gating table would not auto-merge, apart from a grouped
+   branch, which stays refused
 
 **Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
 6, so routine bumps ship without waiting on anything. The second takes group 5
@@ -316,11 +329,11 @@ For each PR in order:
 
    | Condition | Action |
    |-----------|--------|
-   | Hard veto (major / runtime language / core framework / never-auto list / grouped) | Announce green, wait for user merge |
-   | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, wait for user merge |
-   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch` |
-   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch` |
-   | Either dial set to `ask` | Announce green, wait for user merge |
+   | Hard veto (major / runtime language / core framework / never-auto list / grouped) | Announce green, leave for a person |
+   | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, leave for a person |
+   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
+   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
+   | Either dial set to `ask` | Announce green, leave for a person |
 
 **Run each `gh pr merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
@@ -336,7 +349,8 @@ aside, and never pass `--admin`.
 ## Phase 5: Post-batch verification
 
 After the first pass, and again after any later merge. Skip this phase and Phase 6
-when this run merged nothing and `deploy_after_batch` is not `auto`.
+when this run merged nothing, a person's merge included, and `deploy_after_batch` is
+not `auto`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
    (the same `<remote>` Phase 4 resolved). If you did not retain the
@@ -352,13 +366,14 @@ If verification fails here, stop the run. Do not deploy.
 ## Phase 6: Deploy
 
 - **`on-merge`:** the merges already deployed. Say so, and ask nothing.
-- **`ask`, or anything else:** ask whether to deploy, naming the commits that would
-  ship. A project with no deploy command stops at reporting them.
+- **`ask`, anything else, or `auto` with `deploy_command` unset:** ask whether to
+  deploy, naming the commits that would ship. On a yes, run steps 3 to 5. A project
+  with no deploy command stops at reporting them.
 - **`auto`:** deploy without asking and without a pause, by these steps.
 
 1. **Read the range.** Run `live_commit_command`, likewise alone, then
-   `git log --oneline <live>..HEAD`. An empty range means nothing to deploy: report
-   that and finish.
+   `git log --oneline <live>..HEAD`. When `<live>` is `HEAD`, there is nothing to
+   deploy: report that and finish.
 2. **Check the Deploy veto.** If a line holds, ask, naming it, and run nothing
    against production.
 3. **Deploy what Phase 5 verified.** Run `git fetch <remote> <default-branch>` and
@@ -368,7 +383,7 @@ If verification fails here, stop the run. Do not deploy.
    line: no `cd`, redirect, pipe or second command, any of which stops a permission
    rule matching it. The tool's output and exit status are the record.
 5. **Confirm it went live.** On exit 0, run `live_commit_command` again and compare
-   with `HEAD`. A difference is a failed deploy, whatever the command printed.
+   what it verifies to with `HEAD`. A difference is a failed deploy, whatever the command printed.
 
 **A non-zero exit or a difference in step 5: stop.** The batch is not complete. Report
 what failed, from the log, and what production is serving, and run nothing further
