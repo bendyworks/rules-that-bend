@@ -588,7 +588,17 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    and tests passing first, and its fixes belong in the PR before a
    person reviews it. Leave it out only when the user opts out for this
    issue.
-3. **Open the draft PR.** Its body opens with the plan's Why paragraph.
+3. **Open the draft PR.** Below any tracker line that has no template
+   section of its own, its body opens with one bold line naming what
+   the pull request does and one or two plain sentences on why it
+   matters, with nothing in backticks and nothing that belongs in them
+   (file names, commands, method names, error classes, library
+   internals). Those names start right after these lines, and the rest
+   of the body uses them. In a project's template these lines open the
+   section that describes the change, such as Description or Summary,
+   whatever sections come before it, and go above the first heading when
+   no section does. The plan's Why paragraph follows only when the reason
+   needs more room than those lines give.
    On a GitHub project that declares an issue key, the title leads with
    the key (see Declared issue key). On GitHub, put `Closes #NNN` in the
    body when this PR fully resolves the issue, and a plain reference
