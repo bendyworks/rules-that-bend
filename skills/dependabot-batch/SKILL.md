@@ -142,6 +142,25 @@ compatibility score. Do not auto-merge under any circumstance:
   their `.github/dependabot.yml` config. This skill prefers individual
   bumps so a single bad upgrade can be reverted in isolation.
 
+## Deploy veto (policy, not a dial)
+
+**With `deploy_after_batch: auto`, Phase 6 asks instead of deploying when any
+line below holds, and the question names the line.** No dial overrides them.
+`<live>` is what `live_commit_command` prints. Find a commit's pull request with
+`gh api repos/{owner}/{repo}/commits/<sha>/pulls`.
+
+1. **A bump that is not routine:** a Dependabot pull request behind a commit in
+   `<live>..HEAD` that the Phase 4 gating table would not auto-merge, judged again
+   from its title, branch and the manifest. A person having merged it approves
+   the merge, not the deploy.
+2. **Other work riding along:** a commit in `<live>..HEAD` with no pull request,
+   or whose pull request Dependabot did not open, unless it touches only
+   `.claude/`. The same holds when `live_commit_command` is unset or fails, or
+   `git log` cannot read the range.
+3. **A deploy command that may not report a failure:** read it, and what it
+   calls, before running it. If you cannot see that it exits non-zero on a failed
+   health check, this line holds.
+
 ## Phase 1: Inventory
 
 **Repo of record.** Every `gh` command in this skill acts on gh's resolved
@@ -298,7 +317,8 @@ For each PR in order:
 
 ## Phase 5: Post-batch verification
 
-After the last PR merges:
+After the first pass, and again after any later merge. Skip this phase and Phase 6
+when this run merged nothing and `deploy_after_batch` is not `auto`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
    (the same `<remote>` Phase 4 resolved). If you did not retain the
@@ -306,21 +326,42 @@ After the last PR merges:
    `gh pr merge --delete-branch` removes the local branch -- re-resolve
    `<remote>` as the remote whose URL matches the repo of record.
 2. Re-install dependencies with the ecosystem's standard command
-3. Run the verify command (same as Phase 4 step 4) -- must be clean and green
+3. Run the verify command (same as Phase 4 step 4) -- must be clean and green.
+   Note the commit it ran on, `git rev-parse HEAD`, for Phase 6.
 
-If verification fails here, stop. Do not deploy.
+If verification fails here, stop the run. Do not deploy.
 
 ## Phase 6: Deploy
 
-If `deploy_after_batch: auto` and Phase 5 passed: run the project's deploy
-command. The dial `deploy_command` in `dependabot-autonomy.yml` defines what
-to run (e.g. `bin/deploy`, `npm run deploy`, `make deploy`); if unset and the
-user has not configured one, stop and ask rather than guessing. Do not ask
-when the dial is set.
+- **`on-merge`:** the merges already deployed. Say so, and ask nothing.
+- **`ask`, or anything else:** ask whether to deploy, naming the commits that would
+  ship. A project with no deploy command stops at reporting them.
+- **`auto`:** deploy without asking and without a pause, by these steps.
 
-The deploy command is responsible for its own failure detection (health
-check, crashed-process detection, rollback hint). Surface its output. If it
-exits non-zero, surface the failure and do not treat the batch as complete.
+1. **Read the range.** Run `live_commit_command`, likewise alone, then
+   `git log --oneline <live>..HEAD`. An empty range means nothing to deploy: report
+   that and finish.
+2. **Check the Deploy veto.** If a line holds, ask, naming it, and run nothing
+   against production.
+3. **Deploy what Phase 5 verified.** Run `git fetch <remote> <default-branch>` and
+   confirm `HEAD` equals both `<remote>/<default-branch>` and the commit Phase 5 ran
+   on. If either differs, repeat Phase 5, then this phase from step 1.
+4. **Run `deploy_command` exactly as the dial writes it,** with nothing else on the
+   line: no `cd`, redirect, pipe or second command, any of which stops a permission
+   rule matching it. The tool's output and exit status are the record.
+5. **Confirm it went live.** On exit 0, run `live_commit_command` again and compare
+   with `HEAD`. A difference is a failed deploy, whatever the command printed.
+
+**A non-zero exit or a difference in step 5: stop.** The batch is not complete. Report
+what failed, from the log, and what production is serving, and run nothing further
+against production. Rolling back is the deploy command's job or a person's.
+
+**A permission layer refusing the deploy:** report it and do not retry or work
+around it.
+
+Where the project runs background workers, its deploy command is worth extending to
+run one job through a worker, which a web health check does not prove. Say so once
+when you see workers and no such check; it is not a veto.
 
 ## Post-run summary
 
