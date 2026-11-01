@@ -12,10 +12,18 @@ be split. If implementing multiple features, create separate PRs for
 each. Start with the safest, highest-value change first. Avoid mixing
 concerns (e.g., error handling + JavaScript + background jobs).
 
+**Plan a PR's size in lines, production code and specs together, never
+in hours.** Plan one likely to pass 400 lines as stack layers from the
+start, one layer per independently reviewable change, each with its
+own specs (see Merging stacked pull requests below).
+
 While working on a feature branch, periodically report how many lines
-are touched across how many files, whether that is over or under the
-400-line easy-review threshold, and suggest splitting the PR or
-keeping it small before it drifts large.
+are touched across how many files, measured against the layer below on
+a stack and leaving out generated files, and whether that is over or
+under the 400-line easy-review threshold. When the branch has passed
+it, or the next piece of work would carry it past, put the work still to
+come on a new layer and say so; rewriting commits already pushed still
+needs an explicit request.
 
 ## Open PRs in draft mode first
 
