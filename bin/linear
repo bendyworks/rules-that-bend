@@ -247,12 +247,26 @@ module Linear
 
   ISSUE_CORE_FIELDS = <<~GQL
     id identifier title description url
-    state { name }
+    state { name type }
     assignee { name email }
+    cycle { endsAt }
+    attachments { nodes { url title } }
+    branchName
     team { key name }
     project { name }
     parent { identifier title }
     children { nodes { identifier title state { name } } }
+  GQL
+
+  LIST_FIELDS = <<~GQL
+    identifier title priority
+    state { name type }
+    assignee { name }
+    cycle { endsAt }
+    attachments { nodes { url title } }
+    branchName
+    project { name }
+    createdAt updatedAt
   GQL
 
   ISSUE_COMMENT_FIELDS = <<~GQL
@@ -877,10 +891,11 @@ module Linear
         linear search "phrase" [--team KEY] [--limit N] [--json]
             Case-insensitive substring search across title and description.
 
-        linear list --team KEY (--project NAME | --since YYYY-MM-DD)
+        linear list --team KEY (--project NAME | --since YYYY-MM-DD | --mine)
                     [--all] [--limit N] [--json]
-            List a team's issues, filtered to a project and/or a created-since
-            date. Excludes completed/canceled unless --all -- pass --all when
+            List a team's issues, filtered to a project, a created-since date,
+            and/or --mine: assigned to you, or filed by you with no assignee.
+            Excludes completed/canceled/duplicate unless --all -- pass --all when
             mining history, since shipped issues are the interesting ones.
             Paginates past the API's 250-per-page cap up to --limit (default
             100). With --since, results sort and display by created date.
@@ -950,10 +965,12 @@ module Linear
   TXT
 
   def cmd_list(args)
-    usage = 'Usage: linear list --team KEY (--project NAME | --since YYYY-MM-DD) [--all] [--limit N] [--json] ' \
+    usage = 'Usage: linear list --team KEY (--project NAME | --since YYYY-MM-DD | --mine) ' \
+            '[--all] [--limit N] [--json] ' \
             '(--team may be omitted when LINEAR_TEAM_KEY is set)'
     json_mode = false
     all = false
+    mine = false
     team_opt = nil
     project_name = nil
     since = nil
@@ -964,20 +981,18 @@ module Linear
       value_option(o, '--since YYYY-MM-DD') { |v| since = v }
       value_option(o, '--limit N') { |v| limit_str = v }
       o.on('--all') { all = true }
+      o.on('--mine') { mine = true }
       o.on('--json') { json_mode = true }
     end
     reject_positionals!(rest)
     team_key = team_opt || ENV['LINEAR_TEAM_KEY']
     limit = limit_str ? parse_limit(limit_str) : 100
-    raise Error, usage if team_key.nil? || team_key.empty? || (project_name.nil? && since.nil?)
+    raise Error, usage if team_key.nil? || team_key.empty? || (project_name.nil? && since.nil? && !mine)
     if since && since !~ /\A\d{4}-\d{2}-\d{2}\z/
       raise Error, "linear: --since must be YYYY-MM-DD, got #{since.inspect}"
     end
 
-    filter = { team: { key: { eq: team_key } } }
-    filter[:project] = { name: { containsIgnoreCase: project_name } } if project_name
-    filter[:createdAt] = { gte: since } if since
-    filter[:state] = { type: { nin: %w[completed canceled] } } unless all
+    filter = list_filter(team_key: team_key, project_name: project_name, since: since, all: all, mine: mine)
 
     order_by = since ? 'createdAt' : 'updatedAt'
     client = Client.new
@@ -990,7 +1005,7 @@ module Linear
       res = client.query(<<~GQL, { filter: filter, first: page_size, after: cursor })
         query($filter: IssueFilter!, $first: Int!, $after: String) {
           issues(filter: $filter, first: $first, after: $after, orderBy: #{order_by}) {
-            nodes { identifier title priority state { name } project { name } createdAt updatedAt }
+            nodes { #{LIST_FIELDS} }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -1017,6 +1032,18 @@ module Linear
       project = project_name ? '' : "  {#{n.dig('project', 'name')}}"
       puts "#{n['identifier']} [#{n.dig('state', 'name')}] (#{prio[n['priority']]}) #{n['title']}  (#{date})#{project}"
     end
+  end
+
+  def list_filter(team_key:, project_name: nil, since: nil, all: false, mine: false)
+    filter = { team: { key: { eq: team_key } } }
+    filter[:project] = { name: { containsIgnoreCase: project_name } } if project_name
+    filter[:createdAt] = { gte: since } if since
+    filter[:state] = { type: { nin: %w[completed canceled duplicate] } } unless all
+    if mine
+      me = { isMe: { eq: true } }
+      filter[:or] = [{ assignee: me }, { and: [{ creator: me }, { assignee: { null: true } }] }]
+    end
+    filter
   end
 
   class CLI

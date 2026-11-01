@@ -1,0 +1,252 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# open-items -- keeps a dated history of how many pull requests and
+# tracker issues a developer has open on one repository, and says what
+# changed. The review-open-items skill gathers the counts, since each
+# tracker reads differently, and hands them to this tool.
+#
+# The file lives in the developer's per-user state directory
+# ($XDG_STATE_HOME, usually ~/.local/state), keyed by repository, so
+# it stays out of git with no ignore line and parallel checkouts of one
+# repository share it. Each command holds a lock on the file for as long
+# as it reads and writes, since two checkouts can run at once.
+#
+# Stdlib-only (no gems). Run with no arguments for usage.
+
+require 'date'
+require 'fileutils'
+require 'optparse'
+
+module OpenItems
+  Error = Class.new(StandardError)
+
+  REVIEW_INTERVAL_DAYS = 7
+
+  RECORD_USAGE = 'Usage: open-items record --repo OWNER/NAME --prs N --prs-stale N [--issues N --issues-stale N]'
+  REVIEWED_USAGE = 'Usage: open-items reviewed --repo OWNER/NAME'
+
+  USAGE = <<~TEXT
+    open-items -- a dated history of a developer's open items on one repository
+
+      open-items record --repo OWNER/NAME --prs N --prs-stale N [--issues N --issues-stale N]
+          Append a snapshot, then print the counts, the change since the last
+          snapshot and the first, "changed: yes|no", and "review: due|not due".
+          Leave the issue counts out when the tracker could not be read.
+
+      open-items reviewed --repo OWNER/NAME
+          Mark the newest snapshot as reviewed. A review is due once no
+          snapshot from the last #{REVIEW_INTERVAL_DAYS} days is marked.
+
+    The history is in $XDG_STATE_HOME/bendyworks/open-items/OWNER/NAME.tsv
+    (~/.local/state when that is unset or not an absolute path).
+  TEXT
+
+  HEADER = "date\tprs\tprs_stale\tissues\tissues_stale\treviewed"
+  COLUMNS = HEADER.split("\t").size
+  REPOSITORY = %r{\A(?!\.+/)\w[\w.-]*/(?!\.+\z)[\w.][\w.-]*\z}
+  VALUE_NOT_FLAG = /\A(?!-).*\z/m
+
+  Row = Struct.new(:date, :prs, :prs_stale, :issues, :issues_stale, :reviewed, keyword_init: true) do
+    def to_line
+      [date, prs, prs_stale, issues, issues_stale, reviewed ? 'yes' : ''].join("\t")
+    end
+  end
+
+  module_function
+
+  def state_path(repo, env = ENV)
+    xdg = env['XDG_STATE_HOME']
+    base = xdg && File.absolute_path?(xdg) ? xdg : File.join(home(env), '.local/state')
+    File.join(base, 'bendyworks/open-items', "#{repo}.tsv")
+  end
+
+  def home(env)
+    env.fetch('HOME') { raise Error, 'neither XDG_STATE_HOME nor HOME is set' }
+  end
+
+  def report(rows, today)
+    [
+      list_line('pull requests', :prs, :prs_stale, rows),
+      list_line('issues', :issues, :issues_stale, rows),
+      "changed: #{changed?(rows) ? 'yes' : 'no'}",
+      "review: #{review_due?(rows, today) ? 'due' : 'not due'}"
+    ]
+  end
+
+  def list_line(label, total, stale, rows)
+    newest = rows.last
+    return "#{label}: not counted" unless newest[total]
+
+    earlier = rows[0...-1].select { |row| row[total] }
+    head = "#{label}: #{newest[total]} (#{newest[stale]} stale)"
+    return "#{head}, first count" if earlier.empty?
+
+    baselines = [earlier.last, earlier.first].uniq(&:date)
+    changes = baselines.map do |row|
+      "#{signed(newest[total] - row[total])} (#{signed(newest[stale] - row[stale])} stale) since #{row.date}"
+    end
+    [head, *changes].join(', ')
+  end
+
+  def signed(number)
+    number.positive? ? "+#{number}" : number.to_s
+  end
+
+  # A count the newest row does not hold is unknown, which is not a change;
+  # a count with nothing earlier to compare with is news, which is.
+  def changed?(rows)
+    newest = rows.last
+    earlier = rows[0...-1]
+    return true if earlier.empty?
+
+    %i[prs prs_stale issues issues_stale].any? do |column|
+      next false unless newest[column]
+
+      previous = earlier.reverse_each.find { |row| row[column] }
+      previous.nil? || newest[column] != previous[column]
+    end
+  end
+
+  def review_due?(rows, today)
+    rows.none? { |row| row.reviewed && (today - Date.iso8601(row.date)) < REVIEW_INTERVAL_DAYS }
+  end
+
+  def parse_rows(text, path)
+    return [] if text.empty?
+    raise Error, "#{path} is not a snapshot file" unless text.valid_encoding?
+
+    header, *lines = text.chomp.split("\n", -1)
+    raise Error, "#{path} is not a snapshot file" unless header == HEADER
+
+    lines.map { |line| parse_line(line, path) }
+  end
+
+  def parse_line(line, path)
+    fields = line.split("\t", -1)
+    date, prs, prs_stale, issues, issues_stale, reviewed = fields
+    Date.iso8601(date.to_s)
+    damaged = fields.size != COLUMNS || issues.empty? != issues_stale.empty?
+    raise ArgumentError if damaged
+
+    Row.new(date: date, prs: Integer(prs, 10), prs_stale: Integer(prs_stale, 10), issues: count_or_nil(issues),
+            issues_stale: count_or_nil(issues_stale), reviewed: reviewed == 'yes')
+  rescue ArgumentError, TypeError
+    raise Error, "#{path} is not a snapshot file"
+  end
+
+  def count_or_nil(text)
+    text.empty? ? nil : Integer(text, 10)
+  end
+
+  def counted(values, total_name, stale_name)
+    total = parse_count("--#{total_name}", values[total_name])
+    stale = parse_count("--#{stale_name}", values[stale_name])
+    raise Error, "--#{stale_name} (#{stale}) is more than --#{total_name} (#{total})" if stale > total
+
+    [total, stale]
+  end
+
+  def parse_count(flag, text)
+    raise Error, "#{flag} must be a whole number, got #{text.inspect}" unless text.match?(/\A\d+\z/)
+
+    Integer(text, 10)
+  end
+
+  def check_repo!(repo)
+    raise Error, "--repo must be owner/name, got #{repo.inspect}" unless repo.match?(REPOSITORY)
+  end
+
+  class CLI
+    def self.run(argv)
+      new.run(argv)
+    rescue Error, OptionParser::ParseError, SystemCallError => e
+      abort(e.message.start_with?('Usage:') ? e.message : "open-items: #{e.message}")
+    end
+
+    def run(argv)
+      command = argv.shift
+      case command
+      when 'record' then record(argv)
+      when 'reviewed' then reviewed(argv)
+      when nil, 'help', '--help', '-h' then puts USAGE
+      else raise Error, "unknown subcommand #{command.inspect}\n\n#{USAGE}"
+      end
+    end
+
+    private
+
+    def record(argv)
+      values = parse(argv, %w[repo prs prs-stale issues issues-stale], RECORD_USAGE)
+      raise Error, RECORD_USAGE unless values['repo'] && values['prs'] && values['prs-stale']
+      raise Error, '--issues and --issues-stale go together' if values.key?('issues') != values.key?('issues-stale')
+
+      OpenItems.check_repo!(values['repo'])
+      row = new_row(values)
+      with_history(OpenItems.state_path(values['repo'])) do |file, path|
+        text = file.read
+        rows = OpenItems.parse_rows(text, path) << row
+        file.write("#{HEADER}\n") if text.empty?
+        file.write("\n") unless text.empty? || text.end_with?("\n")
+        file.write("#{row.to_line}\n")
+        puts OpenItems.report(rows, Date.today)
+      end
+    end
+
+    def reviewed(argv)
+      values = parse(argv, %w[repo], REVIEWED_USAGE)
+      raise Error, REVIEWED_USAGE unless values['repo']
+
+      OpenItems.check_repo!(values['repo'])
+      missing = "no snapshot for #{values['repo']} yet; run record first"
+      path = OpenItems.state_path(values['repo'])
+      raise Error, missing unless File.exist?(path)
+
+      with_history(path) do |file|
+        rows = OpenItems.parse_rows(file.read, path)
+        raise Error, missing if rows.empty?
+
+        rows.last.reviewed = true
+        file.rewind
+        file.truncate(0)
+        file.write([HEADER, *rows.map(&:to_line)].join("\n"), "\n")
+        puts "reviewed: #{rows.last.date}"
+      end
+    end
+
+    def new_row(values)
+      prs = OpenItems.counted(values, 'prs', 'prs-stale')
+      issues = values.key?('issues') ? OpenItems.counted(values, 'issues', 'issues-stale') : [nil, nil]
+      Row.new(date: Date.today.iso8601, prs: prs[0], prs_stale: prs[1], issues: issues[0], issues_stale: issues[1],
+              reviewed: false)
+    end
+
+    def parse(argv, names, usage)
+      values = {}
+      parser = OptionParser.new(usage)
+      names.each do |name|
+        parser.on("--#{name} VALUE", VALUE_NOT_FLAG) do |value|
+          raise Error, "duplicate --#{name}" if values.key?(name)
+
+          values[name] = value
+        end
+      end
+      parser.on('--version') { raise Error, 'has no version: the plugin carries no version field' }
+      rest = parser.order(argv)
+      raise Error, "unexpected argument #{rest.first.inspect}" unless rest.empty?
+
+      values
+    end
+
+    # Owner-only, since the path names a repository that may be private.
+    def with_history(path)
+      FileUtils.mkdir_p(File.dirname(path), mode: 0o700)
+      File.open(path, File::RDWR | File::CREAT, 0o600) do |file|
+        file.flock(File::LOCK_EX)
+        yield file, path
+      end
+    end
+  end
+end
+
+OpenItems::CLI.run(ARGV) if $PROGRAM_NAME == __FILE__

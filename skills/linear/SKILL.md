@@ -17,7 +17,7 @@ Stdlib-only Ruby, bundled with this plugin and available on PATH as `linear` whe
 linear get ABC-NNN [--full] [--json]
 linear comments ABC-NNN [--json]
 linear search "phrase" [--team KEY] [--limit N] [--json]
-linear list --team KEY (--project NAME | --since YYYY-MM-DD) [--all] [--limit N] [--json]
+linear list --team KEY (--project NAME | --since YYYY-MM-DD | --mine) [--all] [--limit N] [--json]
 linear project-list --team KEY [--json]
 ```
 
@@ -25,7 +25,7 @@ linear project-list --team KEY [--json]
 - `--full` adds the comment thread.
 - `--json` emits the raw GraphQL response for piping.
 - `search` is case-insensitive substring match over title and description, sorted by most-recently-updated.
-- `list` shows a team's issues filtered to a project and/or a created-since date. Excludes completed/canceled unless `--all` (pass `--all` when mining history). `--team` may be omitted when `LINEAR_TEAM_KEY` is set.
+- `list` shows a team's issues filtered to a project, a created-since date, and/or `--mine` (assigned to you, or filed by you with no assignee). Excludes completed, canceled and duplicate issues unless `--all` (pass `--all` when mining history). `--team` may be omitted when `LINEAR_TEAM_KEY` is set.
 - `project-list` shows a team's projects with their ids and state (the ids feed `project-update --id`). Also honors `LINEAR_TEAM_KEY` in place of `--team`.
 
 ## Write
