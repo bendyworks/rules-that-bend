@@ -19,8 +19,8 @@ description, a whole new audit lane in gauntlet.
   `git pull` or vendoring refresh -- silently, if nobody tells them. The
   PR description for such a change must say what behavior changes and
   why, in wording a consuming team can relay to its own channel. The
-  description's why paragraph is the place for it, with no section of
-  its own. Typo and formatting fixes are exempt.
+  description's TL;DR and why paragraph are the place for it, with no
+  section of its own. Typo and formatting fixes are exempt.
 
 ## Before you open a PR
 
