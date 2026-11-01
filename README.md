@@ -114,6 +114,71 @@ overriding, and troubleshooting.
 - `change-highlights` needs Ruby 2.6 or newer (the macOS system Ruby works)
   and a Chromium-based browser (Chrome, Chromium, Brave, or Edge).
 
+## Plans and gauntlet records live in `.work/`
+
+The skills keep plans in `.work/plans/` and gauntlet records in
+`.work/gauntlets/`. Claude Code puts every write to a `.claude/` directory
+behind a prompt no permission rule can answer, and a session waiting on it
+cannot run unattended. A write to `.work/` follows the session's permission
+mode and allow rules. The directory
+ignores itself through a `.work/.gitignore` holding `*`, which the skill
+that creates it writes.
+
+**To commit plans and keep gauntlet records out,** commit a
+`.work/.gitignore` holding these lines, then stage the plans you mean to
+publish. A plan can name private work, and a pushed one stays in history,
+so check the repository's visibility and read each plan first. In such a
+project each secondary checkout gets its plans through git: delete its `.work`
+link, its `.work` line in `.git/info/exclude`, and any grant below.
+
+```gitignore
+/*
+!/.gitignore
+!/plans/
+```
+
+**To move a project that keeps them under `.claude/`,** which the skills
+still read until you do, run this in its primary checkout. It overwrites
+nothing: a name already in `.work/` stays under `.claude/` and `rmdir`
+reports the directory, so compare the two files and keep one. A project
+that commits its plans writes the lines above first, and runs `git mv
+.claude/plans/<file> .work/plans/` for each committed file, with no `-n`, which
+means a dry run to `git mv`:
+
+```bash
+mkdir -p .work/plans .work/gauntlets
+[ -e .work/.gitignore ] || printf '*\n' > .work/.gitignore
+mv -n .claude/plans/* .work/plans/; rmdir .claude/plans
+mv -n .claude/gauntlets/* .work/gauntlets/; rmdir .claude/gauntlets
+```
+
+Leave no symlink behind in `.claude/`: a write through one still prompts.
+Remove any permission rule naming the old paths.
+
+A project that commits its plans is done here. In each other project's
+secondary checkouts from the `parallel-checkouts` skill, a skill may already
+have made a real `.work/`. Move its plans and records into the
+primary's `.work/` by hand, comparing any file with the same name, and delete
+it. Then run this, with the primary's directory name in the link:
+
+```bash
+rm -f .claude/plans .claude/gauntlets
+[ -e .work ] || ln -s ../<primary>/.work .work
+```
+
+In its `.git/info/exclude`, replace the `.claude/plans` and
+`.claude/gauntlets` lines with `.work`.
+
+A write through the link resolves outside the checkout, so Claude Code
+refuses it until your user-level `~/.claude/settings.json` names the
+primary's `.work`. With this entry, a session in any project on the machine
+can read that directory with no prompt, plans that name private work
+included, and can write there wherever its permission mode approves edits:
+
+```json
+{ "permissions": { "additionalDirectories": ["<absolute primary path>/.work"] } }
+```
+
 ## Upgrading Rails?
 
 For Rails and Ruby upgrade work we use and recommend the excellent skills

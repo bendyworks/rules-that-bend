@@ -12,7 +12,9 @@ do only these steps.
 
 **The notes go in the story's plan file, never in memory and never
 only in chat.** The plan-issue skill (bundled in this plugin) keeps
-plans at `.claude/plans/<name>.md`; a project may keep them elsewhere.
+plans at `.work/plans/<name>.md`. Look there first, then at
+`.claude/plans/<name>.md` for a plan made before `.work/` existed, and
+write to the file where it is. A project may keep them elsewhere.
 With no plan file, ask the developer where to write them.
 
 ## Steps

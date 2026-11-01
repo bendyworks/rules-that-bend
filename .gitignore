@@ -1,6 +1,10 @@
-# Claude Code session artifacts (plans, gauntlet punch lists, local
-# settings) are per-machine working state, never repo content.
+# Claude Code local settings and session state are per-machine working
+# state, never repo content.
 .claude/
+
+# Plans and gauntlet records can name private work, and this repository
+# is public. No trailing slash: a parallel checkout's .work is a symlink.
+/.work
 
 # direnv per-machine environment (e.g. ITERM_BG_COLOR); never repo content.
 .envrc

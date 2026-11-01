@@ -14,7 +14,9 @@ since then makes them wrong with no error.
 
 1. **Find the plan.** The name given is the plan's filename without
    `.md`; with no name, use the current branch's. The plan-issue skill (bundled in this plugin) keeps plans
-   at `.claude/plans/<name>.md`; a project may keep them elsewhere.
+   at `.work/plans/<name>.md`. Look there first, then at
+   `.claude/plans/<name>.md` for a plan made before `.work/` existed. A
+   project may keep them elsewhere.
    When no plan file matches, list the plans and ask.
 
 2. **Read the plan whole,** and any file its last `## Resume notes`
