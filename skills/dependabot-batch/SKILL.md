@@ -111,24 +111,28 @@ so a yes applies to the rest of this same run.
   and the commands found. `deploy_after_batch` is `auto` with both a deploy command
   and a live-commit command, `on-merge` where merging deploys, and `ask` otherwise;
   `live_commit_command` is the command found, or `~` when there is none. Keep any
-  other key an older file has, and copy in any other dial the global copy supplied,
-  since the project file now replaces it. Then add the permission rules, in a tool call of
+  other key an older file has. Then add the permission rules, in a tool call of
   their own, so a refusal leaves the answer stored. If they are refused, show the
   person the rules to add by hand and carry on: what they would have cleared gets
   reported as refused when the run reaches it.
 - **No:** write every merge and deploy dial `ask` and `live_commit_command: ~`,
-  from an older file too.
+  from an older file too, and remove any permission rules an earlier yes added.
+
+Either way, copy in any other dial the global copy supplied, since the project file
+now replaces it.
 
 **Store it where later runs find it.** Where `git check-ignore -q` says the path
 is ignored, writing the file is the whole job, and a yes given in one checkout
 stays in that checkout unless the others link to it: say so. Otherwise add the
 path to `$(git rev-parse --git-common-dir)/info/exclude`, so a later fast-forward
 pull is not refused, then open a one-file draft pull request for a person to merge,
-on the repository and default branch Phase 1's repo-of-record call names, from a
-separate worktree (`git worktree add -b <name> <path> <remote>/<default-branch>`,
-`git add -f`), and remove the worktree after. Where the file is already tracked,
-make the edit only in that worktree and take this run's answer from there; until it
-merges, each run asks again and opens no second draft.
+on the repository and default branch Phase 1's repo-of-record call names. Fetch, then
+work in a separate worktree (`git worktree add --no-track -b <name> <path>
+<remote>/<default-branch>`, `git add -f`, `git push <remote> <name>:<name>`), with
+`<remote>` the remote whose URL matches that repository; remove the worktree and its
+local branch after. Where the file is already tracked, make the edit only there and
+use the answer you wrote for this run; until it merges, each run asks again and
+updates that draft instead of opening a second.
 
 **On a project where merging deploys,** `merge_runtime_bumps: auto` ships a
 runtime dependency straight to production with no person in the loop, and Phase
@@ -151,13 +155,14 @@ compatibility score. Do not auto-merge under any circumstance:
   a changed file other than a manifest, lockfile or version pin
   (`gh pr view <n> --json commits,files`). A session's own fix at Phase 4 step 4
   counts.
-- Any **grouped** Dependabot pull request (its title reads `Bump the <name> group`,
-  or its diff moves more than one direct dependency; the branch name does not show
-  it) -- refuse to process and point the user at
+- Any **grouped** Dependabot pull request: more than one `dependency-name` under
+  `updated-dependencies` in its commit message, a `Bump the <name> group` title, or
+  a `multi-` branch. A title or branch can add this refusal and never clears it.
+  Refuse to process it and point the user at
   their `.github/dependabot.yml` config. This skill prefers individual
   bumps so a single bad upgrade can be reverted in isolation.
 
-Judge these from the pull request's diff (`gh pr diff <n>`), never its title, which
+Judge the rest from the pull request's diff (`gh pr diff <n>`), never its title, which
 anyone with triage access can edit and which does not show a lockfile moving a
 framework or a never-auto package.
 
@@ -280,8 +285,8 @@ Surface the order to the user and proceed.
 
 For each PR in order:
 
-1. `gh pr checkout <n> --force` -- `--force` resets a local copy an earlier run left
-   behind, and besides checking out the branch, this resolves
+1. `gh pr checkout <n>` (when it refuses to fast-forward a local copy, set the PR
+   aside and say the local branch differs) -- besides checking out the branch, this resolves
    the git remote for the whole loop: checkout records the remote whose
    URL matches the repo that owns the PR in `branch.<branch>.remote`.
    Read it once (`git config branch.<branch>.remote`) and use it as
@@ -335,7 +340,7 @@ For each PR in order:
 
    | Condition | Action |
    |-----------|--------|
-   | Hard veto (major / runtime language / core framework / never-auto list / more than a bump / grouped) | Announce green, leave for a person |
+   | Hard veto (major / runtime language / core framework / never-auto list / more than a bump) | Announce green, leave for a person |
    | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, leave for a person |
    | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
    | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
@@ -356,8 +361,8 @@ aside, and never pass `--admin`.
 
 After the first pass, and again after any later merge. Skip this phase and Phase 6
 when this run merged nothing, a person's merge included, and `deploy_after_batch` is
-not `auto`. With `auto` and nothing merged, read Phase 6's range first, and skip both
-when `<live>` is `HEAD`.
+not `auto`. With `auto` and nothing merged, fetch the default branch from the remote
+step 1 below resolves, and skip both when `<live>` is `<remote>/<default-branch>`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
    (the same `<remote>` Phase 4 resolved). If you did not retain the
@@ -425,7 +430,7 @@ Plus:
 
 - Default-branch CI red at start -> stop the run
 - Phase 5 verification fails -> stop the run, do not deploy
-- Grouped-branch PR present -> refuse that PR, point at config, carry on
+- Grouped PR present -> refuse that PR, point at config, carry on
 - Rebase conflict, CI failure, lint offense not cleanly fixable, merge refused -> set
   that PR aside, carry on
 - A Deploy veto line holds -> ask, naming the line
