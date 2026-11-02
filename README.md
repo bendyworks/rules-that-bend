@@ -145,7 +145,10 @@ link, its `.work` line in `.git/info/exclude`, and any grant below.
 ```
 
 **To move a project that keeps them under `.claude/`,** which the skills
-still read until you do, run this in its primary checkout. It overwrites
+still read until you do, run this in its primary checkout. Run these with no
+Claude Code session open in the project's checkouts. A running session can
+still write to the old paths, which recreates a file there and splits a plan
+in two. The commands overwrite
 nothing: a name already in `.work/` stays under `.claude/` and `rmdir`
 reports the directory, so compare the two files and keep one. A project
 that commits its plans writes the lines above first, and runs `git mv
