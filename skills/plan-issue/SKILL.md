@@ -102,21 +102,18 @@ links the branch and its PR to the story:
   any of those is unwanted, or you lack write access, use a local `git
   checkout -b` with the same slug.
 
-**A bug's title reads as a fault or a fix, never as a request.** The
-title becomes the branch name, which is read at a glance. Ask of a bug's
-title, new or filed: could someone read this as asking for a new ability
-or behavior, rather than for a fault to stop? A symptom built on a
-capability verb ("Invoice Rows Accept Negative Quantities", "Admin Can
-Delete Any Report") and a fix stated as an added ability ("Sweep a Run
-Directory the System Already Removed") both can. Name the outcome with an
-outcome verb ("Refuse Negative Invoice Quantities") or, where no verb
-fits, the end state ("No Negative Invoice Quantities"). Propose no rename
-for a symptom nobody would ask for ("Export Times Out on Large Files"),
-which already reads as a fault, however good an outcome title would be,
-or for a feature request. On an issue already filed, propose the rename
-in create Step 2's reply, and after a rename take the branch name from
-the tracker again. A branch or plan file that already exists keeps its
-name, so propose none then.
+**A bug's title states the correct behavior, never the fault and never a
+new ability.** The title becomes the branch name, which is read at a
+glance, and a title of either kind can read as the thing being built.
+This holds for a title new or filed: "Invoice Rows Accept Negative
+Quantities" becomes "Refuse Negative Invoice Quantities", "Export Times
+Out on Large Files" becomes "Large File Exports Do Not Time Out", and
+"Sweep a Run Directory the System Already Removed" becomes "No Folders
+Stranded When a Run Directory Disappears". Propose no rename for a title
+already in that form or for a feature request. On an issue already filed,
+propose the rename in create Step 2's reply, and after a rename take the
+branch name from the tracker again. A branch or plan file that already
+exists keeps its name, so propose none then.
 
 **One issue, several plans.** When one issue spawns more than one plan
 (a refactor up front, a follow-up), each plan and its branch share a
@@ -441,10 +438,10 @@ What that first GitHub read shows decides the rest:
 
 Read the title, description, comments, and any linked parent or sibling
 issues, and note the issue's state. Once the issue is open, in this
-repository, and yours to work, a bug whose title reads as a request gets
-its rename proposed in this step's reply (see the canonical-title
-section), unless this session filed it or it already has a branch or plan
-file. Look with `git branch -a`, after fetching the remote Step 3
+repository, and yours to work, a bug whose title does not state the
+correct behavior gets its rename proposed in this step's reply (see the
+canonical-title section), unless this session filed it or it already has a
+branch or plan file. Look with `git branch -a`, after fetching the remote Step 3
 resolves, and in `.work/plans/` and `.claude/plans/`.
 
 ### Step 3 -- Research the code
