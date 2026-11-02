@@ -61,7 +61,7 @@ remove it and install again:
 | `markdown-to-pdf` | Convert Markdown files to clean, print-styled PDFs. |
 | `change-highlights` | Show a client what a change does to something they rely on, in a before/after PDF per recipient that leads with the fix they care about, including one that only affects future records. Refuses to write a PDF whose text names another tenant on its deny list, and lists every image to check by eye. Capture templates are Rails-first. |
 | `linear` | Read and write Linear issues via a bundled CLI (create, comment, search, transition) instead of raw GraphQL. Requires Ruby and a `LINEAR_API_TOKEN` env var. |
-| `dependabot-batch` | Triage, verify, and (behind opt-in dials) merge and deploy a batch of open Dependabot PRs. |
+| `dependabot-batch` | Triage, verify, merge and deploy a batch of open Dependabot PRs. Asks once per project whether it may run unattended; routine bumps then ship without asking, and the rest are left for a person. |
 | `bug-cluster-ledger` | Mine a time window of tracker issues and cluster them upward to root causes per subsystem, with prevention analysis. Used by architecture-survey. |
 | `app-wind-down` | Wind down a hosted app safely and reversibly: caretaker mode first, then hibernation to ~$0 with full restore assets. |
 | `parallel-checkouts` | Run several full clones of one project side by side, each with its own dev server and full test suite running at the same time as the others. Prepares a project once (its database names, Redis databases, and pinned ports, or its Compose project and published ports, follow a per-checkout identity), then adds, removes, or moves checkouts and shares Claude Code's project memory between them. Rails-first; covers projects whose Postgres and Redis run natively or in Docker Compose. |
@@ -97,7 +97,7 @@ overriding, and troubleshooting.
   supporting one would take.
 - The bundled CLIs (`linear`, `gh-issue-sync` used by `plan-issue`
   and `finished-issue-housekeeping` on GitHub-tracked repos,
-  `stale-branches`, and `open-items`) require Ruby 3.x on your PATH (macOS and Linux; on
+  `stale-branches`, `open-items`, and `dependabot-merge`) require Ruby 3.x on your PATH (macOS and Linux; on
   Windows use WSL). The `linear` CLI also needs a `LINEAR_API_TOKEN`
   environment variable; `gh-issue-sync` delegates auth to `gh`.
 - `open-items` keeps a dated history of your open pull request and

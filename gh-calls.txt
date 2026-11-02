@@ -26,6 +26,7 @@ gh label list
 gh pr checkout
 gh pr checks
 gh pr create
+gh pr diff
 gh pr edit
 gh pr list
 gh pr merge
