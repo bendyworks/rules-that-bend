@@ -97,7 +97,7 @@ overriding, and troubleshooting.
   supporting one would take.
 - The bundled CLIs (`linear`, `gh-issue-sync` used by `plan-issue`
   and `finished-issue-housekeeping` on GitHub-tracked repos,
-  `stale-branches`, and `open-items`) require Ruby 3.x on your PATH (macOS and Linux; on
+  `stale-branches`, `open-items`, and `dependabot-merge`) require Ruby 3.x on your PATH (macOS and Linux; on
   Windows use WSL). The `linear` CLI also needs a `LINEAR_API_TOKEN`
   environment variable; `gh-issue-sync` delegates auth to `gh`.
 - `open-items` keeps a dated history of your open pull request and

@@ -74,8 +74,8 @@ serving. Then ask, in one message:
 
 and say what a yes means, in these terms:
 
-- **What merges:** every patch and minor Dependabot bump with green CI, dev and
-  runtime alike, whatever its compatibility score. A merge cannot be taken back,
+- **What merges:** every patch and minor Dependabot bump with green CI that
+  `dependabot-merge` accepts, dev and runtime alike, whatever its compatibility score. A merge cannot be taken back,
   and a new release can reach production the day it appears; Dependabot's `cooldown`
   option in `.github/dependabot.yml` is how to hold new releases back.
 - **What happens after, whichever applies:** the batch runs `<deploy command>`
@@ -85,15 +85,16 @@ and say what a yes means, in these terms:
   command were both found, so the skill stops at merging and deploying stays with a
   person. Each command must be one program, wrapped in a script if it needs a pipe.
 - **What still comes to a person:** everything under Hard veto and Deploy veto
-  below.
+  below, and whatever `dependabot-merge` refuses.
 - **Permission rules it adds** to `.claude/settings.local.json`, so auto mode does
-  not stop on them: allow `Bash(gh pr merge *)` and an exact `Bash(<command>)` for
-  each command above, and deny `Bash(gh pr merge *--admin*)`, `*--auto*`, `*--repo*`
-  and `*-R *` in the same form. These outlast this run: every later session in this
-  checkout can merge any pull request on this project, Dependabot's or not, and run
-  those commands with no prompt, and the vetoes below live only in this skill. A
-  session that prompts for every command still prompts for pushes, installs and the
-  verify command.
+  not stop on them: allow `Bash(dependabot-merge *)` and an exact `Bash(<command>)`
+  for each command above. `dependabot-merge` (bundled in this plugin; it needs Ruby)
+  merges only a pull request Dependabot opened that changes only dependency files,
+  CI workflows and Dockerfiles included, and targets the default branch. These rules outlast this run: every later session in
+  this checkout can merge such a pull request and run those commands with no prompt,
+  and the vetoes below and the wait for green CI live only in this skill. A session
+  that prompts for every command still prompts for pushes, installs and the verify
+  command.
 
 End the message with the reply that carries all of it:
 `Yes, authorize it, and add those permission rules.` Auto mode refuses a permission
@@ -204,6 +205,10 @@ have the user run `gh repo set-default` (or confirm with them which repo
 is intended), then repeat the `gh repo view` call. Every later phase
 inherits both answers.
 
+**The merge command.** With a merge dial at `auto`, run `dependabot-merge` with no
+arguments. A usage line, with exit status 1, means it works. Anything else: treat both
+merge dials as `ask` and say why.
+
 Run `gh pr list --state open --author app/dependabot --json number,title,headRefName,body`.
 
 For each PR, extract and display in a compact table:
@@ -251,6 +256,9 @@ across all merges (UI, other tools, contributors). Adapt to the repo instead.
 a pull request aside: leave it open, return to the default branch with a clean
 tree, record why for the summary, and carry on with the next one. Only a red
 default branch, a failed Phase 5 or a failed deploy stops the whole run.
+
+**Another base.** Set aside a PR that does not target the default branch: the loop
+rebases onto the default branch, and `dependabot-merge` refuses it.
 
 **Grouped refusal.** If any PR is grouped (see Hard veto), refuse to process it and
 point the user at `.github/dependabot.yml`.
@@ -342,14 +350,15 @@ For each PR in order:
    |-----------|--------|
    | Hard veto (major / runtime language / core framework / never-auto list / more than a bump) | Announce green, leave for a person |
    | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, leave for a person |
-   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
-   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `gh pr merge <n> <merge-flag> --delete-branch --match-head-commit <sha CI ran on>` |
+   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <full sha CI ran on>` |
+   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <full sha CI ran on>` |
    | Either dial set to `ask` | Announce green, leave for a person |
 
-**Run each `gh pr merge` as a Bash command of its own.** A permission rule does
+**Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
 refused by branch protection or required approvals is a gate working: set the PR
-aside, and never pass `--admin`.
+aside. So is one it refuses, with its message in the summary. Never merge around it
+with `gh pr merge`.
 
 8. After each auto-merge or user-reported merge,
    `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
@@ -367,7 +376,7 @@ step 1 below resolves, and skip both when `<live>` is `<remote>/<default-branch>
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
    (the same `<remote>` Phase 4 resolved). If you did not retain the
    value from Phase 4 -- the branch config that held it is gone once
-   `gh pr merge --delete-branch` removes the local branch -- re-resolve
+   the merge removes the local branch -- re-resolve
    `<remote>` as the remote whose URL matches the repo of record.
 2. Re-install dependencies with the ecosystem's standard command
 3. Run the verify command (same as Phase 4 step 4) -- must be clean and green.
