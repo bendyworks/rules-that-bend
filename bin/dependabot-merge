@@ -1,0 +1,183 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# dependabot-merge -- merge one Dependabot pull request, and nothing else.
+#
+# A permission rule can allow `gh pr merge *` but cannot say whose pull
+# request, so a saved rule lets every later session merge anything. A
+# rule allowing this command allows only what it does. It refuses unless
+# Dependabot opened the pull request, every commit carries Dependabot's
+# author, it changes only dependency files, and it targets the default
+# branch, then merges exactly the commit it checked. It takes no other
+# arguments and ignores GH_REPO and GH_HOST, so it acts on the repository
+# of the directory it runs in, without gh's --admin or --auto.
+#
+# Git's author field is whatever a commit says it is, and the
+# dependabot-batch skill's own rebase replaces the committer and
+# signature, so the commit check cannot prove who wrote a change. The file
+# check keeps application source out. A manifest, a workflow or a
+# Dockerfile can still run code, which is why the skill's question names
+# them and its vetoes come first.
+#
+# Stdlib-only (no gems). Which bumps are routine belongs to the
+# dependabot-batch skill; this is the floor under it. Auth and transport
+# are delegated to `gh`.
+
+require 'json'
+require 'open3'
+
+module DependabotMerge
+  GH_CALLS = ['pr view', 'pr merge', 'repo view'].freeze
+
+  USAGE = 'usage: dependabot-merge <number> --squash|--merge|--rebase --match-head-commit <full sha>'
+  AUTHOR = 'app/dependabot'
+  COMMIT_AUTHOR = 'dependabot[bot]'
+  METHODS = %w[--squash --merge --rebase].freeze
+  VIEW_FIELDS = 'author,baseRefName,changedFiles,commits,files,headRefOid,state'
+  # The manifests, lockfiles and version pins Dependabot edits, drawn from
+  # real pull requests across its ecosystems. A pull request touching
+  # anything else goes to a person, as does an ecosystem missing from this
+  # list. Wrapper scripts and jars stay off it: they run as they are.
+  DEPENDENCY_FILES = %r{
+    \A(?:.*/)?(?:
+      Gemfile(?:\.lock)? | [^/]+\.gemspec |
+      package(?:-lock)?\.json | npm-shrinkwrap\.json | yarn\.lock | pnpm-lock\.yaml | bun\.lockb? |
+      [^/]*requirements[^/]*\.(?:txt|in) | [^/]*constraints[^/]*\.txt | requirements/[^/]+\.(?:txt|in) |
+      pyproject\.toml | setup\.py | poetry\.lock | uv\.lock | Pipfile(?:\.lock)? |
+      go\.(?:mod|sum) | Cargo\.(?:toml|lock) | composer\.(?:json|lock) |
+      pom\.xml | maven-wrapper\.properties |
+      build\.gradle(?:\.kts)? | settings\.gradle(?:\.kts)? | gradle\.lockfile | libs\.versions\.toml |
+      gradle-wrapper\.properties |
+      mix\.(?:exs|lock) | pubspec\.(?:yaml|lock) | Package\.(?:swift|resolved) |
+      [^/]+\.(?:cs|fs|vb)proj | packages\.config | packages\.lock\.json | dotnet-tools\.json |
+      Directory\.(?:Packages|Build)\.props |
+      Dockerfile(?:\.(?!rb\z|sh\z|py\z|js\z)[\w-]+)?
+    )\z |
+    \A\.github/workflows/[^/]+\.ya?ml\z |
+    \A\.github/actions/[^/]+/action\.ya?ml\z
+  }x
+
+  class Error < StandardError; end
+
+  module_function
+
+  def parse(argv)
+    number, method, flag, sha = argv
+    valid = argv.size == 4 && number.match?(/\A\d+\z/) && METHODS.include?(method) &&
+            flag == '--match-head-commit' && sha.match?(/\A\h{40}\z/)
+    raise Error, USAGE unless valid
+
+    { number: number, method: method, sha: sha }
+  end
+
+  # Why this pull request must not merge, or nil when it may.
+  def refusal(pull_request, sha, default_branch)
+    author = pull_request.fetch('author').fetch('login')
+    return "opened by #{author}, not Dependabot" unless author == AUTHOR
+
+    state = pull_request.fetch('state')
+    return "the pull request is #{state}" unless state == 'OPEN'
+
+    base = pull_request.fetch('baseRefName')
+    return "it targets #{base}, not #{default_branch}" unless base == default_branch
+
+    head = pull_request.fetch('headRefOid')
+    return "the head moved: #{head}, not #{sha}" unless head == sha
+
+    commit_refusal(pull_request.fetch('commits'), head) ||
+      file_refusal(pull_request.fetch('files'), pull_request.fetch('changedFiles'))
+  end
+
+  def commit_refusal(commits, head)
+    return 'the commit list does not reach the head' unless commits.last&.fetch('oid') == head
+
+    commits.each do |commit|
+      logins = commit.fetch('authors').map { |author| author.fetch('login') }
+      return 'it holds a commit by an unknown author' if logins.empty? || logins.any?(&:empty?)
+
+      other = logins.find { |login| login != COMMIT_AUTHOR }
+      return "it holds a commit by #{other}" if other
+    end
+    nil
+  end
+
+  def file_refusal(files, changed)
+    return 'it changes no files' if files.empty?
+    # gh lists the first 100, and a change past them would go unread.
+    return "it changes #{changed} files, and only #{files.size} are listed" unless changed == files.size
+
+    # gh gives a rename's new path only, and the old one may be anything.
+    renamed = files.find { |file| file['changeType'] == 'RENAMED' }
+    return "it renames #{renamed.fetch('path')}" if renamed
+
+    other = files.map { |file| file.fetch('path') }.reject { |path| path.match?(DEPENDENCY_FILES) }
+    "it changes #{other.join(', ')}" unless other.empty?
+  end
+
+  # The only code that runs gh.
+  class Gh
+    # GH_REPO and GH_HOST would aim gh at a repository other than the one
+    # the permission rule was saved for.
+    ENVIRONMENT = { 'GH_REPO' => nil, 'GH_HOST' => nil }.freeze
+
+    def self.default_branch
+      JSON.parse(capture('gh', 'repo', 'view', '--json', 'defaultBranchRef')).fetch('defaultBranchRef').fetch('name')
+    end
+
+    def self.view(number, fields = VIEW_FIELDS)
+      JSON.parse(capture('gh', 'pr', 'view', number, '--json', fields))
+    end
+
+    def self.merge(number, method, sha)
+      Open3.capture3(ENVIRONMENT, 'gh', 'pr', 'merge', number, method, '--delete-branch', '--match-head-commit', sha)
+    end
+
+    def self.capture(*command)
+      out, err, status = Open3.capture3(ENVIRONMENT, *command)
+      raise Error, failure(err) unless status.success?
+
+      out
+    end
+
+    def self.failure(err)
+      err.strip.empty? ? 'gh failed with no message' : err.strip
+    end
+  end
+
+  # Argv and printing.
+  class CLI
+    def self.run(argv)
+      args = DependabotMerge.parse(argv)
+      reason = DependabotMerge.refusal(Gh.view(args[:number]), args[:sha], Gh.default_branch)
+      raise Error, "refusing ##{args[:number]}: #{reason}" if reason
+
+      merge(args)
+    rescue Error, JSON::ParserError, KeyError, NoMethodError, TypeError, SystemCallError => e
+      abort e.message
+    end
+
+    # gh merges before it cleans up the local branch, so it can fail after
+    # the merge landed, and it exits 0 on a pull request already in a merge
+    # queue. A session acts on this answer, so the state decides it.
+    def self.merge(args)
+      _out, err, status = Gh.merge(args[:number], args[:method], args[:sha])
+      state = merged_state(args[:number], status, err)
+      unless state == 'MERGED'
+        raise Error, status.success? ? "not merged: the pull request is #{state}" : Gh.failure(err)
+      end
+
+      puts "merged ##{args[:number]}"
+      puts err.strip unless err.strip.empty?
+    end
+
+    def self.merged_state(number, status, err)
+      Gh.view(number, 'state').fetch('state')
+    rescue Error => e
+      raise Error, status.success? ? e.message : "#{Gh.failure(err)}; and reading the state failed: #{e.message}"
+    end
+    private_class_method :merged_state
+    private_class_method :merge
+  end
+end
+
+DependabotMerge::CLI.run(ARGV) if $PROGRAM_NAME == __FILE__
