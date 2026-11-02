@@ -80,6 +80,15 @@ supports (the README's Requirements section names them), and on no
 smaller one. After rewording text that arms already cover, re-run those
 arms on Sonnet.
 
+**A skill that acts unattended needs arms in real auto mode.**
+`--allowedTools` never reaches the auto-mode classifier, so those arms
+can all pass while a real run stops on a denial. Run the arm with
+`--permission-mode auto`, no allowed tools and `--setting-sources
+project,local`, and read `permission_denials` in the result. Under
+default rules a merge or a deploy takes a narrow allow rule, which
+matches only a command alone: a chain, a `cd` or a redirect does not
+match it.
+
 **When the control passes on both models, the rule does not ship.** The
 control is the same arm run on the text as it stood before your change.
 Drop the rule, or find the scenario where one model fails. Two kinds of
