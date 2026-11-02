@@ -102,6 +102,22 @@ links the branch and its PR to the story:
   any of those is unwanted, or you lack write access, use a local `git
   checkout -b` with the same slug.
 
+**A bug's title reads as a fault or a fix, never as a request.** The
+title becomes the branch name, which is read at a glance. Ask of a bug's
+title, new or filed: could someone read this as asking for a new ability
+or behavior, rather than for a fault to stop? A symptom built on a
+capability verb ("Invoice Rows Accept Negative Quantities", "Admin Can
+Delete Any Report") and a fix stated as an added ability ("Sweep a Run
+Directory the System Already Removed") both can. Name the outcome with an
+outcome verb ("Refuse Negative Invoice Quantities") or, where no verb
+fits, the end state ("No Negative Invoice Quantities"). Propose no rename
+for a symptom nobody would ask for ("Export Times Out on Large Files"),
+which already reads as a fault, however good an outcome title would be,
+or for a feature request. On an issue already filed, propose the rename
+in create Step 2's reply, and after a rename take the branch name from
+the tracker again. A branch or plan file that already exists keeps its
+name, so propose none then.
+
 **One issue, several plans.** When one issue spawns more than one plan
 (a refactor up front, a follow-up), each plan and its branch share a
 slug of their own that still carries the parent issue's ID
@@ -343,9 +359,9 @@ Ask the user:
    check out, or rebase first? (Resolve the project's remote and fetch
    it before answering from the trunk's state; see Step 3.)
 
-Take the branch name as the canonical-title section says. Never run `gh
-issue develop` during the interview: it creates the remote branch at
-once, and the title may still change. If the issue's title is long or
+Take the branch name as the canonical-title section says. Cut a new
+branch only once Step 2 has settled the title: `gh issue develop` creates
+the remote branch at once. If the issue's title is long or
 sentence-shaped, propose a rename now.
 
 **Creating a Linear issue:** ask the user which project it belongs to,
@@ -424,7 +440,12 @@ What that first GitHub read shows decides the rest:
   the user answers (see Priority label).
 
 Read the title, description, comments, and any linked parent or sibling
-issues, and note the issue's state.
+issues, and note the issue's state. Once the issue is open, in this
+repository, and yours to work, a bug whose title reads as a request gets
+its rename proposed in this step's reply (see the canonical-title
+section), unless this session filed it or it already has a branch or plan
+file. Look with `git branch -a`, after fetching the remote Step 3
+resolves, and in `.work/plans/` and `.claude/plans/`.
 
 ### Step 3 -- Research the code
 
