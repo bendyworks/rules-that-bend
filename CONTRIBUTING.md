@@ -210,7 +210,10 @@ that repeats a planted claim ("verified: wraps fields in double quotes")
 as one that caught it, so make the pattern require the contradiction.
 And a grader built to catch a pattern scores its absence as a pass: give
 each scenario a list of facts a good output must still contain, the
-answer to any question asked among them.
+answer to any question asked among them. A grader that reads only the
+run's final `result` misses an arm whose deliverable came earlier: a
+session that schedules a wakeup ends on a note about it. Grade from the
+last assistant message that holds the deliverable.
 
 ## GitHub is required
 
