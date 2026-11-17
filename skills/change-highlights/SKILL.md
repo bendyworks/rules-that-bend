@@ -1,6 +1,6 @@
 ---
 name: change-highlights
-description: Build a stakeholder-facing before/after "highlights" PDF that shows a client what a change does to something they rely on -- an overview, a before example, an after example, and a plain-language explanation -- one PDF per recipient, with a gate that refuses to write a file containing another tenant's identifiers. Covers forward-only fixes through a labeled, constructed example. Use when the user asks to "make a highlights PDF", "build a before/after PDF for <issue>", "show the client what changed", "make a change summary for <recipient>", or invokes the change-highlights skill. Plain Ruby plus a headless Chromium-family browser.
+description: Build a stakeholder-facing before/after "highlights" PDF that shows a client what a change does to something they rely on -- an overview, a before example, an after example, and a plain-language explanation -- one PDF per recipient, with a gate that refuses to write a file containing another tenant's identifiers, and a fresh reader that checks the copy before the user sees it. Covers forward-only fixes through a labeled, constructed example. Use when the user asks to "make a highlights PDF", "build a before/after PDF for <issue>", "show the client what changed", "make a change summary for <recipient>", or invokes the change-highlights skill. Plain Ruby plus a headless Chromium-family browser.
 ---
 
 # Change highlights
@@ -129,6 +129,9 @@ Render only, to iterate on layout without a browser:
 ```bash
 ruby SKILL_DIR/render_highlights.rb path/to/recipient.json
 ```
+
+**A build, or a render alone, is not ready for the user until a fresh reader
+has read it** ("Read it as the recipient", below).
 
 Keep manifests and their output out of the repository (a gitignored `tmp/` is
 conventional): they hold client data. Each manifest's name must end in
@@ -394,6 +397,31 @@ decision is written as the user, to someone outside the team:
   to keep out of this prose. Its rule that a question comes last is
   about a message: in this document an ask goes in the `intro`, as
   "Lead with the fix" above says.
+
+## Read it as the recipient
+
+**Before the PDF goes to the user, a fresh reader checks its copy.** Give a
+subagent the PDF (or, when no browser can print one, the rendered HTML and
+every image it shows) and the recipient's name and role, and nothing else from
+the conversation. Have it read as the recipient and return every place where
+it would have to ask what was meant:
+
+- a phrase or label with two readings;
+- a figure, set of records, or control it cannot tell which one;
+- a term the recipient may not use;
+- a date or time word whose meaning depends on when the document is read, or
+  that says when the change arrives;
+- a figure that differs from its image.
+
+Weigh each against the copy rules above: fix the ones that break a rule, and
+keep the ones a rule allows, such as a release date the user gave. When a fix
+rewrote a sentence, give the rebuilt document, with the same inputs, to a
+fresh reader once more, naming the rewritten sentences. That read is the
+last: fix what it finds, and tell the user in the hand-off what the reads
+changed and which sentences were rewritten after the last read. Your own read
+is no substitute: you know what each phrase was meant to say. Only a session
+with no subagent tool at all does the read itself, against the same list, and
+says so.
 
 ## "Preview only" note
 
