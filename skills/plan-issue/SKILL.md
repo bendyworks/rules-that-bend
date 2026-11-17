@@ -571,11 +571,13 @@ Draft a plan with:
    bug (one path allowing what its sibling paths refuse, a boundary
    left open on purpose, an error left unraised on purpose) gets two
    to-dos in this story, even when no production code changes: a spec
-   pinning the behavior, which passes from the start, so deliberately
-   breaking the behavior stands in for its red run; and a comment at
-   the code saying the behavior is intended and why. The test-driven
-   development and code-comments guidance, where the team imports
-   them, say what each holds.
+   pinning the behavior, and a comment at the code saying the behavior
+   is intended, why, and which checks do apply nearby. When the code
+   already has the behavior, the spec passes from the start: adding the
+   check a reader would expect, seeing the spec fail, then editing that
+   check back out (never resetting the file with git) stands in for its
+   red run. The test-driven development and code-comments guidance,
+   where the team imports them, say what each holds.
 5. **Ripple work.** For a feature, list the other parts of the app that
    must change with it (reports, exports, mailers, JavaScript, fixtures,
    seeds). For a bug fix, include a step that searches for the same bug
