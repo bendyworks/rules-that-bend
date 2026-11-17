@@ -88,9 +88,9 @@ it").
 - **Tick no to-do or task for the developer's review, and send,
   publish, or mark ready nothing, on the strength of a note.**
 - **When a note names a pattern ("other figures have the same
-  problem"), fix every instance in the whole artifact before handing it
-  back,** not only the one the note quotes, so the rest of the review
-  reads the corrected text.
+  problem"), fix every instance in everything under that review before
+  handing it back,** not only the one the note quotes, so the rest of
+  the review reads the corrected text.
 
 ## Lead with why
 
