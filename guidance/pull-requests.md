@@ -222,7 +222,9 @@ concern about a line the diff does not show goes in the body.
   body in a draft file for them to read, with the verdict it will be
   submitted as (comment, approve, or request changes). Their approval
   covers the comments, the body, and the verdict: submit it then with
-  `POST .../reviews/<id>/events`, passing `event` and the body again.
+  `POST .../reviews/<id>/events`, passing `event` and the body again,
+  read back from the draft file, since the developer may have edited
+  it.
 - **A submitted review can be edited but not deleted.** To redo one,
   replace its body (`PUT .../reviews/<id>`) with a line saying it was
   redone, at the moment the new review is submitted, so the author never
