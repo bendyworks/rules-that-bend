@@ -201,7 +201,10 @@ body makes the author search the diff for every point before they can
 weigh it. Post through the reviews endpoint (`POST
 repos/<owner>/<repo>/pulls/<number>/reviews`), which takes every
 comment in one request: a `comments` array of `path`, `line`, and
-`body`.
+`body`, adding `start_line` and `start_side` for a span of lines and
+`side: LEFT` for a line the pull request deletes. GitHub refuses the
+whole request when one comment sits on a line outside the diff, so a
+concern about a line the diff does not show goes in the body.
 
 - **The review body holds only the overall verdict, what works, and
   concerns with no single line to sit on:** a missing spec, a question
