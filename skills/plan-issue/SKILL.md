@@ -567,7 +567,14 @@ Draft a plan with:
 3. **An optional refactor up front**, when the existing code is awkward
    for the change: in this PR or one of its own, as the user decides.
 4. **Test-first steps** for any production code change: the failing spec
-   before the change.
+   before the change. Each answer that keeps a behavior a reader would
+   take for a bug (one path allowing what its siblings refuse, a
+   boundary left open on purpose, an error left unraised on purpose)
+   gets a to-do in this story for the spec pinning it and the comment
+   beside it, even when no production code changes, and so does such
+   an answer given while the to-dos are being worked. The test-driven
+   development and code-comments guidance, where the team imports
+   them, say what each holds.
 5. **Ripple work.** For a feature, list the other parts of the app that
    must change with it (reports, exports, mailers, JavaScript, fixtures,
    seeds). For a bug fix, include a step that searches for the same bug
