@@ -198,10 +198,10 @@ own inline comment on the line it is about, or on the lines a proposed
 change would replace.** One concern per comment, so the author can
 answer and resolve each one on its own. A review written as one long
 body makes the author search the diff for every point before they can
-weigh it. The GitHub CLI's review and comment commands take only a
-body, so post through the reviews endpoint (`POST
-repos/<owner>/<repo>/pulls/<number>/reviews`), with a `comments` array
-of `path`, `line`, and `body`.
+weigh it. Post through the reviews endpoint (`POST
+repos/<owner>/<repo>/pulls/<number>/reviews`), which takes every
+comment in one request: a `comments` array of `path`, `line`, and
+`body`.
 
 - **The review body holds only the overall verdict, what works, and
   concerns with no single line to sit on:** a missing spec, a question
