@@ -61,14 +61,15 @@ So before it opens, check the repository's visibility
 other projects' tracker IDs, links, and figures that sit beside any of
 those. The project's own issue and pull request numbers and a bare ID
 from its own tracker stay; a private tracker's titles and URLs do not.
-A pull request opened ready for review, a comment, and a review reply
-get the same check first. The public-destinations guidance carries the
-full rule.
+A pull request opened ready for review, a comment, a review of someone
+else's pull request, and a review reply get the same check first. The
+public-destinations guidance carries the full rule.
 
 A draft being its own review covers only pull requests that open as
 drafts; in a stacked chain, only the ones created as drafts. A pull
-request opened ready for review, a PR comment, and a review reply keep
-whatever approval the team requires.
+request opened ready for review, a PR comment, a review of someone
+else's pull request (see Writing a review below), and a review reply
+keep whatever approval the team requires.
 
 ## Lead with why
 
@@ -190,6 +191,59 @@ This rule exists so main and production stay clean and green in the
 **holistic** sense, not just the lint-and-specs sense: a PR isn't
 actually "done" until its real-world behavior is correct, even when
 its specs and lint pass.
+
+## Writing a review
+
+**When reviewing someone else's pull request, put each concern in its
+own inline comment on the line it is about, or on the lines a proposed
+change would replace.** One concern per comment, so the author can
+answer and resolve each one on its own. A review written as one long
+body makes the author search the diff for every point before they can
+weigh it. Post through the reviews endpoint (`POST
+repos/<owner>/<repo>/pulls/<number>/reviews`), which takes every
+comment in one request: a `comments` array of `path`, `line`, and
+`body`, adding `start_line` and `start_side` for a span of lines and
+`side: LEFT` for a line the pull request deletes. GitHub refuses the
+whole request when one comment sits on a line outside the diff, so a
+concern about a line the diff does not show goes in the body.
+
+- **The review body holds only the overall verdict, what works, and
+  concerns with no single line to sit on:** a missing spec, a question
+  about the whole pull request, a dependency change spread across a
+  lockfile.
+- **Before anchoring, and again just before submitting, check the pull
+  request's head is still the commit the concerns were found on.**
+  Pass the reviewed commit's SHA as `commit_id`, with line numbers from
+  that commit. When the head has moved, look on the new head for each
+  concern's line: a concern on a line the head no longer has goes in
+  the body, or is dropped if the new commit settles it. A head that
+  moves after the developer has approved the review is theirs to weigh:
+  tell them before submitting, since a change now would post text they
+  have not read.
+- **Where a team requires the developer to approve text posted under
+  their name, create the review pending:** the same request with no
+  `event`. Only the developer sees a pending review, so creating one
+  needs no approval, and they read each comment beside its code on
+  GitHub. The page does not show a pending review's body, so put the
+  body in a draft file for them to read, with the verdict it will be
+  submitted as (comment, approve, or request changes). GitHub keeps one
+  pending review per person on a pull request, so revise one by
+  fetching its comments (`GET .../reviews/<id>/comments`), so edits the
+  developer made on the page carry over, then deleting it
+  (`DELETE .../reviews/<id>`) and creating it again. A pending review
+  this session did not create may hold the developer's own work, and
+  is not deleted without asking. Their approval covers the comments, the
+  body, and the verdict: submit it then with
+  `POST .../reviews/<id>/events`, passing `event` and the body again,
+  read back from the draft file, since the developer may have edited
+  it.
+- **A submitted review can be edited but not deleted.** To redo one,
+  replace its body (`PUT .../reviews/<id>`) with a line saying it was
+  redone, at the moment the new review is submitted, so the author never
+  sees a placeholder with nothing behind it. That line is text under the
+  developer's name too: where approval is required, it goes in the same
+  draft file as the new review's body, under its own heading, and only
+  the body is passed when the new review is submitted.
 
 ## Responding to review feedback
 
