@@ -61,8 +61,8 @@ So before it opens, check the repository's visibility
 other projects' tracker IDs, links, and figures that sit beside any of
 those. The project's own issue and pull request numbers and a bare ID
 from its own tracker stay; a private tracker's titles and URLs do not.
-A pull request opened ready for review, a comment, and a review reply
-get the same check first. The public-destinations guidance carries the
+A pull request opened ready for review, a comment, a review of someone
+else's pull request, and a review reply get the same check first. The public-destinations guidance carries the
 full rule.
 
 A draft being its own review covers only pull requests that open as
