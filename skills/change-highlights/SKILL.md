@@ -373,6 +373,22 @@ decision is written as the user, to someone outside the team:
 - **Nothing that goes stale in days.** Avoid "In early June I ..." while it is
   still early June; prefer wording that stays true, such as "Earlier this
   month I ...".
+- **No release date the user has not given for this document.** A deadline
+  from the quote or the plan is not a release date. Write "once it reaches
+  production" unless the user names a date for the reader. The dates of the
+  records and periods the examples show are content, and stay.
+- **One reading, and which one.** Read each bold label on its own, as a
+  reader skimming would, and reword a phrase that also means something else.
+  Name the figure as the screen labels it, the records a statement covers,
+  and the page each control is on. The Plain language section of the
+  code-comments guidance, where a team imports it, has the full rule.
+- **The reader's words.** Describe what the reader does ("compare the total
+  with your books at month end"), not a term for it they have not used with
+  you.
+- **Figures as the images show them,** sign, symbol, and rounding included,
+  so the text and the screenshot beside it never disagree. The renderer sets
+  a table's minus sign and digit grouping; where those differ from a
+  screenshot, say so in the explanation.
 - Follow the team's own writing rules for punctuation and tone. The
   client-messages guidance, where a team imports it, names the defaults
   to keep out of this prose. Its rule that a question comes last is
