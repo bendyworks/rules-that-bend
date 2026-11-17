@@ -234,7 +234,9 @@ concern about a line the diff does not show goes in the body.
 - **A submitted review can be edited but not deleted.** To redo one,
   replace its body (`PUT .../reviews/<id>`) with a line saying it was
   redone, at the moment the new review is submitted, so the author never
-  sees a placeholder with nothing behind it.
+  sees a placeholder with nothing behind it. That line is text under the
+  developer's name too: where approval is required, it goes in the same
+  draft file as the new review's body.
 
 ## Responding to review feedback
 
