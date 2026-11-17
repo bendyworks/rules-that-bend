@@ -228,9 +228,11 @@ concern about a line the diff does not show goes in the body.
   body in a draft file for them to read, with the verdict it will be
   submitted as (comment, approve, or request changes). GitHub keeps one
   pending review per person on a pull request, so revise one by
-  deleting it (`DELETE .../reviews/<id>`) and creating it again; a
-  pending review the developer started on the page is theirs, and is
-  not deleted without asking. Their approval covers the comments, the
+  fetching its comments (`GET .../reviews/<id>/comments`), so edits the
+  developer made on the page carry over, then deleting it
+  (`DELETE .../reviews/<id>`) and creating it again. A pending review
+  this session did not create may hold the developer's own work, and
+  is not deleted without asking. Their approval covers the comments, the
   body, and the verdict: submit it then with
   `POST .../reviews/<id>/events`, passing `event` and the body again,
   read back from the draft file, since the developer may have edited
