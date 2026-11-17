@@ -71,6 +71,28 @@ request opened ready for review, a PR comment, a review of someone
 else's pull request (see Writing a review below), and a review reply
 keep whatever approval the team requires.
 
+### A note while reading leaves the review open
+
+**A note from the developer reviewing something a session wrote (a pull
+request, a draft message, a document, a plan) means they are partway
+through it, unless they say they have finished.** Act on the note and
+hand the revised version back as still under their review. A review is
+finished only when the developer says so ("I'm done reading", "send
+it").
+
+- **Record the review as in progress, wherever it is written down:** a
+  plan, a task, a hand-back. Write "the developer is reviewing the
+  draft; feedback so far: ...", never "after the developer's first
+  read", "before you read it again", or a new to-do for a second round:
+  each says a reading ended that did not.
+- **On the strength of a note, tick no to-do or task for the
+  developer's review, and do not send the text under review to its
+  audience or mark its pull request ready.**
+- **When a note names a pattern ("other figures have the same
+  problem"), fix every instance in everything under that review before
+  handing it back,** not only the one the note quotes, so the rest of
+  the review reads the corrected text.
+
 ## Lead with why
 
 **Open every PR description with a TL;DR: one bold line naming what
