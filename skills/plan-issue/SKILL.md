@@ -573,11 +573,13 @@ Draft a plan with:
    to-dos in this story, even when no production code changes: a spec
    pinning the behavior, and a comment at the code saying the behavior
    is intended, why, and which checks do apply nearby. When the code
-   already has the behavior, the spec passes from the start: adding the
-   check a reader would expect, seeing the spec fail, then editing that
-   check back out (never resetting the file with git) stands in for its
-   red run. The test-driven development and code-comments guidance,
-   where the team imports them, say what each holds.
+   already has the behavior, the spec passes from the start, so a
+   deliberate break stands in for its red run: add the check a reader
+   would expect, see the spec fail (changing the spec or the check until
+   it does), then edit that check back out, never resetting the file
+   with git, and see the spec pass again. The test-driven development
+   and code-comments guidance, where the team imports them, say what
+   each holds.
 5. **Ripple work.** For a feature, list the other parts of the app that
    must change with it (reports, exports, mailers, JavaScript, fixtures,
    seeds). For a bug fix, include a step that searches for the same bug
