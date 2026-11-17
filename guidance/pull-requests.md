@@ -85,8 +85,8 @@ it").
   draft; feedback so far: ...", never "after the developer's first
   read", "before you read it again", or a new to-do for a second round:
   each says a reading ended that did not.
-- **Tick no review step, and send, publish, or mark ready nothing, on
-  the strength of a note.**
+- **Tick no to-do or task for the developer's review, and send,
+  publish, or mark ready nothing, on the strength of a note.**
 - **When a note names a pattern ("other figures have the same
   problem"), fix every instance in the whole artifact before handing it
   back,** not only the one the note quotes, so the rest of the review
