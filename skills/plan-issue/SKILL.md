@@ -704,10 +704,10 @@ The critique considers:
 - For a feature: does it cover the other parts of the app the change
   reaches?
 - Which of its assumptions should be checked before building?
-- Does it record an answer that keeps a behavior a reader would take
-  for a bug, with no to-do for the spec pinning it and the comment
-  beside it? That to-do is how the decision reaches the code, not a
-  hardening nobody asked for.
+- Does the plan or the issue record an answer that keeps a behavior a
+  reader would take for a bug, with no to-dos for the spec pinning it
+  and the comment beside it? Those to-dos are how the decision reaches
+  the code, not a hardening nobody asked for.
 
 Value code quality and ease of maintenance over saving development
 time. **Relay the verdict line as the agent gave it.** Fold into the
