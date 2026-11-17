@@ -777,8 +777,9 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
-- **New work found along the way** is appended to the plan file and the
-  task list under the next number.
+- **New work found along the way** takes the next number in the plan
+  file and the task list. The plan lists it where it will run, and the
+  task list shows it last.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
@@ -839,8 +840,8 @@ each group of them:
    GitHub-tracked repository sync the issue's checklist. An answer given
    now that keeps a behavior a reader would take for a bug is new work:
    the two to-dos create Step 6's item 4 (Test-first steps) names,
-   listed before the ship tail's next open item, so they reach the
-   pull request that records the decision.
+   listed and worked before the first ship-tail item not yet started,
+   so they reach the pull request that records the decision.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its
