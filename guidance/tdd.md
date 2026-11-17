@@ -62,7 +62,36 @@ When TDD doesn't fit:
   safety net; green after the refactor means done).
 - Spike or exploratory code intended to be thrown away.
 - Trivial config or string-only changes.
-- Documentation, comments, README updates.
+- Documentation, comments, README updates, apart from the spec a
+  behavior kept on purpose needs (below).
 
 Otherwise, default to test-first. If you find yourself writing
 production code before the spec, stop and back up.
+
+## A behavior kept on purpose gets its spec when it is decided
+
+**When someone decides to keep a behavior that a reader would take for
+a bug, the change that records the decision adds a spec pinning it,
+even when no production behavior changes.** A decision that lives only
+in a plan, a thread, or a pull request leaves the code reading like a
+missing check, and the next reader, a person or a tool, reports it as
+one. What counts:
+
+- one path allows what its sibling paths refuse, such as an import that
+  keeps a row the signup form would reject;
+- a boundary left open on purpose;
+- an error left unraised on purpose.
+
+A decision that matches none of these needs no spec of its own. The
+code-comments guidance covers the comment that goes beside one that
+does.
+
+Such a spec passes on the pre-change code by design, so a deliberate
+break stands in for the red run. With the spec passing, add the check a
+reader would expect, run the spec where the tests load the edited code,
+and see it fail; when it stays green, change the spec or move the check
+onto the path the spec exercises until it does. Then remove exactly the
+lines you added, by editing them out rather than with a git command
+that resets the file, and run the spec again to see it pass before
+committing it. The break touches nothing but your own lines, so it
+needs no go-ahead.
