@@ -119,6 +119,31 @@ the future reader, not for insiders of the current moment.
   future reader cannot grep for it. If the coined name is genuinely
   better, rename the thing in code first, in its own commit, then use
   the new name everywhere.
+- **Every sentence reads one way, and every reference says which
+  one.** This holds for the text an app shows its users and for
+  messages to people outside the codebase, as well as for comments,
+  commits, pull requests, and issues. The test: could a reader who
+  sees only this sentence point at the thing it means?
+  - Name the figure, the records, the control, and the person. Not
+    "the amount" where a feature has more than one figure, but "the
+    invoice total" or "the credit limit"; not "your records" but the
+    ones meant ("orders placed before the release"); a control with
+    the page it is on; whoever acts by the role that holds the
+    permission.
+  - Where another part of the app already uses a word for something
+    else, write the qualified form ("credit adjustment"), unless a
+    heading right above supplies the qualifier. The qualifier names
+    what the thing changes, not what sits near it. Before naming
+    something in text the app shows or a message to people outside
+    the codebase, search the places the app shows text (views,
+    messages, help and error output) and the names in its code for
+    the word.
+  - Read each label on its own, as someone skimming a list would, and
+    reword a phrase with a second reading: "billed with the order"
+    also reads as "billed by the order"; "billed along with the
+    order" does not.
+  - Where the project keeps a glossary of its figures, take the name
+    from it, and add a row for a new one.
 - **Say what happens, never that it happens "silently" or
   "quietly".** The adverb stands in for the mechanism the reader
   needs: "the import silently drops rows over 10 MB" becomes "the

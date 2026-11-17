@@ -70,6 +70,22 @@ commitment with a date is information and stays: "I'll deploy the
 notes fix on March 14, 2027." The writing-about-change guidance
 covers tense for a message about a change, shipped or not.
 
+## Say which one
+
+**Every figure, set of records, control, and person a message mentions
+says which one it is, in words with one reading.** The reader cannot
+ask which total "the total" was before acting on it.
+
+- Name the figure as the app labels it, the records by what selects
+  them ("orders placed before the release", not "your records"), a
+  control with the page it is on, and whoever acts by their role.
+- A word the app already uses for something else gets a qualifier.
+- Reword a phrase with a second reading: "billed with the order" also
+  reads as "billed by the order".
+
+The Plain language section of the code-comments guidance carries the
+same rule for comments, commits, and the app's own text.
+
 ## Words to cut
 
 As softeners and intensifiers: just, actually, really, real, exactly,
