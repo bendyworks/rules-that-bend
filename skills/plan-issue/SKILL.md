@@ -836,7 +836,9 @@ each group of them:
 4. Tick the finished items in the plan file, add any new work, and on a
    GitHub-tracked repository sync the issue's checklist. An answer given
    now that keeps a behavior a reader would take for a bug is new work:
-   the two to-dos create Step 6 item 4 names.
+   the two to-dos create Step 6's item 4 (Test-first steps) names,
+   listed before the ship tail's next open item, so they reach the
+   pull request that records the decision.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its
