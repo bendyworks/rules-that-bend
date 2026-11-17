@@ -210,10 +210,12 @@ concern about a line the diff does not show goes in the body.
   concerns with no single line to sit on:** a missing spec, a question
   about the whole pull request, a dependency change spread across a
   lockfile.
-- **Before anchoring, check the pull request's head is still the commit
-  the concerns were found on.** Pass that commit as `commit_id`. A
-  concern on a line the head no longer has goes in the body, or is
-  dropped if the new commit settles it.
+- **Before anchoring, and again just before submitting, check the pull
+  request's head is still the commit the concerns were found on.**
+  Pass the reviewed commit's SHA as `commit_id`. When the head has
+  moved, read each anchored line on the new head: a concern on a line
+  the head no longer has goes in the body, or is dropped if the new
+  commit settles it.
 - **Where a team requires the developer to approve text posted under
   their name, create the review pending:** the same request with no
   `event`. Only the developer sees a pending review, so creating one
