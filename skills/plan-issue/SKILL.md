@@ -566,13 +566,14 @@ Draft a plan with:
 2. **Approach:** the strategy in plain language, not a file list.
 3. **An optional refactor up front**, when the existing code is awkward
    for the change: in this PR or one of its own, as the user decides.
-4. **Test-first steps** for any production code change: the failing spec
-   before the change. Each answer that keeps a behavior a reader would
-   take for a bug (one path allowing what its siblings refuse, a
-   boundary left open on purpose, an error left unraised on purpose)
-   gets a to-do in this story for the spec pinning it and the comment
-   beside it, even when no production code changes, and so does such
-   an answer given while the to-dos are being worked. The test-driven
+4. **Test-first steps:** the failing spec before any production code
+   change. Each answer that keeps a behavior a reader would take for a
+   bug (one path allowing what its sibling paths refuse, a boundary
+   left open on purpose, an error left unraised on purpose) gets two
+   to-dos in this story, even when no production code changes: a spec
+   pinning the behavior, which passes from the start, so deliberately
+   breaking the behavior stands in for its red run; and a comment at
+   the code saying the behavior is intended and why. The test-driven
    development and code-comments guidance, where the team imports
    them, say what each holds.
 5. **Ripple work.** For a feature, list the other parts of the app that
@@ -833,7 +834,9 @@ each group of them:
 3. Commit and push, in the project's commit convention (by default
    `type(scope): Title Case Outcome Description`).
 4. Tick the finished items in the plan file, add any new work, and on a
-   GitHub-tracked repository sync the issue's checklist.
+   GitHub-tracked repository sync the issue's checklist. An answer given
+   now that keeps a behavior a reader would take for a bug is new work:
+   the two to-dos create Step 6 item 4 names.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its
