@@ -191,6 +191,40 @@ This rule exists so main and production stay clean and green in the
 actually "done" until its real-world behavior is correct, even when
 its specs and lint pass.
 
+## Writing a review
+
+**When reviewing someone else's pull request, put each concern in its
+own inline comment on the line it is about, or on the lines a proposed
+change would replace.** One concern per comment, so the author can
+answer and resolve each one on its own. A review written as one long
+body makes the author search the diff for every point before they can
+weigh it. The GitHub CLI's review and comment commands take only a
+body, so post through the reviews endpoint (`POST
+repos/<owner>/<repo>/pulls/<number>/reviews`), with a `comments` array
+of `path`, `line`, and `body`.
+
+- **The review body holds only the overall verdict, what works, and
+  concerns with no single line to sit on:** a missing spec, a question
+  about the whole pull request, a dependency change spread across a
+  lockfile.
+- **Before anchoring, check the pull request's head is still the commit
+  the concerns were found on.** Pass that commit as `commit_id`. A
+  concern on a line the head no longer has goes in the body, or is
+  dropped if the new commit settles it.
+- **Where a team requires the developer to approve text posted under
+  their name, create the review pending:** the same request with no
+  `event`. Only the developer sees a pending review, so creating one
+  needs no approval, and they read each comment beside its code on
+  GitHub. The page does not show a pending review's body, so put the
+  body in a draft file for them to read, with the verdict it will be
+  submitted as (comment, approve, or request changes). Their approval
+  covers the comments, the body, and the verdict: submit it then with
+  `POST .../reviews/<id>/events`, passing `event` and the body again.
+- **A submitted review can be edited but not deleted.** To redo one,
+  replace its body (`PUT .../reviews/<id>`) with a line saying it was
+  redone, at the moment the new review is submitted, so the author never
+  sees a placeholder with nothing behind it.
+
 ## Responding to review feedback
 
 When addressing PR review feedback -- from a human reviewer or an
