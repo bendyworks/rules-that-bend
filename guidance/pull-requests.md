@@ -73,7 +73,7 @@ keep whatever approval the team requires.
 
 ### A note while reading leaves the review open
 
-**A note from a developer reviewing something a session wrote (a pull
+**A note from the developer reviewing something a session wrote (a pull
 request, a draft message, a document, a plan) means they are partway
 through it, unless they say they have finished.** Act on the note and
 hand the revised version back as still under their review. A review is
