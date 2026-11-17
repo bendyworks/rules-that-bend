@@ -242,7 +242,8 @@ concern about a line the diff does not show goes in the body.
   redone, at the moment the new review is submitted, so the author never
   sees a placeholder with nothing behind it. That line is text under the
   developer's name too: where approval is required, it goes in the same
-  draft file as the new review's body.
+  draft file as the new review's body, under its own heading, and only
+  the body is passed when the new review is submitted.
 
 ## Responding to review feedback
 
