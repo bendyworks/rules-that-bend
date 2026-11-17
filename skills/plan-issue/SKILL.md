@@ -566,8 +566,20 @@ Draft a plan with:
 2. **Approach:** the strategy in plain language, not a file list.
 3. **An optional refactor up front**, when the existing code is awkward
    for the change: in this PR or one of its own, as the user decides.
-4. **Test-first steps** for any production code change: the failing spec
-   before the change.
+4. **Test-first steps:** the failing spec before any production code
+   change. Each answer that keeps a behavior a reader would take for a
+   bug (one path allowing what its sibling paths refuse, a boundary
+   left open on purpose, an error left unraised on purpose) gets two
+   to-dos in this story, even when no production code changes: a spec
+   pinning the behavior, and a comment at the code saying the behavior
+   is intended, why, and which checks do apply nearby. When the code
+   already has the behavior, the spec passes from the start, so a
+   deliberate break stands in for its red run: add the check a reader
+   would expect, see the spec fail (changing the spec or the check until
+   it does), then edit that check back out, never resetting the file
+   with git, and see the spec pass again. The test-driven development
+   and code-comments guidance, where the team imports them, say what
+   each holds.
 5. **Ripple work.** For a feature, list the other parts of the app that
    must change with it (reports, exports, mailers, JavaScript, fixtures,
    seeds). For a bug fix, include a step that searches for the same bug
@@ -696,6 +708,10 @@ The critique considers:
 - For a feature: does it cover the other parts of the app the change
   reaches?
 - Which of its assumptions should be checked before building?
+- Does the plan or the issue record an answer that keeps a behavior a
+  reader would take for a bug, with no to-dos for the spec pinning it
+  and the comment beside it? Those to-dos are how the decision reaches
+  the code, not a hardening nobody asked for.
 
 Value code quality and ease of maintenance over saving development
 time. **Relay the verdict line as the agent gave it.** Fold into the
@@ -763,8 +779,9 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
-- **New work found along the way** is appended to the plan file and the
-  task list under the next number.
+- **New work found along the way** takes the next number in the plan
+  file and the task list. The plan lists it where it will run, and the
+  task list shows it last.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
@@ -822,7 +839,11 @@ each group of them:
 3. Commit and push, in the project's commit convention (by default
    `type(scope): Title Case Outcome Description`).
 4. Tick the finished items in the plan file, add any new work, and on a
-   GitHub-tracked repository sync the issue's checklist.
+   GitHub-tracked repository sync the issue's checklist. An answer given
+   now that keeps a behavior a reader would take for a bug is new work:
+   the two to-dos create Step 6's item 4 (Test-first steps) names,
+   listed and worked before the first ship-tail item not yet started,
+   so they reach the pull request that records the decision.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its

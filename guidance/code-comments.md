@@ -46,6 +46,24 @@ it instead: a method, a variable, or a named query whose name says
 it. Once the name carries the meaning, delete the comment; what
 survives is the *why* a name cannot hold.
 
+**A behavior kept on purpose that a reader would take for a bug gets a
+comment at the code they would suspect, written in the change that
+records the decision.** It says the behavior is intended, why, and
+which checks do apply nearby, so the reader sees the difference was
+chosen rather than missed:
+
+```ruby
+# Keeps a row with no email, unlike the signup form, which requires
+# one: imported contacts come from paper records, and staff add the
+# email on the first visit.
+```
+
+Such a behavior is one path allowing what its sibling paths refuse, a
+boundary left open on purpose, or an error left unraised on purpose.
+Who agreed and when stays in the pull request or tracker, as with any
+other history. The test-driven development guidance covers the spec
+that pins the behavior.
+
 ## Plain language
 
 The same permanence test applies to the words themselves: write for
