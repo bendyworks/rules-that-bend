@@ -122,14 +122,29 @@ class GhCallsTest < Minitest::Test
 
   # A declared call the tool no longer makes would keep its line in
   # gh-calls.txt. A tool writes a call's words as a list of quoted
-  # strings, which is what this looks for.
+  # strings, which is what this looks for. An `api` call's second word
+  # is the first segment of a path, which may be interpolated, as the
+  # scan above reads it.
   def test_every_call_a_cli_declares_is_one_its_source_makes
     TOOLS.each do |path, tool|
       source = File.read(File.join(ROOT, path))
-      unused = tool::GH_CALLS.reject { |call| source.include?(call.split.map { |word| "'#{word}'" }.join(', ')) }
+      unused = tool::GH_CALLS.reject { |call| source.match?(source_form(call)) }
 
       assert_empty unused, "#{path} declares gh calls its source does not make"
     end
+  end
+
+  def source_form(call)
+    group, verb = call.split
+    return /'api', ["']#{Regexp.escape(verb)}\// if group == 'api'
+
+    Regexp.new(Regexp.escape(call.split.map { |word| "'#{word}'" }.join(', ')))
+  end
+
+  def test_the_source_form_reads_an_api_call_by_its_path
+    assert_match source_form('api repos'), %q{capture('gh', 'api', "repos/{owner}/{repo}/pulls/#{n}")}
+    assert_match source_form('pr view'), %q{capture('gh', 'pr', 'view', number)}
+    refute_match source_form('api repos'), %q{capture('gh', 'api', "users/repos")}
   end
 
   # The forms a command takes in prose and code blocks, each of which
