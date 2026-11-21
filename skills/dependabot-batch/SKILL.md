@@ -152,10 +152,11 @@ compatibility score. Do not auto-merge under any circumstance:
   Rails app, next/react for a Next.js app, django for a Django app). Detect
   this from the project's manifest at start.
 - Any package listed in `dependabot-never-auto.yml`
-- Any pull request holding more than a bump: a commit Dependabot did not author, or
-  a changed file other than a manifest, lockfile or version pin
-  (`gh pr view <n> --json commits,files`). A session's own fix at Phase 4 step 4
-  counts.
+- Any pull request holding more than a bump: a commit GitHub did not sign for
+  Dependabot (in `gh api repos/{owner}/{repo}/pulls/<n>/commits`, anything but
+  author `dependabot[bot]`, committer `web-flow` and `verification.verified` true,
+  the rule `dependabot-merge` applies), or a changed file other than a manifest,
+  lockfile or version pin (`gh pr view <n> --json files`).
 - Any **grouped** Dependabot pull request: more than one `dependency-name` under
   `updated-dependencies` in its commit message, a `Bump the <name> group` title, or
   a `multi-` branch. A title or branch can add this refusal and never clears it.
@@ -177,7 +178,7 @@ line below holds, and the question names the line.** No dial overrides them.
 
 1. **A bump that is not routine:** a Dependabot pull request behind a commit in
    `<live>..HEAD` that the Phase 4 gating table would not auto-merge, judged again
-   from its diff, commits and the manifest. A person having merged it approves
+   from its diff, the manifest, and its commits read as Hard veto reads them. A person having merged it approves
    the merge, not the deploy.
 2. **Other work riding along:** a commit in `<live>..HEAD` with no pull request, or
    with one whose `user.login` is not `dependabot[bot]`. A non-merge commit that
