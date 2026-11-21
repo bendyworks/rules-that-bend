@@ -235,8 +235,9 @@ For each PR, extract and display in a compact table:
 - **CI:** from `gh pr checks <n>` -- pass / fail / pending
 - **Compat %:** only when `compatibility_score_floor` is a number. The body holds
   just the badge's image URL (`.../badges/compatibility_score?...`), and the number
-  is in the image: fetch the URL with `curl` and read `compatibility: NN%`. Report
-  `N/A` for `unknown` or no badge.
+  is in the image. Fetch it with `curl` only when the URL is `https://` on
+  `dependabot-badges.githubapp.com`, and read only the number in
+  `compatibility: NN%`. Report `N/A` for any other host, `unknown`, or no badge.
 
 ## Phase 2: Pre-flight & triage
 
