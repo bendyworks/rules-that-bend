@@ -193,14 +193,10 @@ class CliTestCase < Minitest::Test
     return unless @stand_in_dir
 
     ENV['PATH'] = @saved_path
-    @shim_hits = read_stand_in_log(@shim_log)
+    @shim_hits = File.exist?(@shim_log) ? File.read(@shim_log) : nil
     FileUtils.remove_entry(@stand_in_dir)
     # Both are nilled together: the log is a path inside a directory
     # that no longer exists.
     @stand_in_dir = @shim_log = nil
-  end
-
-  def read_stand_in_log(path)
-    File.exist?(path) ? File.read(path) : nil
   end
 end
