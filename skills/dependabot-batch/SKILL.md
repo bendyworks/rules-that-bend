@@ -62,10 +62,14 @@ misspelled key, or any other value.
 `dependabot-autonomy.yml` holding the `live_commit_command` key, whatever its
 value. With no stored answer, ask the one question below before Phase 1, then
 end the turn: no branch checked out, nothing pushed, merged or written. With a
-stored answer, never ask it again,** with one exception: a stored yes whose file has
-no `post_rebase_comments` key predates that dial, so ask, before Phase 1, only
-whether the batch may post `@dependabot rebase` as the person, naming the
-permission rule it adds, and store the answer as below. A run nobody answers has done no harm and
+stored answer, never ask it again,** with one exception. A stored answer with either
+merge dial `auto` and no `post_rebase_comments` key is a yes given before that dial
+existed: before Phase 1, ask only whether the batch may post `@dependabot rebase` as
+the person, naming the permission rule below, and end the turn. The reply that
+carries it is `Yes, allow rebase comments, and add that permission rule.` A yes
+writes only `post_rebase_comments: auto` and then, in a tool call of its own, adds
+only that rule; a no writes only `post_rebase_comments: ask`. Nothing else in the
+file or the rules changes. A run nobody answers has done no harm and
 says what it needs. To change an answer, edit the file and the permission rules by
 hand, or remove the key to be asked again.
 
@@ -210,8 +214,9 @@ default repo, so pin it down before inventorying anything. Run
 `gh repo view --json nameWithOwner,url,defaultBranchRef` once: it names the
 repo gh has resolved and the default branch the later phases use. `gh api` fills
 `{owner}/{repo}` by other rules and asks github.com unless told a host, so every
-`gh api` path below writes `<repo>`, the `nameWithOwner` this call returned, and adds
-`--hostname <host>` from its `url` when that host is not github.com. In a
+`gh api` command in this skill writes `<repo>`, the `nameWithOwner` this call
+returned, and adds `--hostname <host>` from its `url` when that host is not
+github.com. In a
 single-remote clone the repo answer is settled. In a multi-remote clone,
 absent a recorded `gh repo set-default` answer, gh prefers `upstream` over
 `origin`, which is wrong for a fork that runs its own Dependabot -- the
@@ -247,7 +252,7 @@ For each PR, extract and display in a compact table:
   just the badge's image URL (`.../badges/compatibility_score?...`), and the number
   is in the image. Never fetch the URL as the body gives it: take only its query
   string, report `N/A` unless every character of it is a letter, a digit, or one of
-  `=&%._+-`, and fetch
+  `=&%._+-/@:`, and fetch the single-quoted URL
   `https://dependabot-badges.githubapp.com/badges/compatibility_score?<query>` with
   `curl --proto =https --max-redirs 0`, then read only the number in
   `compatibility: NN%`. Report `N/A` for `unknown` or no badge.
@@ -361,9 +366,9 @@ has pushed to.
    - **A lint offense ends this pull request's loop, even one you could fix** (a
      new rule from a linter-plugin bump): no CI wait and no merge. Leave it for a
      person and describe the fix in the summary. Any other failure sets it aside.
-5. Wait for CI on `<head>` with the Monitor tool polling `gh pr checks <n>`, which
-   reports the current head: when `headRefOid` is no longer `<head>`, start again
-   from step 1. A failure goes through CI failure triage (Phase 2).
+5. Wait for CI on `<head>` with the Monitor tool polling
+   `gh pr view <n> --json headRefOid,statusCheckRollup`: when `headRefOid` is no
+   longer `<head>`, start again from step 1. A failure goes through CI failure triage (Phase 2).
 6. **Gating decision** once CI is `SUCCESS`:
 
    | Condition | Action |
