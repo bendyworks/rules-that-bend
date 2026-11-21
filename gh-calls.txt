@@ -23,8 +23,8 @@ gh issue list
 gh issue view
 gh label create
 gh label list
-gh pr checkout
 gh pr checks
+gh pr comment
 gh pr create
 gh pr diff
 gh pr edit
