@@ -135,10 +135,10 @@ class GhCallsTest < Minitest::Test
   end
 
   def source_form(call)
-    group, verb = call.split
-    return /'api', ["']#{Regexp.escape(verb)}\// if group == 'api'
+    words = call.split
+    return /'api', ["']#{Regexp.escape(words.last)}\// if words.first == 'api'
 
-    Regexp.new(Regexp.escape(call.split.map { |word| "'#{word}'" }.join(', ')))
+    Regexp.new(Regexp.escape(words.map { |word| "'#{word}'" }.join(', ')))
   end
 
   def test_the_source_form_reads_an_api_call_by_its_path
