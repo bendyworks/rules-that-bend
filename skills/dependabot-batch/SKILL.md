@@ -205,6 +205,12 @@ have the user run `gh repo set-default` (or confirm with them which repo
 is intended), then repeat the `gh repo view` call. Every later phase
 inherits both answers.
 
+**The remote.** `<remote>` in every git command below is the remote whose URL
+(`git remote -v`) names the repo of record. Never write `origin` literally: in a
+fork clone `origin` is the fork. With no such remote, add one for the repo of
+record. Dependabot's pull requests live on the repo they target, so this one
+remote serves the whole run.
+
 **The merge command.** With a merge dial at `auto`, run `dependabot-merge` with no
 arguments. A usage line, with exit status 1, means it works. Anything else: treat both
 merge dials as `ask` and say why.
@@ -294,27 +300,7 @@ Surface the order to the user and proceed.
 For each PR in order:
 
 1. `gh pr checkout <n>` (when it refuses to fast-forward a local copy, set the PR
-   aside and say the local branch differs) -- besides checking out the branch, this resolves
-   the git remote for the whole loop: checkout records the remote whose
-   URL matches the repo that owns the PR in `branch.<branch>.remote`.
-   Read it once (`git config branch.<branch>.remote`) and use it as
-   `<remote>` in every git command below and in Phase 5. Never write
-   `origin` literally here: in a fork clone `origin` is the fork, and a
-   push there succeeds silently while the real PR never moves. Two
-   recorded shapes need repair before proceeding. An EMPTY read: gh
-   writes tracking only when it creates the branch, so a pre-existing
-   same-named local branch keeps none -- check out the default branch,
-   delete that stale local branch, and re-run the checkout, or
-   pick the remote whose URL matches the repo of record. A URL in
-   place of a remote name: gh's fallback when no configured remote
-   points at the PR's repo -- add a real remote for the repo of
-   record, then check out the default branch, delete the branch the
-   fallback checkout created, and re-run the checkout; a plain
-   re-checkout would keep the URL, since gh writes the value only at
-   branch creation. Since
-   Dependabot PRs always live on the repo they target, the one recorded
-   remote serves both the trunk fetch and the push, and it is the same
-   for every PR in the batch.
+   aside and say the local branch differs).
 2. `git fetch <remote> <default-branch> && git rebase <remote>/<default-branch>`
    (the default branch Phase 1 already resolved -- do not re-derive it
    or assume `main`). Skip the fetch half when step 8 refreshed
@@ -374,10 +360,6 @@ not `auto`. With `auto` and nothing merged, fetch the default branch from the re
 step 1 below resolves, and skip both when `<live>` is `<remote>/<default-branch>`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
-   (the same `<remote>` Phase 4 resolved). If you did not retain the
-   value from Phase 4 -- the branch config that held it is gone once
-   the merge removes the local branch -- re-resolve
-   `<remote>` as the remote whose URL matches the repo of record.
 2. Re-install dependencies with the ecosystem's standard command
 3. Run the verify command (same as Phase 4 step 4) -- must be clean and green.
    Note the commit it ran on, `git rev-parse HEAD`, for Phase 6.
