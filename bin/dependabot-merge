@@ -15,10 +15,11 @@
 # A commit's author is whatever the commit says, so anyone who can push
 # to a Dependabot branch can name Dependabot as the author of a change.
 # GitHub signs Dependabot's own commits, author dependabot[bot] and
-# committer web-flow, and signs no commit pushed with Dependabot's name,
-# nor one made through its REST API. A rebase anyone else does replaces
-# the signature, so a pull request somebody rebased goes to a person. The
-# file check then keeps out a change Dependabot itself never makes.
+# committer web-flow. It left unsigned every commit made with Dependabot's
+# name as author or committer, whether pushed or made through its REST
+# API, and its "Update branch" rebase recommits as the person who asked,
+# unsigned, so a pull request somebody rebased goes to a person. The file
+# check then keeps out a change Dependabot itself never makes.
 #
 # Stdlib-only (no gems). Which bumps are routine belongs to the
 # dependabot-batch skill; this is the floor under it. Auth and transport
@@ -35,6 +36,7 @@ module DependabotMerge
   COMMIT_AUTHOR = 'dependabot[bot]'
   # The account GitHub commits and signs as for a change made on github.com.
   COMMITTER = 'web-flow'
+  ROLE_VERBS = { 'author' => 'authored', 'committer' => 'committed' }.freeze
   METHODS = %w[--squash --merge --rebase].freeze
   VIEW_FIELDS = 'author,baseRefName,changedFiles,files,headRefOid,state'
   # The manifests, lockfiles and version pins Dependabot edits, drawn from
@@ -105,7 +107,7 @@ module DependabotMerge
   def signature_refusal(commit)
     account_refusal(commit, 'author', COMMIT_AUTHOR) ||
       account_refusal(commit, 'committer', COMMITTER) ||
-      unverified(commit.fetch('commit').fetch('verification'))
+      verification_refusal(commit.fetch('commit').fetch('verification'))
   end
 
   # The REST answer gives an account only when the commit's email belongs
@@ -114,10 +116,10 @@ module DependabotMerge
     login = commit.fetch(role)&.fetch('login')
     return "has no GitHub account as its #{role}" if login.nil? || login.empty?
 
-    "is #{role == 'author' ? 'authored' : 'committed'} by #{login}, not #{expected}" unless login == expected
+    "is #{ROLE_VERBS.fetch(role)} by #{login}, not #{expected}" unless login == expected
   end
 
-  def unverified(verification)
+  def verification_refusal(verification)
     "is not verified by GitHub (#{verification.fetch('reason')})" unless verification.fetch('verified') == true
   end
 
@@ -140,18 +142,20 @@ module DependabotMerge
     # the permission rule was saved for.
     ENVIRONMENT = { 'GH_REPO' => nil, 'GH_HOST' => nil }.freeze
 
-    def self.default_branch
-      JSON.parse(capture('gh', 'repo', 'view', '--json', 'defaultBranchRef')).fetch('defaultBranchRef').fetch('name')
+    # The api command fills {owner}/{repo} by other rules than the pr and
+    # repo commands, so the commits are read from the repository named here.
+    def self.repository
+      JSON.parse(capture('gh', 'repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'))
     end
 
     def self.view(number, fields = VIEW_FIELDS)
       JSON.parse(capture('gh', 'pr', 'view', number, '--json', fields))
     end
 
-    # A pull request holds at most 250 commits; past the first 100 the
-    # list stops short of the head, which refuses it.
-    def self.commits(number)
-      JSON.parse(capture('gh', 'api', "repos/{owner}/{repo}/pulls/#{number}/commits?per_page=100"))
+    # The endpoint lists a pull request's first 250 commits, oldest first.
+    # Past the first 100 the list stops short of the head, which refuses it.
+    def self.commits(name_with_owner, number)
+      JSON.parse(capture('gh', 'api', "repos/#{name_with_owner}/pulls/#{number}/commits?per_page=100"))
     end
 
     def self.merge(number, method, sha)
@@ -175,7 +179,10 @@ module DependabotMerge
     def self.run(argv)
       args = DependabotMerge.parse(argv)
       number = args[:number]
-      reason = DependabotMerge.refusal(Gh.view(number), Gh.commits(number), args[:sha], Gh.default_branch)
+      repository = Gh.repository
+      pull_request = Gh.view(number)
+      commits = Gh.commits(repository.fetch('nameWithOwner'), number)
+      reason = DependabotMerge.refusal(pull_request, commits, args[:sha], repository.fetch('defaultBranchRef').fetch('name'))
       raise Error, "refusing ##{number}: #{reason}" if reason
 
       merge(args)

@@ -25,10 +25,11 @@ class DependabotMergeTest < CliTestCase
       echo "$*" >> "#{@log}"
       [ -n "$GH_REPO_SEEN_LOG" ] && echo "GH_REPO=$GH_REPO GH_HOST=$GH_HOST" >> "$GH_REPO_SEEN_LOG"
       case "$1 $2" in
-        "api "*)
+        "api repos/acme/app/pulls/12/commits?per_page=100")
           [ -n "$GH_API_FAILS" ] && { echo 'HTTP 404: Not Found' >&2; exit 1; }
           cat "#{@commits}" ;;
-        "repo view") echo '{"defaultBranchRef":{"name":"main"}}' ;;
+        "api "*) echo 'unexpected api path' >&2; exit 1 ;;
+        "repo view") echo '{"nameWithOwner":"acme/app","defaultBranchRef":{"name":"main"}}' ;;
         "pr view")
           [ -n "$GH_VIEW_FAILS" ] && { echo 'no pull requests found' >&2; exit 1; }
           [ -n "$GH_VIEW_GARBLED" ] && { echo 'not json'; exit 0; }
@@ -110,7 +111,8 @@ class DependabotMergeTest < CliTestCase
 
     assert_equal ["pr merge 12 --squash --delete-branch --match-head-commit #{SHA}"], merge_calls
     assert_includes calls, 'pr view 12 --json author,baseRefName,changedFiles,files,headRefOid,state'
-    assert_includes calls, 'api repos/{owner}/{repo}/pulls/12/commits?per_page=100'
+    assert_includes calls, 'repo view --json nameWithOwner,defaultBranchRef'
+    assert_includes calls, 'api repos/acme/app/pulls/12/commits?per_page=100'
   end
 
   def test_says_it_merged_and_passes_on_what_gh_warned
@@ -236,6 +238,13 @@ class DependabotMergeTest < CliTestCase
     assert_empty merge_calls
   end
 
+  def test_refuses_an_author_login_left_empty
+    commits_are([commit(author: '')])
+
+    assert_includes abort_message(good_args), "commit #{SHA} has no GitHub account as its author"
+    assert_empty merge_calls
+  end
+
   def test_refuses_a_commit_someone_other_than_github_committed
     commits_are([commit(committer: 'someone')])
 
@@ -266,12 +275,19 @@ class DependabotMergeTest < CliTestCase
     assert_empty merge_calls
   end
 
+  def test_refuses_a_verified_answer_that_is_not_true
+    commits_are([commit(verified: 'false', reason: 'valid')])
+
+    assert_includes abort_message(good_args), "commit #{SHA} is not verified by GitHub (valid)"
+    assert_empty merge_calls
+  end
+
   def test_refuses_a_commit_with_no_verification_answer
     no_answer = commit
     no_answer['commit'].delete('verification')
     commits_are([no_answer])
 
-    refute_empty abort_message(good_args)
+    assert_includes abort_message(good_args), 'verification'
     assert_empty merge_calls
   end
 
