@@ -13,17 +13,21 @@ load File.expand_path('../bin/dependabot-merge', __dir__)
 
 class DependabotMergeTest < CliTestCase
   SHA = 'a' * 40
-  BOT_COMMIT = { 'oid' => SHA, 'authors' => [{ 'login' => 'dependabot[bot]' }] }.freeze
+  OTHER_SHA = 'c' * 40
 
   def setup
     @dir = Dir.mktmpdir('dependabot-merge-test')
     @log = File.join(@dir, 'calls.log')
     @answer = File.join(@dir, 'answer.json')
+    @commits = File.join(@dir, 'commits.json')
     File.write(File.join(@dir, 'gh'), <<~SH)
       #!/bin/sh
       echo "$*" >> "#{@log}"
       [ -n "$GH_REPO_SEEN_LOG" ] && echo "GH_REPO=$GH_REPO GH_HOST=$GH_HOST" >> "$GH_REPO_SEEN_LOG"
       case "$1 $2" in
+        "api "*)
+          [ -n "$GH_API_FAILS" ] && { echo 'HTTP 404: Not Found' >&2; exit 1; }
+          cat "#{@commits}" ;;
         "repo view") echo '{"defaultBranchRef":{"name":"main"}}' ;;
         "pr view")
           [ -n "$GH_VIEW_FAILS" ] && { echo 'no pull requests found' >&2; exit 1; }
@@ -44,12 +48,13 @@ class DependabotMergeTest < CliTestCase
     @path = ENV.fetch('PATH')
     ENV['PATH'] = "#{@dir}:#{@path}"
     answer_with({})
+    commits_are([commit])
   end
 
   def teardown
     ENV['PATH'] = @path
     ENV.delete('GH_VIEW_FAILS')
-    %w[GH_MERGE_FAILS GH_MERGE_WARNS GH_VIEW_GARBLED GH_STATE_FAILS GH_REPO_SEEN_LOG GH_REPO GH_HOST].each { |key| ENV.delete(key) }
+    %w[GH_API_FAILS GH_MERGE_FAILS GH_MERGE_WARNS GH_VIEW_GARBLED GH_STATE_FAILS GH_REPO_SEEN_LOG GH_REPO GH_HOST].each { |key| ENV.delete(key) }
     FileUtils.remove_entry(@dir)
   end
 
@@ -65,13 +70,27 @@ class DependabotMergeTest < CliTestCase
   def answer_with(overrides)
     File.write(@answer, JSON.generate({
       'author' => { 'login' => 'app/dependabot', 'is_bot' => true },
-      'commits' => [BOT_COMMIT],
       'headRefOid' => SHA,
       'state' => 'OPEN',
       'baseRefName' => 'main',
       'files' => [{ 'path' => 'Gemfile', 'changeType' => 'MODIFIED' }, { 'path' => 'Gemfile.lock', 'changeType' => 'MODIFIED' }],
       'changedFiles' => 2
     }.merge(overrides)))
+  end
+
+  # A commit as the REST pull request commits endpoint gives it, signed
+  # by GitHub for Dependabot unless told otherwise.
+  def commit(sha: SHA, author: 'dependabot[bot]', committer: 'web-flow', verified: true, reason: 'valid')
+    {
+      'sha' => sha,
+      'author' => author && { 'login' => author },
+      'committer' => committer && { 'login' => committer },
+      'commit' => { 'verification' => { 'verified' => verified, 'reason' => reason } }
+    }
+  end
+
+  def commits_are(list)
+    File.write(@commits, JSON.generate(list))
   end
 
   def calls
@@ -90,7 +109,8 @@ class DependabotMergeTest < CliTestCase
     cli_stdout(good_args)
 
     assert_equal ["pr merge 12 --squash --delete-branch --match-head-commit #{SHA}"], merge_calls
-    assert_includes calls, 'pr view 12 --json author,baseRefName,changedFiles,commits,files,headRefOid,state'
+    assert_includes calls, 'pr view 12 --json author,baseRefName,changedFiles,files,headRefOid,state'
+    assert_includes calls, 'api repos/{owner}/{repo}/pulls/12/commits?per_page=100'
   end
 
   def test_says_it_merged_and_passes_on_what_gh_warned
@@ -203,44 +223,76 @@ class DependabotMergeTest < CliTestCase
   end
 
   def test_refuses_a_commit_someone_else_wrote
-    answer_with('commits' => [{ 'oid' => 'c' * 40, 'authors' => [{ 'login' => 'someone' }] }, BOT_COMMIT])
+    commits_are([commit(sha: OTHER_SHA, author: 'someone'), commit])
 
-    assert_includes abort_message(good_args), 'commit by someone'
-    assert_empty merge_calls
-  end
-
-  def test_refuses_a_commit_with_a_second_author
-    answer_with('commits' => [{ 'oid' => SHA, 'authors' => [{ 'login' => 'dependabot[bot]' }, { 'login' => 'someone' }] }])
-
-    assert_includes abort_message(good_args), 'commit by someone'
+    assert_includes abort_message(good_args), "commit #{OTHER_SHA} is authored by someone, not dependabot[bot]"
     assert_empty merge_calls
   end
 
   def test_refuses_an_author_with_no_account
-    answer_with('commits' => [{ 'oid' => SHA, 'authors' => [{ 'login' => '' }] }])
+    commits_are([commit(author: nil)])
 
-    assert_includes abort_message(good_args), 'an unknown author'
+    assert_includes abort_message(good_args), "commit #{SHA} has no GitHub account as its author"
     assert_empty merge_calls
   end
 
-  def test_refuses_a_commit_with_no_authors_beside_a_good_one
-    answer_with('commits' => [{ 'oid' => 'c' * 40, 'authors' => [] }, BOT_COMMIT])
+  def test_refuses_a_commit_someone_other_than_github_committed
+    commits_are([commit(committer: 'someone')])
 
-    assert_includes abort_message(good_args), 'an unknown author'
+    assert_includes abort_message(good_args), "commit #{SHA} is committed by someone, not web-flow"
+    assert_empty merge_calls
+  end
+
+  def test_refuses_a_committer_with_no_account
+    commits_are([commit(committer: nil)])
+
+    assert_includes abort_message(good_args), "commit #{SHA} has no GitHub account as its committer"
+    assert_empty merge_calls
+  end
+
+  # A commit made through GitHub's REST API with Dependabot's name shows
+  # committer web-flow, but GitHub does not sign it.
+  def test_refuses_an_unsigned_commit_even_from_web_flow
+    commits_are([commit(sha: OTHER_SHA, verified: false, reason: 'unsigned'), commit])
+
+    assert_includes abort_message(good_args), "commit #{OTHER_SHA} is not verified by GitHub (unsigned)"
+    assert_empty merge_calls
+  end
+
+  def test_refuses_a_signature_github_did_not_verify
+    commits_are([commit(verified: false, reason: 'bad_email')])
+
+    assert_includes abort_message(good_args), "commit #{SHA} is not verified by GitHub (bad_email)"
+    assert_empty merge_calls
+  end
+
+  def test_refuses_a_commit_with_no_verification_answer
+    no_answer = commit
+    no_answer['commit'].delete('verification')
+    commits_are([no_answer])
+
+    refute_empty abort_message(good_args)
     assert_empty merge_calls
   end
 
   def test_refuses_a_commit_list_that_does_not_reach_the_head
-    answer_with('commits' => [{ 'oid' => 'c' * 40, 'authors' => [{ 'login' => 'dependabot[bot]' }] }])
+    commits_are([commit(sha: OTHER_SHA)])
 
     assert_includes abort_message(good_args), 'commit list does not reach the head'
     assert_empty merge_calls
   end
 
   def test_refuses_no_commits
-    answer_with('commits' => [])
+    commits_are([])
 
     assert_includes abort_message(good_args), 'commit list does not reach the head'
+    assert_empty merge_calls
+  end
+
+  def test_reports_a_commit_read_that_fails_and_merges_nothing
+    ENV['GH_API_FAILS'] = '1'
+
+    assert_includes abort_message(good_args), 'HTTP 404'
     assert_empty merge_calls
   end
 
