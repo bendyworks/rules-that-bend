@@ -78,6 +78,10 @@ and say what a yes means, in these terms:
   `dependabot-merge` accepts, dev and runtime alike, whatever its compatibility score. A merge cannot be taken back,
   and a new release can reach production the day it appears; Dependabot's `cooldown`
   option in `.github/dependabot.yml` is how to hold new releases back.
+- **What runs and posts as you:** each new release is installed and tested on this
+  machine, so its install hooks and tests run with your credentials in reach before
+  anyone has read it, another reason for `cooldown`. A pull request behind the
+  default branch gets an `@dependabot rebase` comment posted under your name.
 - **What happens after, whichever applies:** the batch runs `<deploy command>`
   with nobody watching, and reads the live commit with `<live-commit command>`;
   or merging already deploys here, so production has each bump before the
@@ -89,12 +93,13 @@ and say what a yes means, in these terms:
 - **Permission rules it adds** to `.claude/settings.local.json`, so auto mode does
   not stop on them: allow `Bash(dependabot-merge *)` and an exact `Bash(<command>)`
   for each command above. `dependabot-merge` (bundled in this plugin; it needs Ruby)
-  merges only a pull request Dependabot opened that changes only dependency files,
-  CI workflows and Dockerfiles included, and targets the default branch. These rules outlast this run: every later session in
+  merges only a pull request Dependabot opened, whose every commit GitHub signed for
+  Dependabot, that changes only dependency files, CI workflows and Dockerfiles
+  included, and targets the default branch. These rules outlast this run: every later session in
   this checkout can merge such a pull request and run those commands with no prompt,
   and the vetoes below and the wait for green CI live only in this skill. A session
-  that prompts for every command still prompts for pushes, installs and the verify
-  command.
+  that prompts for every command still prompts for the rebase comments, installs and
+  the verify command.
 
 End the message with the reply that carries all of it:
 `Yes, authorize it, and add those permission rules.` Auto mode refuses a permission
