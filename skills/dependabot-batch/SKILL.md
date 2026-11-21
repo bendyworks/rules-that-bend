@@ -62,7 +62,10 @@ misspelled key, or any other value.
 `dependabot-autonomy.yml` holding the `live_commit_command` key, whatever its
 value. With no stored answer, ask the one question below before Phase 1, then
 end the turn: no branch checked out, nothing pushed, merged or written. With a
-stored answer, never ask it again.** A run nobody answers has done no harm and
+stored answer, never ask it again,** with one exception: a stored yes whose file has
+no `post_rebase_comments` key predates that dial, so ask, before Phase 1, only
+whether the batch may post `@dependabot rebase` as the person, naming the
+permission rule it adds, and store the answer as below. A run nobody answers has done no harm and
 says what it needs. To change an answer, edit the file and the permission rules by
 hand, or remove the key to be asked again.
 
@@ -93,7 +96,8 @@ and say what a yes means, in these terms:
   below, and whatever `dependabot-merge` refuses.
 - **Permission rules it adds** to `.claude/settings.local.json`, so auto mode does
   not stop on them: allow `Bash(dependabot-merge *)`,
-  `Bash(gh pr comment * --body '@dependabot rebase')`, and an exact `Bash(<command>)`
+  `Bash(gh pr comment * --body '@dependabot rebase')` (its wildcard also lets that
+  comment go to another repository's pull request), and an exact `Bash(<command>)`
   for each command above. `dependabot-merge` (bundled in this plugin; it needs Ruby)
   merges only a pull request Dependabot opened, whose every commit GitHub signed for
   Dependabot, that changes only dependency files, CI workflows and Dockerfiles
@@ -161,7 +165,7 @@ compatibility score. Do not auto-merge under any circumstance:
 - Any package listed in `dependabot-never-auto.yml`
 - Any pull request holding more than a bump: a commit GitHub did not sign for
   Dependabot, by the rule `dependabot-merge` applies. Read
-  `gh api 'repos/{owner}/{repo}/pulls/<n>/commits?per_page=100'`: the list must end
+  `gh api 'repos/<repo>/pulls/<n>/commits?per_page=100'`: the list must end
   at the head, and each commit needs `author.login` `dependabot[bot]`,
   `committer.login` `web-flow` and `commit.verification.verified` true. Or a changed file other than a manifest,
   lockfile or version pin (`gh pr view <n> --json files`).
@@ -182,7 +186,7 @@ framework or a never-auto package.
 line below holds, and the question names the line.** No dial overrides them.
 `<live>` is what `git rev-parse --verify "<output>^{commit}"` makes of what
 `live_commit_command` prints. Find a commit's pull requests with
-`gh api repos/{owner}/{repo}/commits/<sha>/pulls`.
+`gh api repos/<repo>/commits/<sha>/pulls`.
 
 1. **A bump that is not routine:** a Dependabot pull request behind a commit in
    `<live>..HEAD` that the Phase 4 gating table would not auto-merge, judged again
@@ -203,8 +207,11 @@ line below holds, and the question names the line.** No dial overrides them.
 
 **Repo of record.** Every `gh` command in this skill acts on gh's resolved
 default repo, so pin it down before inventorying anything. Run
-`gh repo view --json nameWithOwner,defaultBranchRef` once: it names the
-repo gh has resolved and the default branch the later phases use. In a
+`gh repo view --json nameWithOwner,url,defaultBranchRef` once: it names the
+repo gh has resolved and the default branch the later phases use. `gh api` fills
+`{owner}/{repo}` by other rules and asks github.com unless told a host, so every
+`gh api` path below writes `<repo>`, the `nameWithOwner` this call returned, and adds
+`--hostname <host>` from its `url` when that host is not github.com. In a
 single-remote clone the repo answer is settled. In a multi-remote clone,
 absent a recorded `gh repo set-default` answer, gh prefers `upstream` over
 `origin`, which is wrong for a fork that runs its own Dependabot -- the
@@ -239,7 +246,8 @@ For each PR, extract and display in a compact table:
 - **Compat %:** only when `compatibility_score_floor` is a number. The body holds
   just the badge's image URL (`.../badges/compatibility_score?...`), and the number
   is in the image. Never fetch the URL as the body gives it: take only its query
-  string and fetch
+  string, report `N/A` unless every character of it is a letter, a digit, or one of
+  `=&%._+-`, and fetch
   `https://dependabot-badges.githubapp.com/badges/compatibility_score?<query>` with
   `curl --proto =https --max-redirs 0`, then read only the number in
   `compatibility: NN%`. Report `N/A` for `unknown` or no badge.
@@ -257,7 +265,7 @@ branch the Phase 1 repo-of-record call reported rather than assuming
 allowed and pick the method this batch will use:
 
 ```
-gh api "repos/{owner}/{repo}" --jq '{squash:.allow_squash_merge,merge:.allow_merge_commit,rebase:.allow_rebase_merge}'
+gh api "repos/<repo>" --jq '{squash:.allow_squash_merge,merge:.allow_merge_commit,rebase:.allow_rebase_merge}'
 ```
 
 Pick the first allowed method in this priority order: **squash -> merge ->
@@ -353,8 +361,9 @@ has pushed to.
    - **A lint offense ends this pull request's loop, even one you could fix** (a
      new rule from a linter-plugin bump): no CI wait and no merge. Leave it for a
      person and describe the fix in the summary. Any other failure sets it aside.
-5. Wait for CI on `<head>` with the Monitor tool polling `gh pr checks <n>`. A
-   failure goes through CI failure triage (Phase 2).
+5. Wait for CI on `<head>` with the Monitor tool polling `gh pr checks <n>`, which
+   reports the current head: when `headRefOid` is no longer `<head>`, start again
+   from step 1. A failure goes through CI failure triage (Phase 2).
 6. **Gating decision** once CI is `SUCCESS`:
 
    | Condition | Action |
