@@ -6,7 +6,7 @@ description: Triage, verify, merge, and deploy a batch of open Dependabot PRs fo
 # Dependabot batch playbook
 
 This skill runs the repeatable workflow for clearing a batch of Dependabot PRs:
-inventory -> triage -> per-PR rebase/verify/merge -> deploy. Once a project has
+inventory -> triage -> per-PR verify/merge -> deploy. Once a project has
 authorized it, a routine batch runs from start to finish with no question and
 no pause, and anything unusual is left for a person without holding the rest
 up.
@@ -237,7 +237,7 @@ For each PR, extract and display in a compact table:
 **Main-health precheck.** Before touching any PR branch, confirm the default
 branch's latest CI run is green
 (`gh run list --branch <default-branch> --limit 1`). If red, bail with a
-message and stop -- do not rebase onto a broken base. Use the default
+message and stop -- do not verify against a broken base. Use the default
 branch the Phase 1 repo-of-record call reported rather than assuming
 `main`.
 
@@ -264,7 +264,7 @@ tree, record why for the summary, and carry on with the next one. Only a red
 default branch, a failed Phase 5 or a failed deploy stops the whole run.
 
 **Another base.** Set aside a PR that does not target the default branch: the loop
-rebases onto the default branch, and `dependabot-merge` refuses it.
+verifies against the default branch, and `dependabot-merge` refuses it.
 
 **Grouped refusal.** If any PR is grouped (see Hard veto), refuse to process it and
 point the user at `.github/dependabot.yml`.
@@ -288,7 +288,7 @@ Order them, lowest blast radius first:
 
 **Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
 6, so routine bumps ship without waiting on anything. The second takes group 5
-through Phase 4 steps 1 to 7, announces each green, and leaves it for a person.
+through Phase 4 steps 1 to 6, announces each green, and leaves it for a person.
 When a person merges one while the session is open, run Phases 5 and 6 again;
 Deploy veto line 1 will ask. Finish on the default branch, and hold any Phase 6
 question until the second pass is done.
@@ -297,16 +297,27 @@ Surface the order to the user and proceed.
 
 ## Phase 4: Per-PR loop
 
-For each PR in order:
+For each PR in order. The batch never pushes to a Dependabot branch: a commit
+anyone else puts there is one GitHub did not sign for Dependabot, which
+`dependabot-merge` refuses, and Dependabot stops updating a branch someone else
+has pushed to.
 
-1. `gh pr checkout <n>` (when it refuses to fast-forward a local copy, set the PR
-   aside and say the local branch differs).
-2. `git fetch <remote> <default-branch> && git rebase <remote>/<default-branch>`
-   (the default branch Phase 1 already resolved -- do not re-derive it
-   or assume `main`). Skip the fetch half when step 8 refreshed
-   `<remote>/<default-branch>` moments ago for the previous PR's merge;
-   the rebase always runs.
-   - If rebase conflicts, `git rebase --abort` and set the PR aside
+1. **Have Dependabot bring it current.** Read `<head>`, the pull request's
+   `headRefOid` (`gh pr view <n> --json headRefOid,state`), and run
+   `git fetch <remote> <default-branch> pull/<n>/head` (the default branch Phase 1
+   resolved). When `git merge-base --is-ancestor <remote>/<default-branch> <head>`
+   fails, the branch is behind (a conflict included): post
+   `gh pr comment <n> --body '@dependabot rebase'`, then wait with the Monitor tool,
+   polling `gh pr view <n> --json headRefOid,state` and Dependabot's comments, for
+   the first of:
+   - **A new head:** start this step again with it. A second request for the same
+     pull request in one run sets it aside.
+   - **The pull request closed:** Dependabot replaced it. Report it with the
+     replacement the closing comment names, which is not part of this batch.
+   - **A Dependabot comment refusing,** or **20 minutes with no new head:** set it
+     aside, and say in the reason that `@dependabot recreate` restores it. A branch
+     someone else pushed to is one Dependabot will not rebase.
+2. `git checkout --detach <head>`. No local branch, nothing to push.
 3. Install dependencies with the ecosystem's standard command (`bundle install`,
    `npm ci`, `pip install -r ...`, etc.)
 4. Run the verify command, capturing complete output to a uniquely-named log under /tmp to grep for follow-ups -- never re-run just to re-read output
@@ -320,24 +331,19 @@ For each PR in order:
    projects with a default rake task, `npm test && npm run lint` for
    Node projects, or whatever the project's CLAUDE.md says). Output
    must be clean.
-   - If linting surfaces new offenses (e.g. from a new cop / rule introduced
-     by a linter-plugin bump), fix at source in one attempt. Never silence
-     with disable-comments. If not cleanly fixable in one pass, discard the attempt and
-     set the PR aside.
-5. `git push --force-with-lease <remote> HEAD` -- the remote named
-   explicitly: a bare `git push` follows `remote.pushDefault` /
-   `branch.<branch>.pushRemote` in triangular-push setups and can land
-   elsewhere.
-6. Monitor CI with the Monitor tool polling `gh pr checks <n>`. A failure goes
-   through CI failure triage (Phase 2).
-7. **Gating decision** once CI is `SUCCESS`:
+   - **A lint offense goes to a person, even one you could fix** (a new rule from
+     a linter-plugin bump): leave the pull request for them and describe the fix in
+     the summary. Any other failure sets it aside.
+5. Wait for CI on `<head>` with the Monitor tool polling `gh pr checks <n>`. A
+   failure goes through CI failure triage (Phase 2).
+6. **Gating decision** once CI is `SUCCESS`:
 
    | Condition | Action |
    |-----------|--------|
    | Hard veto (major / runtime language / core framework / never-auto list / more than a bump) | Announce green, leave for a person |
    | `compatibility_score_floor` is a number, and Compat % is below it or N/A | Announce green, leave for a person |
-   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <full sha CI ran on>` |
-   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <full sha CI ran on>` |
+   | Dev-only + patch/minor + `merge_dev_only_with_green_ci: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <head>` |
+   | Runtime + patch/minor + `merge_runtime_bumps: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <head>` |
    | Either dial set to `ask` | Announce green, leave for a person |
 
 **Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
@@ -346,18 +352,12 @@ refused by branch protection or required approvals is a gate working: set the PR
 aside. So is one it refuses, with its message in the summary. Never merge around it
 with `gh pr merge`.
 
-8. After each auto-merge or user-reported merge,
-   `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
-   so the next PR's step 2 rebase runs against the just-updated base
-   rather than a stale one. (Named remote: the local default branch may
-   track a fork.)
-
 ## Phase 5: Post-batch verification
 
 After the first pass, and again after any later merge. Skip this phase and Phase 6
 when this run merged nothing, a person's merge included, and `deploy_after_batch` is
-not `auto`. With `auto` and nothing merged, fetch the default branch from the remote
-step 1 below resolves, and skip both when `<live>` is `<remote>/<default-branch>`.
+not `auto`. With `auto` and nothing merged, fetch the default branch from
+`<remote>`, and skip both when `<live>` is `<remote>/<default-branch>`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
 2. Re-install dependencies with the ecosystem's standard command
@@ -409,7 +409,7 @@ Close the session with a table:
 |----|---------|------|---------|
 | #31 | foo-gem | 11.3.0 -> 11.3.1 | auto-merged |
 | #29 | bar-pkg | 2.1.0 -> 3.0.0 | left for a person (major bump) |
-| #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (rebase conflict) |
+| #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (no rebase from Dependabot in 20 minutes; `@dependabot recreate` restores it) |
 | ... | ... | ... | ... |
 
 Plus:
@@ -422,8 +422,9 @@ Plus:
 - Default-branch CI red at start -> stop the run
 - Phase 5 verification fails -> stop the run, do not deploy
 - Grouped PR present -> refuse that PR, point at config, carry on
-- Rebase conflict, CI failure, lint offense not cleanly fixable, merge refused -> set
-  that PR aside, carry on
+- Lint offense -> leave that PR for a person with the fix described, carry on
+- No rebase from Dependabot, verify or CI failure, merge refused -> set that PR
+  aside, carry on
 - A Deploy veto line holds -> ask, naming the line
 - Deploy command non-zero exit, or live commit differs from HEAD -> stop, surface logs
 
