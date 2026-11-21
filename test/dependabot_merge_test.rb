@@ -26,10 +26,12 @@ class DependabotMergeTest < CliTestCase
       [ -n "$GH_REPO_SEEN_LOG" ] && echo "GH_REPO=$GH_REPO GH_HOST=$GH_HOST" >> "$GH_REPO_SEEN_LOG"
       case "$1 $2" in
         "api repos/acme/app/pulls/12/commits?per_page=100")
+          host="${GH_REPO_URL:-https://github.com/acme/app}"; host="${host#https://}"; host="${host%%/*}"
+          [ "$3 $4" = "--hostname $host" ] || { echo "asked the wrong host: $3 $4" >&2; exit 1; }
           [ -n "$GH_API_FAILS" ] && { echo 'HTTP 404: Not Found' >&2; exit 1; }
           cat "#{@commits}" ;;
         "api "*) echo 'unexpected api path' >&2; exit 1 ;;
-        "repo view") echo '{"nameWithOwner":"acme/app","defaultBranchRef":{"name":"main"}}' ;;
+        "repo view") echo '{"nameWithOwner":"acme/app","url":"'"${GH_REPO_URL:-https://github.com/acme/app}"'","defaultBranchRef":{"name":"main"}}' ;;
         "pr view")
           [ -n "$GH_VIEW_FAILS" ] && { echo 'no pull requests found' >&2; exit 1; }
           [ -n "$GH_VIEW_GARBLED" ] && { echo 'not json'; exit 0; }
@@ -55,7 +57,7 @@ class DependabotMergeTest < CliTestCase
   def teardown
     ENV['PATH'] = @path
     ENV.delete('GH_VIEW_FAILS')
-    %w[GH_API_FAILS GH_MERGE_FAILS GH_MERGE_WARNS GH_VIEW_GARBLED GH_STATE_FAILS GH_REPO_SEEN_LOG GH_REPO GH_HOST].each { |key| ENV.delete(key) }
+    %w[GH_REPO_URL GH_API_FAILS GH_MERGE_FAILS GH_MERGE_WARNS GH_VIEW_GARBLED GH_STATE_FAILS GH_REPO_SEEN_LOG GH_REPO GH_HOST].each { |key| ENV.delete(key) }
     FileUtils.remove_entry(@dir)
   end
 
@@ -111,8 +113,16 @@ class DependabotMergeTest < CliTestCase
 
     assert_equal ["pr merge 12 --squash --delete-branch --match-head-commit #{SHA}"], merge_calls
     assert_includes calls, 'pr view 12 --json author,baseRefName,changedFiles,files,headRefOid,state'
-    assert_includes calls, 'repo view --json nameWithOwner,defaultBranchRef'
-    assert_includes calls, 'api repos/acme/app/pulls/12/commits?per_page=100'
+    assert_includes calls, 'repo view --json nameWithOwner,url,defaultBranchRef'
+    assert_includes calls, 'api repos/acme/app/pulls/12/commits?per_page=100 --hostname github.com'
+  end
+
+  def test_reads_the_commits_from_the_repository_s_own_host
+    ENV['GH_REPO_URL'] = 'https://ghe.example.com/acme/app'
+
+    cli_stdout(good_args)
+
+    assert_equal 1, merge_calls.size
   end
 
   def test_says_it_merged_and_passes_on_what_gh_warned

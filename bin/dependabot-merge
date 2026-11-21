@@ -27,6 +27,7 @@
 
 require 'json'
 require 'open3'
+require 'uri'
 
 module DependabotMerge
   GH_CALLS = ['api repos', 'pr view', 'pr merge', 'repo view'].freeze
@@ -143,9 +144,10 @@ module DependabotMerge
     ENVIRONMENT = { 'GH_REPO' => nil, 'GH_HOST' => nil }.freeze
 
     # The api command fills {owner}/{repo} by other rules than the pr and
-    # repo commands, so the commits are read from the repository named here.
+    # repo commands, and asks github.com unless told a host, so the commits
+    # are read from the repository and host named here.
     def self.repository
-      JSON.parse(capture('gh', 'repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'))
+      JSON.parse(capture('gh', 'repo', 'view', '--json', 'nameWithOwner,url,defaultBranchRef'))
     end
 
     def self.view(number, fields = VIEW_FIELDS)
@@ -154,8 +156,10 @@ module DependabotMerge
 
     # The endpoint lists a pull request's first 250 commits, oldest first.
     # Past the first 100 the list stops short of the head, which refuses it.
-    def self.commits(name_with_owner, number)
-      JSON.parse(capture('gh', 'api', "repos/#{name_with_owner}/pulls/#{number}/commits?per_page=100"))
+    def self.commits(repository, number)
+      host = URI(repository.fetch('url')).host
+      JSON.parse(capture('gh', 'api', "repos/#{repository.fetch('nameWithOwner')}/pulls/#{number}/commits?per_page=100",
+                         '--hostname', host))
     end
 
     def self.merge(number, method, sha)
@@ -181,12 +185,12 @@ module DependabotMerge
       number = args[:number]
       repository = Gh.repository
       pull_request = Gh.view(number)
-      commits = Gh.commits(repository.fetch('nameWithOwner'), number)
+      commits = Gh.commits(repository, number)
       reason = DependabotMerge.refusal(pull_request, commits, args[:sha], repository.fetch('defaultBranchRef').fetch('name'))
       raise Error, "refusing ##{number}: #{reason}" if reason
 
       merge(args)
-    rescue Error, JSON::ParserError, KeyError, NoMethodError, TypeError, SystemCallError => e
+    rescue Error, JSON::ParserError, KeyError, NoMethodError, TypeError, SystemCallError, URI::Error => e
       abort e.message
     end
 
