@@ -114,8 +114,9 @@ failure is theirs. Read the full nested string aloud (`describe` +
 `context` + `it`) as one sentence; if it doesn't sound like something
 a person would say about what the example checks, rewrite it.
 
-- **Name the outcome, and the condition when there is one.** "works",
-  "does nothing", and "handles it correctly" name neither.
+- **Name the outcome, and the condition the example sets up, if it
+  sets one up.** "works", "does nothing", and "handles it correctly"
+  leave the reader guessing at both.
 - **Claim no more than the example observes.** An example that calls
   `ImportRow.parse` with a blank date and asserts the error it returns
   is titled for that error, not "rejects the upload": that title
