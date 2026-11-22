@@ -107,17 +107,30 @@ don't have to ask twice.
 - When a coverage pass turns up dead production code, remove the dead
   code rather than write a spec to document it.
 
-## Titles name behavior, not mechanism
+## Titles name what the example checks
 
-Read the full nested string aloud (`describe` + `context` + `it`) as
-one sentence; if it doesn't sound like something a person would say
-about the behavior, rewrite it. Avoid:
+In CI the title is often all a reader has before deciding whether a
+failure is theirs. Read the full nested string aloud (`describe` +
+`context` + `it`) as one sentence; if it doesn't sound like something
+a person would say about what the example checks, rewrite it.
 
-- Vague verbs that restate the assertion ("does nothing", "works").
-  Name the observable behavior instead.
-- Implementation or framework mechanism in the title:
+- **Name the condition and the outcome.** "works", "does nothing", and
+  "handles it correctly" name neither.
+- **Claim no more than the example observes.** An example that calls
+  `ImportRow.parse` with a blank date and asserts the error it returns
+  is titled for that error, not "rejects the upload": that title
+  belongs to an example that drives an upload. Where the example
+  checks that something raises or returns a value, "raises" and
+  "returns" are the right words, not mechanism to hide. A comment in
+  the code, or an enclosing `describe`, saying what the code is for
+  does not widen what the example observes.
+- **Use the domain's words over the storage layer's:**
   `adds an access_token for the user`, not
-  `adds a row to the user's access tokens`.
+  `adds a row to the user's access tokens`. The table can be renamed
+  while the behavior stays the same.
+
+Avoid:
+
 - Parenthetical clarifications; the parenthetical is usually the real
   title, so lead with it.
 - Inconsistent sibling phrasing; parallel examples share sentence
