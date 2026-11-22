@@ -130,10 +130,7 @@ a person would say about what the example checks, rewrite it.
   `issues the user an access token`, not
   `adds a row to the user's access tokens`. The table can be renamed
   while the behavior stays the same.
-
-Avoid:
-
-- Parenthetical clarifications; the parenthetical is usually the real
-  title, so lead with it.
-- Inconsistent sibling phrasing; parallel examples share sentence
+- **Lead with the parenthetical.** A parenthetical clarification is
+  usually the real title.
+- **Phrase siblings alike.** Parallel examples share sentence
   structure and name the same entity.
