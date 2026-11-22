@@ -133,4 +133,6 @@ a person would say about what the example checks, rewrite it.
 - **Lead with the parenthetical.** A parenthetical clarification is
   usually the real title.
 - **Phrase siblings alike.** Parallel examples share sentence
-  structure and name the same entity.
+  structure and name the same entity. Match a sibling that claims
+  only what it checks; when a sibling claims more, reword it rather
+  than copy it.
