@@ -207,6 +207,48 @@ line below holds, and the question names the line.** No dial overrides them.
    calls, before running it. If you cannot see that it exits non-zero on a failed
    health check, this line holds.
 
+## Task list
+
+**A batch keeps the Claude Code task list current, so a person can see where an
+unattended run stands without asking it.** The list exists only once triage has
+settled the queue: a run that ends at either authorization question, or stops in
+Phases 1 to 3, creates no tasks. The examples below are one batch.
+
+- **Load it at the end of Phase 3, with `TaskCreate`, in run order:** first a
+  task for each pull request Phase 2 set aside or refused, created with its
+  outcome and marked `completed` straight away; then one for each first-pass
+  pull request; then the post-batch suite; then the Phase 6 task, if Phase 6
+  will deploy or ask (`5. Deploy`, or `5. Ask whether to deploy` where it will
+  ask; none with `on-merge`), followed by `6. Confirm the live commit` where a
+  deploy will run without asking; then one for each second-pass pull request.
+- **Number every subject, name the package and bump, and name the work ahead:**
+  `2. Merge #176 bullet 8.3.0 -> 8.3.1` for a bump the gating table will merge,
+  `7. Check #180 rails 8.1.0 -> 9.0.0 for a person` for one it leaves. A grouped
+  pull request's group name stands in for the package and bump. A subject never
+  states an outcome the run has not reached, and holds one deliverable.
+- **Update the list live, never per group.** Mark a task `in_progress` when its
+  work starts, before any other tool call for it, and `completed` the moment its
+  deliverable is verified. Keep exactly one in progress. A pull request whose
+  Phase 4 loop starts again keeps its task. A task whose question Phase 3 holds
+  for the second pass goes back to `pending` until the question is asked.
+- **Every task ends `completed` with what happened in its subject, unless the
+  run stops.** A pull request set aside, left for a person, or closed and
+  replaced by Dependabot, a skipped Phase 5, and a Phase 6 that ends without a
+  deploy (nothing to ship, a no, no deploy command, the default branch moved)
+  get their subjects rewritten (`1. Set aside #177 rubocop 1.69.0 -> 1.70.0: CI
+  fails`, `5. Deploy not run: main moved`), and so does a confirm task that
+  cannot run. A yes to the Phase 6 question carries on in that task, renamed to
+  the deploy, and adds the confirm task. A task reading "Merge" that never
+  merged misleads whoever reads the list.
+- **A stop leaves the list true.** When a failed Phase 5 or a failed deploy stops
+  the run, its task stays `in_progress` and the tasks after it stay `pending`.
+- **New work takes the next number,** never a finished task reopened: a flake-fix
+  pull request, the confirm task a yes adds, and each repeat of Phases 5 and 6.
+  A task added after loading lands at the end of the list.
+
+The post-run summary stays: it is the record of the run, and the list is the
+view while it runs.
+
 ## Phase 1: Inventory
 
 **Repo of record.** Every `gh` command in this skill acts on gh's resolved
@@ -318,14 +360,17 @@ When a person merges one while the session is open, run Phases 5 and 6 again;
 Deploy veto line 1 will ask. Finish on the default branch, and hold any Phase 6
 question until the second pass is done.
 
-Surface the order to the user and proceed.
+Surface the order to the user, then load the task list (see Task list) before
+any Phase 4 command, and proceed.
 
 ## Phase 4: Per-PR loop
 
-For each PR in order. The batch never pushes to a Dependabot branch: a commit
-anyone else puts there is one GitHub did not sign for Dependabot, which
-`dependabot-merge` refuses, and Dependabot stops updating a branch someone else
-has pushed to.
+**The task list exists before this phase starts; if it does not, load it now.**
+For each PR in order, with its task marked `in_progress` first and `completed`
+once merged or settled (see Task list). The batch never pushes to a Dependabot
+branch: a commit anyone else puts there is one GitHub did not sign for
+Dependabot, which `dependabot-merge` refuses, and Dependabot stops updating a
+branch someone else has pushed to.
 
 1. **Have Dependabot bring it current.** Run
    `git fetch <remote> <default-branch> pull/<n>/head` (the default branch Phase 1
@@ -387,10 +432,11 @@ with `gh pr merge`.
 
 ## Phase 5: Post-batch verification
 
-After the first pass, and again after any later merge. Skip this phase and Phase 6
-when this run merged nothing, a person's merge included, and `deploy_after_batch` is
-not `auto`. With `auto` and nothing merged, fetch the default branch from
-`<remote>`, and skip both when `<live>` is `<remote>/<default-branch>`.
+After the first pass, and again after any later merge, with its task marked as
+Task list says. Skip this phase and Phase 6 when this run merged nothing, a
+person's merge included, and `deploy_after_batch` is not `auto`. With `auto` and
+nothing merged, fetch the default branch from `<remote>`, and skip both when
+`<live>` is `<remote>/<default-branch>`.
 
 1. `git checkout <default-branch> && git pull --ff-only <remote> <default-branch>`
 2. Re-install dependencies with the ecosystem's standard command
@@ -400,6 +446,9 @@ not `auto`. With `auto` and nothing merged, fetch the default branch from
 If verification fails here, stop the run. Do not deploy.
 
 ## Phase 6: Deploy
+
+Mark the Phase 6 task `in_progress` at step 1, or when its question is asked,
+and the confirm task at step 5, as Task list says.
 
 - **`on-merge`:** the merges already deployed. Say so, and ask nothing.
 - **`ask`, anything else, or `auto` with `deploy_command` unset:** ask whether to
