@@ -640,7 +640,8 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    turns off the repository setting "Auto-close issues with merged
    linked pull requests", and closes the issue in the finish phase.
 4. **Hand the PR off for review and merge**, saying what it is waiting
-   on, and move the issue to its review state where the tracker has one
+   on, with a to-do for the developer's review (record Step 2), and
+   move the issue to its review state where the tracker has one
    (GitHub Issues has none: the `in progress` label stays on). **Who
    merges depends on a declaration, read from the project's checked-in
    files here.** By default the merge is a person's, and arming
@@ -774,8 +775,24 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   - Mark it `completed` the moment its deliverable is verified, not at
     the next commit, suite run, or checkpoint.
   - A to-do set aside for other work goes back to `pending`. Waiting on
-    an answer the to-do resumes from does not. A hand-off to-do is
-    complete once it is handed off.
+    an answer the to-do resumes from does not: it stays in progress,
+    and the answer gets a developer to-do of its own (below). A hand-off
+    to-do is complete once it is handed off.
+- **Each thing the session waits on the developer for is a to-do of its
+  own, named for them:** a review and merge, an answer to a question or
+  a question batch (the gauntlet's included), a sign-in. `13. Dana:
+  review and merge #45`, with the name the developer goes by. Create it
+  in the same step as the hand-off or the question, under the next
+  number, in the plan file (before the to-do that waits on it) and the
+  task list.
+  - Mark it `in_progress` only when the developer says they have
+    started it, never because it is next.
+  - Complete it as soon as it is done, whoever notices first: the
+    developer says so, or the session sees it (`gh pr view` shows the
+    merge, the answer is in the conversation). While one is open, check
+    its state at the start of each turn, before any other work.
+  - A message that ends a turn waiting on the developer names the open
+    developer to-dos by number rather than describing them again.
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
