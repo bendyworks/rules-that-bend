@@ -128,8 +128,8 @@ a person would say about what the example checks, rewrite it.
   widen what the example observes.
 - **Use the domain's words over incidental infrastructure words:**
   `adds an access token for the user`, not
-  `adds a row to the user's access tokens`. The table can be renamed
-  while the behavior stays the same.
+  `adds a row to the user's access tokens`. The table or the framework
+  call can change while the behavior stays the same.
 - **Lead with what a parenthetical says.** A parenthetical
   clarification is usually the real title: move its words to the
   front and drop the parentheses.
