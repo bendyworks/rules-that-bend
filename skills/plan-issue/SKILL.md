@@ -641,8 +641,9 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    linked pull requests", and closes the issue in the finish phase.
 4. **Hand the PR off for review and merge**, saying what it is waiting
    on, with a to-do for the developer's review of each pull request
-   handed off (record Step 2), and move the issue to its review state where the tracker has one
-   (GitHub Issues has none: the `in progress` label stays on). **Who
+   handed off (record Step 2), and move the issue to its review state
+   where the tracker has one (GitHub Issues has none: the `in progress`
+   label stays on). **Who
    merges depends on a declaration, read from the project's checked-in
    files here.** By default the merge is a person's, and arming
    auto-merge is merging. Only an explicit Session-Merge Mode
@@ -786,7 +787,8 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   it before sending the message that hands off or asks, under the next
   number, in the task list and in the plan file where it runs: after
   the to-do that raised it, before the first to-do that cannot start
-  until it is done. The finish phase's own questions get none.
+  until it is done. Nothing the finish phase waits on gets one,
+  finished-issue-housekeeping's questions and pull request included.
   - Mark it `in_progress` only when the developer says they have
     started it, never because it is next.
   - Complete it as soon as it is done, whoever notices first: the
