@@ -640,16 +640,18 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    turns off the repository setting "Auto-close issues with merged
    linked pull requests", and closes the issue in the finish phase.
 4. **Hand the PR off for review and merge**, saying what it is waiting
-   on, and move the issue to its review state where the tracker has one
-   (GitHub Issues has none: the `in progress` label stays on). **Who
-   merges depends on a declaration, read from the project's checked-in
-   files here.** By default the merge is a person's, and arming
-   auto-merge is merging. Only an explicit Session-Merge Mode
-   declaration (the pull-requests guidance, where the team imports it,
-   defines it) authorizes a session to merge, and it is never inferred.
-   In Targeted Spec Verification Mode, CI's full-suite run on the PR is
-   the full gate: confirm it is green before the hand-off, and where no
-   such run exists, run the full suite locally.
+   on, with a to-do for the developer's review of each pull request
+   handed off (record Step 2), and move the issue to its review state
+   where the tracker has one (GitHub Issues has none: the `in progress`
+   label stays on). **Who merges depends on a declaration, read from
+   the project's checked-in files here.** By default the merge is a
+   person's, and arming auto-merge is merging. Only an explicit
+   Session-Merge Mode declaration (the pull-requests guidance, where
+   the team imports it, defines it) authorizes a session to merge, and
+   it is never inferred. In Targeted Spec Verification Mode, CI's
+   full-suite run on the PR is the full gate: confirm it is green
+   before the hand-off, and where no such run exists, run the full
+   suite locally.
 5. **Stakeholder change-highlights, when the change alters something a
    client stakeholder relies on** (a report, receipt, statement, mailer,
    or screen): build a before-and-after summary with the
@@ -774,8 +776,28 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   - Mark it `completed` the moment its deliverable is verified, not at
     the next commit, suite run, or checkpoint.
   - A to-do set aside for other work goes back to `pending`. Waiting on
-    an answer the to-do resumes from does not. A hand-off to-do is
-    complete once it is handed off.
+    an answer the to-do resumes from does not: it stays in progress,
+    and the answer gets a developer to-do of its own (below). A hand-off
+    to-do is complete once it is handed off.
+- **Each thing the session waits on the developer for is a to-do of its
+  own, named for them:** a review and merge, an answer to a question or
+  a question batch (the gauntlet's included), a sign-in. `13. Dana:
+  review and merge #45`, with the name the developer goes by in the
+  conversation, else the first name in `git config user.name`. Create
+  it before sending the message that hands off or asks, under the next
+  number, in the task list and in the plan file where it runs: after
+  the to-do that raised it, before the first to-do that cannot start
+  until it is done. Nothing the finish phase waits on gets one,
+  finished-issue-housekeeping's questions and pull request included.
+  - Mark it `in_progress` only when the developer says they have
+    started it, never because it is next.
+  - Complete it as soon as it is done, whoever notices first: the
+    developer says so, or the session sees it (`gh pr view` shows the
+    merge, every question has its answer in the conversation). While
+    one is open, check its state at the start of each turn, before any
+    other work.
+  - A message that ends a turn waiting on the developer names the open
+    developer to-dos by number rather than describing them again.
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
