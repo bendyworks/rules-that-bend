@@ -127,7 +127,7 @@ a person would say about what the example checks, rewrite it.
   saying what the code is for does not widen what the example
   observes.
 - **Use the domain's words over the storage layer's:**
-  `adds an access_token for the user`, not
+  `issues the user an access token`, not
   `adds a row to the user's access tokens`. The table can be renamed
   while the behavior stays the same.
 
