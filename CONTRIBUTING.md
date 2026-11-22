@@ -133,6 +133,10 @@ run, so a skill that edits stopped and asked for permission while the
 control, which edits nothing, ran normally. Run an arm whose skill edits
 files with `--permission-mode acceptEdits`.
 
+**Give each arm only the files its scenario uses.** A file another arm
+needs can change the answer: a write arm that shared its fixture with a
+review arm copied the review arm's spec wording into its own title.
+
 **Keep your own rules out of every arm.** Pass
 `--setting-sources project` on every arm, and again on every `--resume`
 turn: the flag covers one invocation. An arm run with it starts without
