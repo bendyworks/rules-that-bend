@@ -760,12 +760,12 @@ look in `.work/plans/` first, then there, and edit the file where it is.
 
 Mirror the plan's to-dos into the task list with `TaskCreate`:
 
-- **One task per `- [ ]`, in order, with the plan's number and wording
-  in its subject.** Never merge items: a title that needs "and", "+",
-  "then", or a comma to join deliverables is more than one task. Each
-  ship-tail item is a task of its own, and the finish-tail tasks stay
-  pending until the user triggers the finish phase. Add no task the plan
-  omits.
+- **One task per `- [ ]`, in the plan file's order, with the plan's
+  number and wording in its subject.** Never merge items: a title that
+  needs "and", "+", "then", or a comma to join deliverables is more than
+  one task. Each ship-tail item is a task of its own, and the
+  finish-tail tasks stay pending until the user triggers the finish
+  phase. Add no task the plan omits.
 - **The task list updates per to-do, never per group.** Lint, suite
   runs, commits, and the plan file's checkboxes may be grouped (Step 4);
   the task list is live:
