@@ -843,7 +843,11 @@ each group of them:
    now that keeps a behavior a reader would take for a bug is new work:
    the two to-dos create Step 6's item 4 (Test-first steps) names,
    listed and worked before the first ship-tail item not yet started,
-   so they reach the pull request that records the decision.
+   so they reach the pull request that records the decision. For an
+   answer given to the gauntlet, in its batch or a triage pick, add
+   the two to-dos and tick them from the gauntlet's final pinning
+   commit, writing `unproved: <why>` beside the spec's when the
+   gauntlet marks the pin so.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its
