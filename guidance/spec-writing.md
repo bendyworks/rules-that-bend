@@ -130,9 +130,9 @@ a person would say about what the example checks, rewrite it.
   `adds an access token for the user`, not
   `adds a row to the user's access tokens`. The table can be renamed
   while the behavior stays the same.
-- **Promote a parenthetical to the title.** A parenthetical
-  clarification is usually the real title, so lead with it and drop
-  the parentheses.
+- **Lead with what a parenthetical says.** A parenthetical
+  clarification is usually the real title: move its words to the
+  front and drop the parentheses.
 - **Phrase siblings alike.** Parallel examples share sentence
   structure and name the same entity. Match a sibling that claims
   only what it checks; when a sibling claims more, reword it rather
