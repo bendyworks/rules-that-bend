@@ -71,7 +71,8 @@ since then makes them wrong with no error.
 
 4. **Rebuild the task list** from the plan's unchecked to-dos, in the
    session's task list and not as a list in chat: one task for each,
-   in order, the plan's own number leading the subject
+   in the order the plan file lists them, never sorted by number, the
+   plan's own number leading the subject
    (`4. Add dedupe_slug`).
 
 5. **Say what is waiting on the developer,** each item with its text
