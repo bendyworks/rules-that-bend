@@ -760,12 +760,12 @@ look in `.work/plans/` first, then there, and edit the file where it is.
 
 Mirror the plan's to-dos into the task list with `TaskCreate`:
 
-- **One task per `- [ ]`, in order, with the plan's number and wording
-  in its subject.** Never merge items: a title that needs "and", "+",
-  "then", or a comma to join deliverables is more than one task. Each
-  ship-tail item is a task of its own, and the finish-tail tasks stay
-  pending until the user triggers the finish phase. Add no task the plan
-  omits.
+- **One task per `- [ ]`, in the plan file's order, with the plan's
+  number and wording in its subject.** Never merge items: a title that
+  needs "and", "+", "then", or a comma to join deliverables is more than
+  one task. Each ship-tail item is a task of its own, and the
+  finish-tail tasks stay pending until the user triggers the finish
+  phase. Add no task the plan omits.
 - **The task list updates per to-do, never per group.** Lint, suite
   runs, commits, and the plan file's checkboxes may be grouped (Step 4);
   the task list is live:
@@ -784,11 +784,12 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   a question batch (the gauntlet's included), a sign-in. `13. Dana:
   review and merge #45`, with the name the developer goes by in the
   conversation, else the first name in `git config user.name`. Create
-  it before sending the message that hands off or asks, under the next
-  number, in the task list and in the plan file where it runs: after
-  the to-do that raised it, before the first to-do that cannot start
-  until it is done. Nothing the finish phase waits on gets one,
-  finished-issue-housekeeping's questions and pull request included.
+  it before sending the message that hands off or asks, as new work
+  (below): under the next unused number, in the plan file and the task
+  list where it runs, after the to-do that raised it and before the
+  first to-do that cannot start until it is done. Nothing the finish
+  phase waits on gets one, finished-issue-housekeeping's questions and
+  pull request included.
   - Mark it `in_progress` only when the developer says they have
     started it, never because it is next.
   - Complete it as soon as it is done, whoever notices first: the
@@ -801,9 +802,17 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
-- **New work found along the way** takes the next number in the plan
-  file and the task list. The plan lists it where it will run, and the
-  task list shows it last.
+- **New work found along the way takes the next unused number and goes
+  where it will run, in the plan file and in the task list alike.** The
+  task list has no ordering field: it shows tasks in the order they were
+  created. So when new work belongs ahead of unfinished tasks, or the
+  working order changes, delete each task not yet completed that it
+  belongs ahead of (`status: "deleted"`) and create it again after the
+  new one, in working order, with the same subject, description, and
+  status, except that a to-do set aside for the new work goes back to
+  `pending` (above). A developer to-do the developer has started stays
+  in progress. Completed tasks stay as they are. Move the plan file's
+  lines to match: a to-do's number is its name, never its position.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
@@ -865,7 +874,11 @@ each group of them:
    now that keeps a behavior a reader would take for a bug is new work:
    the two to-dos create Step 6's item 4 (Test-first steps) names,
    listed and worked before the first ship-tail item not yet started,
-   so they reach the pull request that records the decision.
+   so they reach the pull request that records the decision. For an
+   answer given to the gauntlet, in its batch or a triage pick, add
+   the two to-dos and tick them from the gauntlet's final pinning
+   commit, writing `unproved: <why>` beside the spec's when the
+   gauntlet marks the pin so.
 5. Show the user the updated to-do list with its numbers.
 6. Say how many lines this layer has changed, measured against the layer
    below and leaving out generated files, and how that compares with its
