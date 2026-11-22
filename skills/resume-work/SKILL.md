@@ -47,8 +47,9 @@ since then makes them wrong with no error.
      first: no switch, pull, or stash. The exception is a pull request
      that has merged while an open developer to-do waited for its merge
      (`9. Dana: review and merge #45`): the merge means that to-do is
-     done, so tick it in the plan, the one change this step makes. That
-     merge alone stops nothing; the other conditions here still do, and
+     done, so tick each such to-do in the plan, the one change this
+     step makes. That merge alone stops nothing; the other conditions
+     here still do, and
      a pull request closed without merging still stops.
    - **Any other difference** (a commit the notes call local is now
      pushed, a stash is gone) is reported and stops nothing: go on to
