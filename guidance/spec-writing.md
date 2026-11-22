@@ -107,18 +107,34 @@ don't have to ask twice.
 - When a coverage pass turns up dead production code, remove the dead
   code rather than write a spec to document it.
 
-## Titles name behavior, not mechanism
+## Titles name what the example checks
 
-Read the full nested string aloud (`describe` + `context` + `it`) as
-one sentence; if it doesn't sound like something a person would say
-about the behavior, rewrite it. Avoid:
+In CI the title is often all a reader has before deciding whether a
+failure is theirs. Read the full nested string aloud (`describe` +
+`context` + `it`) as one sentence; if it doesn't sound like something
+a person would say about what the example checks, rewrite it.
 
-- Vague verbs that restate the assertion ("does nothing", "works").
-  Name the observable behavior instead.
-- Implementation or framework mechanism in the title:
-  `adds an access_token for the user`, not
-  `adds a row to the user's access tokens`.
-- Parenthetical clarifications; the parenthetical is usually the real
-  title, so lead with it.
-- Inconsistent sibling phrasing; parallel examples share sentence
-  structure and name the same entity.
+- **Name the outcome, and the condition the example sets up, if it
+  sets one up.** "works", "does nothing", and "handles it correctly"
+  leave the reader guessing at both.
+- **Claim no more than the example observes.** An example that calls
+  `ImportRow.parse` with a blank date and asserts the error it returns
+  is titled for that error, not "rejects the upload": that title
+  belongs to an example that drives an upload. Where the example
+  checks that something raises or returns a value, "raises" and
+  "returns" are the right words, not mechanism to hide. The limit
+  covers the whole nested string: a `describe` or `context` claims
+  only what every example under it checks. A comment, in the
+  spec or in the code under test, saying what the code is for does not
+  widen what the example observes.
+- **Use the domain's words over incidental infrastructure words:**
+  `adds an access token for the user`, not
+  `adds a row to the user's access tokens`. The table or the framework
+  call can change while the behavior stays the same.
+- **Lead with what a parenthetical says.** A parenthetical
+  clarification is usually the real title: move its words to the
+  front and drop the parentheses.
+- **Phrase siblings alike.** Parallel examples share sentence
+  structure and name the same entity. Match a sibling that claims
+  only what it checks; when a sibling claims more, reword it rather
+  than copy it.
