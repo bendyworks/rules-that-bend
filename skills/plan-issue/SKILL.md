@@ -805,14 +805,14 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
 - **New work found along the way takes the next unused number and goes
   where it will run, in the plan file and in the task list alike.** The
   task list has no ordering field: it shows tasks in the order they were
-  created. So when new work belongs ahead of pending tasks, or the
-  working order changes, delete each pending task it belongs ahead of
-  (`status: "deleted"`) and create it again after the new one, in
-  working order, with the same subject and description. A to-do in
-  progress that the new work must come before is set aside to `pending`
-  first, and moves with them. Completed tasks stay as they are. Move the
-  plan file's lines to match: a to-do's number is its name, never its
-  position.
+  created. So when new work belongs ahead of unfinished tasks, or the
+  working order changes, delete each task not yet completed that it
+  belongs ahead of (`status: "deleted"`) and create it again after the
+  new one, in working order, with the same subject, description, and
+  status, except that a to-do set aside for the new work goes back to
+  `pending` (above). A developer to-do the developer has started stays
+  in progress. Completed tasks stay as they are. Move the plan file's
+  lines to match: a to-do's number is its name, never its position.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
