@@ -643,15 +643,15 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    on, with a to-do for the developer's review of each pull request
    handed off (record Step 2), and move the issue to its review state
    where the tracker has one (GitHub Issues has none: the `in progress`
-   label stays on). **Who
-   merges depends on a declaration, read from the project's checked-in
-   files here.** By default the merge is a person's, and arming
-   auto-merge is merging. Only an explicit Session-Merge Mode
-   declaration (the pull-requests guidance, where the team imports it,
-   defines it) authorizes a session to merge, and it is never inferred.
-   In Targeted Spec Verification Mode, CI's full-suite run on the PR is
-   the full gate: confirm it is green before the hand-off, and where no
-   such run exists, run the full suite locally.
+   label stays on). **Who merges depends on a declaration, read from
+   the project's checked-in files here.** By default the merge is a
+   person's, and arming auto-merge is merging. Only an explicit
+   Session-Merge Mode declaration (the pull-requests guidance, where
+   the team imports it, defines it) authorizes a session to merge, and
+   it is never inferred. In Targeted Spec Verification Mode, CI's
+   full-suite run on the PR is the full gate: confirm it is green
+   before the hand-off, and where no such run exists, run the full
+   suite locally.
 5. **Stakeholder change-highlights, when the change alters something a
    client stakeholder relies on** (a report, receipt, statement, mailer,
    or screen): build a before-and-after summary with the

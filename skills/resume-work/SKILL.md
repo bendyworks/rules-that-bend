@@ -49,8 +49,8 @@ since then makes them wrong with no error.
      (`9. Dana: review and merge #45`): the merge means that to-do is
      done, so tick each such to-do in the plan, the one change this
      step makes. That merge alone stops nothing; the other conditions
-     here still do, and
-     a pull request closed without merging still stops.
+     here still do, and a pull request closed without merging still
+     stops.
    - **Any other difference** (a commit the notes call local is now
      pushed, a stash is gone) is reported and stops nothing: go on to
      step 4 with what is true now. What the notes say is waiting on
