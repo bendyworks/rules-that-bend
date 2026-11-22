@@ -784,10 +784,10 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   a question batch (the gauntlet's included), a sign-in. `13. Dana:
   review and merge #45`, with the name the developer goes by in the
   conversation, else the first name in `git config user.name`. Create
-  it before sending the message that hands off or asks, under the next
-  number, in the task list and in the plan file where it runs: after
-  the to-do that raised it, before the first to-do that cannot start
-  until it is done. Nothing the finish phase waits on gets one,
+  it before sending the message that hands off or asks, as new work
+  (below): under the next number, in the task list and in the plan file
+  where it runs, after the to-do that raised it and before the first
+  to-do that cannot start until it is done. Nothing the finish phase waits on gets one,
   finished-issue-housekeeping's questions and pull request included.
   - Mark it `in_progress` only when the developer says they have
     started it, never because it is next.
@@ -801,9 +801,15 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
 - **Refer to a task by its number and short name** ("to-do 13, Move
   ABC-616 to PR Review"), and show the numbers whenever you show the
   list.
-- **New work found along the way** takes the next number in the plan
-  file and the task list. The plan lists it where it will run, and the
-  task list shows it last.
+- **New work found along the way takes the next unused number and goes
+  where it will run, in the plan file and in the task list alike.** The
+  task list has no ordering field: it shows tasks in the order they were
+  created. So when new work belongs ahead of pending tasks, or the
+  working order changes, delete each pending task it belongs ahead of
+  (`status: "deleted"`) and create it again after the new one, in
+  working order, with the same number and wording. Completed tasks stay
+  as they are. Move the plan file's lines to match: a to-do's number is
+  its name, never its position.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
