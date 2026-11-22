@@ -121,7 +121,12 @@ the root `CLAUDE.md`, its Deploy-on-Merge declaration included, and a
 `CLAUDE.md` in any directory above the arm's loads too. Either can hand
 the run the answer the skill was supposed to supply. When writing a
 project declaration for an arm, state the fact the project asserts,
-never the behavior you expect from the skill.
+never the behavior you expect from the skill. Put that directory
+outside every checkout, such as under the session's scratchpad: an arm
+under this repo's ignored `tmp/` had every edit to its own files
+refused in a headless run, so a skill that edits stopped and asked for
+permission while the control, which edits nothing, ran normally. Run
+an arm whose skill edits files with `--permission-mode acceptEdits`.
 
 **Keep your own rules out of every arm.** Pass
 `--setting-sources project` on every arm, and again on every `--resume`
