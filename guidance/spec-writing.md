@@ -121,9 +121,11 @@ a person would say about what the example checks, rewrite it.
   is titled for that error, not "rejects the upload": that title
   belongs to an example that drives an upload. Where the example
   checks that something raises or returns a value, "raises" and
-  "returns" are the right words, not mechanism to hide. A comment in
-  the code, or an enclosing `describe`, saying what the code is for
-  does not widen what the example observes.
+  "returns" are the right words, not mechanism to hide. The limit
+  covers the whole nested string, so reword a `describe` or `context`
+  that claims more than its examples check. A comment in the code
+  saying what the code is for does not widen what the example
+  observes.
 - **Use the domain's words over the storage layer's:**
   `adds an access_token for the user`, not
   `adds a row to the user's access tokens`. The table can be renamed
