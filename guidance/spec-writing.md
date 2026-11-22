@@ -123,9 +123,9 @@ a person would say about what the example checks, rewrite it.
   checks that something raises or returns a value, "raises" and
   "returns" are the right words, not mechanism to hide. The limit
   covers the whole nested string: a `describe` or `context` claims
-  nothing that each example under it does not check. A comment in the
-  code under test saying what that code is for does not widen what the
-  example observes.
+  nothing that each example under it does not check. A comment, in the
+  spec or in the code under test, saying what the code is for does not
+  widen what the example observes.
 - **Use the domain's words over incidental infrastructure words:**
   `adds an access token for the user`, not
   `adds a row to the user's access tokens`. The table can be renamed
