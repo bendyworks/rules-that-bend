@@ -44,9 +44,11 @@ since then makes them wrong with no error.
      closed and the notes do not say so, when the branch's own remote
      branch holds commits this checkout lacks, or when the story's
      branch is missing or is not the one checked out. Change nothing
-     first: no switch, pull, or stash. A merge that an open developer
-     to-do waits for (`9. Dana: review and merge #45`) is that to-do
-     done, not a disagreement: tick it and go on.
+     first: no switch, pull, or stash. The exception is a pull request
+     that has merged while an open developer to-do waited for its merge
+     (`9. Dana: review and merge #45`): the merge means that to-do is
+     done, so tick it and go on. A pull request closed without merging
+     still stops.
    - **Any other difference** (a commit the notes call local is now
      pushed, a stash is gone) is reported and stops nothing: go on to
      step 4 with what is true now. What the notes say is waiting on
