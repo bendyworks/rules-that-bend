@@ -126,8 +126,8 @@ a person would say about what the example checks, rewrite it.
   that claims more than its examples check. A comment in the code
   saying what the code is for does not widen what the example
   observes.
-- **Use the domain's words over the storage layer's:**
-  `issues the user an access token`, not
+- **Use the domain's words over incidental infrastructure words:**
+  `adds an access token for the user`, not
   `adds a row to the user's access tokens`. The table can be renamed
   while the behavior stays the same.
 - **Promote a parenthetical to the title.** A parenthetical
