@@ -22,8 +22,8 @@ are touched across how many files, measured against the layer below on
 a stack and leaving out generated files, and whether that is over or
 under the 400-line easy-review threshold. When the branch has passed
 it, or the next piece of work would carry it past, put the work still to
-come on a new layer and say so; rewriting commits already pushed still
-needs an explicit request.
+come on a new layer and say so; moving commits already pushed to another
+layer still needs an explicit request.
 
 ## Open PRs in draft mode first
 

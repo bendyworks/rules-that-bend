@@ -236,8 +236,9 @@ Refs: #123
 - `Refs:` names the motivating issue when one exists -- the
   incident or bug that forced the revert.
 - A generated revert message that is already pushed (GitHub's
-  Revert button, a scripted rollback) stays as-is: pushed history
-  is not rewritten for message shape (see Practices).
+  Revert button, a scripted rollback) stays as-is once the default
+  branch or a deploy branch holds it, since neither is reworded (see
+  Practices).
 
 ## Practices
 
@@ -255,7 +256,43 @@ Refs: #123
   bot commits keep their generators' formats, which are themselves
   conventions other tooling and readers rely on (`git log
   --merges`, bot changelogs). Reverts are not exempt (see Reverts).
-- Never amend or rewrite pushed commits without an explicit request.
+- **A commit message worth rewording is reworded when it is found,
+  pushed or not, without asking, and reported in place of being handed
+  back,** whatever the task in hand: a body that misstates its own
+  commit, a title that overstates, a default this file says to avoid.
+  A typo that leaves the meaning clear is not worth one. A reword that
+  changes only messages is provable, so it needs no request within
+  these limits:
+  - Only the developer's own commits (author `git config user.email`),
+    from the reworded commit to the tip, on a branch whose pull request
+    is open or not yet opened. A teammate's commit, or one on a merged
+    branch, is reported instead.
+  - Never a commit the default branch or a deploy branch can reach, or
+    one another branch holds: after a `git fetch`,
+    `git branch -a --contains <sha>` names only the branch, its
+    remote-tracking branch, its own `backup/<branch>` branches, and the
+    layers `gh stack view` lists above it, with theirs. Any other name
+    in that list, such as a teammate's branch, stops the reword, and so
+    does a fetch that fails or a detached HEAD.
+  - Never over a commit someone else pushed: for the branch and each
+    layer above, `git cherry <branch> <remote>/<branch>` marks no
+    commit `+` (old copies of reworded commits are marked `-`, and a
+    branch never pushed has nothing to check). Run the check again on a
+    fresh `git fetch` immediately before pushing.
+  - Take `backup/<branch>-pre-reword` first, numbered when that name
+    is taken, and confirm `git diff <backup> HEAD` is empty afterward.
+  - Push with `git push --force-with-lease <remote> <branch>`, never a
+    bare `--force`. On a stack, take a backup of each
+    layer above, carry them with `gh stack rebase --upstack --no-trunk`,
+    which moves no layer onto a newer trunk, confirm before pushing that
+    each layer's `git diff` against its backup is empty, and push with
+    `gh stack push`.
+  - Say in one line which commits were reworded and why. Where the
+    repository dismisses stale approvals, the push drops the pull
+    request's approval: reword anyway, and say it needs renewing.
+
+  Any other rewrite of pushed commits (an amend that changes content, a
+  squash, a dropped or reordered commit) waits for an explicit request.
 - **A backup taken before rewriting a branch (a squash, a reword, a
   rebase, a reset) is a branch named `backup/<branch>`, never
   `<branch>-backup`.** A label may follow the branch's name:
