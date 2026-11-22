@@ -121,7 +121,21 @@ the root `CLAUDE.md`, its Deploy-on-Merge declaration included, and a
 `CLAUDE.md` in any directory above the arm's loads too. Either can hand
 the run the answer the skill was supposed to supply. When writing a
 project declaration for an arm, state the fact the project asserts,
-never the behavior you expect from the skill.
+never the behavior you expect from the skill. Build those directories
+under the system's `$TMPDIR` (`mktemp -d`), never inside a Claude Code
+session's scratchpad (`/private/tmp/claude-<uid>/...`): an arm there
+loads its `CLAUDE.md` and path-scoped rules but no unscoped file under
+`.claude/rules/`, so a rule copied in that way never reaches the arm,
+and `scripts/check-arm-isolation.sh` run with `TMPDIR` there exits 2.
+Keep them outside every checkout too: an arm under this repo's
+ignored `tmp/` had every edit to its own files refused in a headless
+run, so a skill that edits stopped and asked for permission while the
+control, which edits nothing, ran normally. Run an arm whose skill edits
+files with `--permission-mode acceptEdits`.
+
+**Give each arm only the files its scenario uses.** A file another arm
+needs can change the answer: a write arm that shared its fixture with a
+review arm copied the review arm's spec wording into its own title.
 
 **Keep your own rules out of every arm.** Pass
 `--setting-sources project` on every arm, and again on every `--resume`
