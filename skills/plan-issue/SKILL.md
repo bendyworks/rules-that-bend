@@ -785,10 +785,11 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   review and merge #45`, with the name the developer goes by in the
   conversation, else the first name in `git config user.name`. Create
   it before sending the message that hands off or asks, as new work
-  (below): under the next number, in the task list and in the plan file
-  where it runs, after the to-do that raised it and before the first
-  to-do that cannot start until it is done. Nothing the finish phase waits on gets one,
-  finished-issue-housekeeping's questions and pull request included.
+  (below): under the next unused number, in the plan file and the task
+  list where it runs, after the to-do that raised it and before the
+  first to-do that cannot start until it is done. Nothing the finish
+  phase waits on gets one, finished-issue-housekeeping's questions and
+  pull request included.
   - Mark it `in_progress` only when the developer says they have
     started it, never because it is next.
   - Complete it as soon as it is done, whoever notices first: the
@@ -807,9 +808,11 @@ Mirror the plan's to-dos into the task list with `TaskCreate`:
   created. So when new work belongs ahead of pending tasks, or the
   working order changes, delete each pending task it belongs ahead of
   (`status: "deleted"`) and create it again after the new one, in
-  working order, with the same number and wording. Completed tasks stay
-  as they are. Move the plan file's lines to match: a to-do's number is
-  its name, never its position.
+  working order, with the same subject and description. A to-do in
+  progress that the new work must come before is set aside to `pending`
+  first, and moves with them. Completed tasks stay as they are. Move the
+  plan file's lines to match: a to-do's number is its name, never its
+  position.
 - **On a GitHub-tracked repository, mirror the to-dos into the issue
   body as well:**
 
