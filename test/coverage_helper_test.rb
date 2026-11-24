@@ -29,6 +29,14 @@ class CoverageHelperTest < Minitest::Test
     end
   RUBY
 
+  FAKE_JSON_FORMATTER = <<~RUBY
+    module SimpleCov
+      module Formatter
+        class JSONFormatter; end
+      end
+    end
+  RUBY
+
   def test_loads_pinned_simplecov_beside_a_newer_one
     skip_unless_installed('simplecov', '0.22.0')
     skip_unless_installed('simplecov_json_formatter', '0.1.4')
@@ -54,13 +62,7 @@ class CoverageHelperTest < Minitest::Test
     skip_unless_installed('simplecov_json_formatter', '0.1.4')
 
     Dir.mktmpdir('fake-gems') do |fake_gem_dir|
-      install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.99', <<~RUBY)
-        module SimpleCov
-          module Formatter
-            class JSONFormatter; end
-          end
-        end
-      RUBY
+      install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.99', FAKE_JSON_FORMATTER)
       out, err, _status = Open3.capture3(
         { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
         RbConfig.ruby, '-e',
@@ -72,9 +74,12 @@ class CoverageHelperTest < Minitest::Test
     end
   end
 
+  # The pinned formatter is present, so the simplecov pin is the only
+  # thing that can stop the fake from loading.
   def test_abort_names_install_hint_when_only_another_version_installed
     Dir.mktmpdir('fake-gems') do |fake_gem_dir|
       install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
+      install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.4', FAKE_JSON_FORMATTER)
       _out, err, status = Open3.capture3(
         { 'COVERAGE' => '1', 'GEM_HOME' => fake_gem_dir, 'GEM_PATH' => fake_gem_dir },
         RbConfig.ruby, '-e', "require #{HELPER.dump}",
