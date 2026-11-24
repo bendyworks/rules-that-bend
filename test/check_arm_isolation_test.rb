@@ -247,6 +247,14 @@ class CheckArmIsolationTest < Minitest::Test
     assert_match(/TMPDIR/, err)
   end
 
+  def test_writes_a_temporary_directory_that_is_the_home_directory_as_a_tilde
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: @tmp)
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'TMPDIR (~)'
+  end
+
   def test_writes_the_temporary_directory_under_the_home_directory_with_a_tilde
     home_tmp = File.join(@tmp, 'tmp')
     Dir.mkdir(home_tmp)

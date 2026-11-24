@@ -57,7 +57,8 @@ case "$CLAUDE" in
   *) cannot_tell "${CLAUDE_BIN:-claude} resolves to $CLAUDE, not to a file's absolute path. Set CLAUDE_BIN to the absolute path of claude." ;;
 esac
 
-# Copies stdin with a leading home directory written as ~, so a report
+# Copies stdin with a leading home directory, or the home directory
+# itself, written as ~, so a report
 # pasted into an issue carries no home-directory path. A HOME ending in
 # a slash would match the front of no path.
 tilde() {
@@ -65,7 +66,10 @@ tilde() {
   home="${home%/}"
   while IFS= read -r line; do
     if [ -n "$home" ]; then
-      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
+      case "$line" in
+        "$home") line="~" ;;
+        "$home"/*) line="~${line#"$home"}" ;;
+      esac
     fi
     printf '%s\n' "$line"
   done
