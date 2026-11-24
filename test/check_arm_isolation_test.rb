@@ -322,6 +322,14 @@ class CheckArmIsolationTest < Minitest::Test
 
   # --- an arm that fails ---
 
+  def test_writes_the_home_directory_in_an_arms_error_output_as_a_tilde
+    _out, err, status = check(STUB_PLAIN_EXIT: '4', STUB_PLAIN_STDERR: "could not read #{@tmp}/settings.json")
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'could not read ~/settings.json'
+  end
+
   def test_names_the_unflagged_arm_when_it_alone_fails_and_shows_its_error
     out, err, status = check(STUB_PLAIN_EXIT: '4', STUB_PLAIN_STDERR: "Invalid API key\nPlease sign in",
                              STUB_FLAGGED_STDERR: 'flagged noise')
@@ -414,6 +422,14 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 0, status.exitstatus, out + err
     assert_equal 2, calls.size
+  end
+
+  def test_writes_the_home_directory_in_a_message_as_a_tilde
+    _out, err, status = check(CLAUDE_BIN: File.join(@tmp, 'bin', 'claude'))
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, '~/bin/claude is not installed'
   end
 
   def test_cannot_tell_when_claude_is_not_installed

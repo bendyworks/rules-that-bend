@@ -43,7 +43,32 @@
 # error.
 set -uo pipefail
 
-say() { echo "check-arm-isolation: $*"; }
+# Copies stdin with every path under the home directory, and a line
+# that is the home directory itself, written with ~ in its place, so a
+# report pasted into an issue carries no home-directory path. Trailing
+# slashes come off HOME first, or it would match no path. The line is
+# split with %% and # rather than ${line//...}, which bash 3.2 mangles
+# when the pattern is quoted.
+tilde() {
+  local line out home="${HOME:-}"
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
+  while IFS= read -r line; do
+    if [ -n "$home" ]; then
+      [ "$line" != "$home" ] || line="~"
+      out=
+      while :; do
+        case "$line" in
+          *"$home"/*) out="$out${line%%"$home"/*}~/"; line="${line#*"$home"/}" ;;
+          *) break ;;
+        esac
+      done
+      line="$out$line"
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
+say() { echo "check-arm-isolation: $*" | tilde; }
 cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
 
 [ "$#" -eq 0 ] || { say "usage: $0" >&2; exit 2; }
@@ -56,24 +81,6 @@ case "$CLAUDE" in
   /*) ;;
   *) cannot_tell "${CLAUDE_BIN:-claude} resolves to $CLAUDE, not to a file's absolute path. Set CLAUDE_BIN to the absolute path of claude." ;;
 esac
-
-# Copies stdin with a leading home directory, or the home directory
-# itself, written as ~, so a report
-# pasted into an issue carries no home-directory path. A HOME ending in
-# a slash would match the front of no path.
-tilde() {
-  local line home="${HOME:-}"
-  home="${home%/}"
-  while IFS= read -r line; do
-    if [ -n "$home" ]; then
-      case "$line" in
-        "$home") line="~" ;;
-        "$home"/*) line="~${line#"$home"}" ;;
-      esac
-    fi
-    printf '%s\n' "$line"
-  done
-}
 
 # Copies the error output saved in file $1, indented, or says there was
 # none.
@@ -174,7 +181,7 @@ flagged_pid=
 arm_failed() {
   {
     say "cannot tell: the arm $1 exited $2:"
-    indented "$scratch/$3.err"
+    indented "$scratch/$3.err" | tilde
   } >&2
   exit 2
 }
