@@ -43,14 +43,16 @@ class CoverageHelperTest < Minitest::Test
 
     Dir.mktmpdir('fake-gems') do |fake_gem_dir|
       install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
-      out, err, _status = Open3.capture3(
+      out, err, status = Open3.capture3(
         { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
         RbConfig.ruby, '-e',
         "require #{HELPER.dump}; print SimpleCov::VERSION; $stdout.flush; Process.exit!(0)",
         chdir: REPO_ROOT
       )
+      # 0.22.0 is the version whose configuration calls print no
+      # deprecation warnings, so this assertion covers both.
+      assert status.success?, "helper subprocess failed: #{err}"
       assert_equal '0.22.0', out, "the helper must load the pinned simplecov; stderr: #{err}"
-      refute_includes err, '[DEPRECATION]'
     end
   end
 
@@ -63,13 +65,14 @@ class CoverageHelperTest < Minitest::Test
 
     Dir.mktmpdir('fake-gems') do |fake_gem_dir|
       install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.99', FAKE_JSON_FORMATTER)
-      out, err, _status = Open3.capture3(
+      out, err, status = Open3.capture3(
         { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
         RbConfig.ruby, '-e',
         "require #{HELPER.dump}; print Gem.loaded_specs['simplecov_json_formatter'].version; " \
         '$stdout.flush; Process.exit!(0)',
         chdir: REPO_ROOT
       )
+      assert status.success?, "helper subprocess failed: #{err}"
       assert_equal '0.1.4', out, "the helper must load the pinned json formatter; stderr: #{err}"
     end
   end
