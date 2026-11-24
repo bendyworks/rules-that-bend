@@ -31,13 +31,14 @@ unless ENV['COVERAGE'].to_s.empty?
   begin
     # A plain require activates the newest version installed, which
     # may not be the one CI measures with. The formatter needs its own
-    # pin: simplecov accepts any formatter ~> 0.1 and leaves choosing
-    # one to its require, which takes the newest 0.x. With a pin or one
-    # of simplecov's dependencies missing, gem raises
-    # Gem::MissingSpecError, and the abort below names that gem and
-    # the installs that bring it in. Any other load error, such as another simplecov
-    # already activated, raises as it is, since installing the pin
-    # would not fix it.
+    # pin: simplecov accepts any formatter ~> 0.1, and with several
+    # installed, activating simplecov leaves the choice to its require,
+    # which takes the newest 0.x. With a pin or one of simplecov's
+    # dependencies missing, gem raises Gem::MissingSpecError, and the
+    # abort below names that gem and the installs that bring it in.
+    # Any other load error, such as another simplecov already
+    # activated, raises as it is, since installing the pin would not
+    # fix it.
     gem 'simplecov_json_formatter', formatter_version
     gem 'simplecov', simplecov_version
     require 'simplecov'

@@ -49,9 +49,9 @@ class CoverageHelperTest < Minitest::Test
         "require #{HELPER.dump}; print SimpleCov::VERSION; $stdout.flush; Process.exit!(0)",
         chdir: REPO_ROOT
       )
+      assert status.success?, "helper subprocess failed: #{err}"
       # 0.22.0 is the version whose configuration calls print no
       # deprecation warnings, so this assertion covers both.
-      assert status.success?, "helper subprocess failed: #{err}"
       assert_equal '0.22.0', out, "the helper must load the pinned simplecov; stderr: #{err}"
     end
   end
