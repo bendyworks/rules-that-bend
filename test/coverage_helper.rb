@@ -28,6 +28,10 @@ unless ENV['COVERAGE'].to_s.empty?
   simplecov_version = '0.22.0'
 
   begin
+    # A plain require activates the newest simplecov installed, which
+    # may not be the one CI measures with. With the pin missing, gem
+    # raises a LoadError subclass and the hint below names the fix.
+    gem 'simplecov', simplecov_version
     require 'simplecov'
     # Declared as a runtime dependency of simplecov, so the install
     # hint below covers it too; inside the rescue so a partial

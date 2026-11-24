@@ -9,12 +9,56 @@
 
 require_relative 'cli_test_case'
 
+require 'fileutils'
 require 'open3'
 require 'tmpdir'
 
 class CoverageHelperTest < Minitest::Test
   REPO_ROOT = File.expand_path('..', __dir__)
   HELPER = File.join(REPO_ROOT, 'test', 'coverage_helper.rb')
+
+  # A stand-in for a newer simplecov than the pin. Its no-op start
+  # ignores the helper's configuration block, so the helper runs to
+  # the end with the fake loaded and the version assertion is what
+  # fails, not a crash.
+  FAKE_SIMPLECOV = <<~RUBY
+    warn 'FAKE SIMPLECOV LOADED'
+    module SimpleCov
+      VERSION = '9.9.9'
+      def self.start(*) = nil
+    end
+  RUBY
+
+  def test_loads_pinned_simplecov_beside_a_newer_one
+    skip_unless_installed('simplecov', '0.22.0')
+    skip_unless_installed('simplecov_json_formatter', '0.1.4')
+
+    Dir.mktmpdir('fake-gems') do |fake_gem_dir|
+      install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
+      out, err, _status = Open3.capture3(
+        { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
+        RbConfig.ruby, '-e',
+        "require #{HELPER.dump}; print SimpleCov::VERSION; $stdout.flush; Process.exit!(0)",
+        chdir: REPO_ROOT
+      )
+      assert_equal '0.22.0', out, "the helper must load the pinned simplecov; stderr: #{err}"
+      refute_includes err, '[DEPRECATION]'
+    end
+  end
+
+  def test_abort_names_install_hint_when_only_another_version_installed
+    Dir.mktmpdir('fake-gems') do |fake_gem_dir|
+      install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
+      _out, err, status = Open3.capture3(
+        { 'COVERAGE' => '1', 'GEM_HOME' => fake_gem_dir, 'GEM_PATH' => fake_gem_dir },
+        RbConfig.ruby, '-e', "require #{HELPER.dump}",
+        chdir: REPO_ROOT
+      )
+      assert_equal 1, status.exitstatus, 'a missing pinned version must exit 1'
+      refute_includes err, 'FAKE SIMPLECOV LOADED', 'the helper must not load an unpinned simplecov'
+      assert_includes err, 'gem install simplecov -v 0.22.0'
+    end
+  end
 
   def test_noop_when_coverage_unset
     out, err, status = Open3.capture3(
@@ -91,5 +135,31 @@ class CoverageHelperTest < Minitest::Test
     assert helper_require < minitest_require,
            'coverage_helper must be required before minitest/autorun, or coverage ' \
            'collapses to load-time-only while every artifact check stays green'
+  end
+
+  private
+
+  # Decided here, from what this process can see installed, rather
+  # than from the child's output: before the pin, a newer simplecov
+  # on the path makes the helper print the install hint too.
+  def skip_unless_installed(name, version)
+    return if Gem::Specification.find_all_by_name(name, version).any?
+
+    skip "#{name} #{version} not installed in this environment"
+  end
+
+  def install_fake_gem(gem_dir, name, version, source)
+    spec = Gem::Specification.new do |s|
+      s.name = name
+      s.version = version
+      s.summary = 'stand-in for a version other than the pin'
+      s.authors = ['coverage_helper_test']
+      s.require_paths = ['lib']
+    end
+    FileUtils.mkdir_p(File.join(gem_dir, 'specifications'))
+    File.write(File.join(gem_dir, 'specifications', "#{name}-#{version}.gemspec"), spec.to_ruby)
+    lib_dir = File.join(gem_dir, 'gems', "#{name}-#{version}", 'lib')
+    FileUtils.mkdir_p(lib_dir)
+    File.write(File.join(lib_dir, "#{name}.rb"), source)
   end
 end
