@@ -39,8 +39,9 @@ jobs:
       # test/coverage_helper_test.rb; update all three together. The
       # json formatter is pinned because the integrity guard below
       # depends on coverage.json's schema. The helper activates
-      # exactly these versions, so a runner image shipping a newer
-      # one leaves the measurement unchanged.
+      # exactly these two versions, whatever newer ones a runner
+      # image ships; simplecov's other dependencies (docile,
+      # simplecov-html) are not pinned.
       - name: Install SimpleCov
         run: |
           gem install simplecov_json_formatter -v 0.1.4
