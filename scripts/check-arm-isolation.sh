@@ -215,7 +215,7 @@ if [ -n "$plain_files" ] && [ -z "$(loaded Project flagged)" ] && [ -z "$(loaded
   where="$(printf '%s\n' "${TMPDIR:-/tmp}" | tilde)"
   case "$scratch" in
     */claude-[0-9]*/*/*/scratchpad/*) cannot_tell "neither arm loaded its own project file, though the hook fired. TMPDIR ($where) is inside a Claude Code session's scratchpad, where Claude Code reads no project instruction files. Set TMPDIR to a directory outside it, such as /tmp." ;;
-    *) cannot_tell "neither arm loaded its own project file, though the hook fired, so Claude Code read no project instruction files under TMPDIR ($where). Set TMPDIR to another directory and run the check again." ;;
+    *) cannot_tell "neither arm loaded its own project file, though the hook fired: Claude Code read no project instruction files under TMPDIR ($where), or reported them in a form this check does not read. Set TMPDIR to another directory and run the check again; if this message stays, open an issue in rules-that-bend with it." ;;
   esac
 fi
 
