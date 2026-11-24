@@ -46,6 +46,32 @@ class CoverageHelperTest < Minitest::Test
     end
   end
 
+  # simplecov accepts any simplecov_json_formatter ~> 0.1, and the
+  # integrity guard in CI depends on coverage.json's schema, so the
+  # formatter carries a pin of its own.
+  def test_loads_pinned_json_formatter_beside_a_newer_one
+    skip_unless_installed('simplecov', '0.22.0')
+    skip_unless_installed('simplecov_json_formatter', '0.1.4')
+
+    Dir.mktmpdir('fake-gems') do |fake_gem_dir|
+      install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.99', <<~RUBY)
+        module SimpleCov
+          module Formatter
+            class JSONFormatter; end
+          end
+        end
+      RUBY
+      out, err, _status = Open3.capture3(
+        { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
+        RbConfig.ruby, '-e',
+        "require #{HELPER.dump}; print Gem.loaded_specs['simplecov_json_formatter'].version; " \
+        '$stdout.flush; Process.exit!(0)',
+        chdir: REPO_ROOT
+      )
+      assert_equal '0.1.4', out, "the helper must load the pinned json formatter; stderr: #{err}"
+    end
+  end
+
   def test_abort_names_install_hint_when_only_another_version_installed
     Dir.mktmpdir('fake-gems') do |fake_gem_dir|
       install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
@@ -89,10 +115,11 @@ class CoverageHelperTest < Minitest::Test
       )
       assert_equal 1, status.exitstatus, 'the missing-gem path must exit 1'
       refute_includes err, 'LoadError', 'the abort must replace the raw LoadError, not follow it'
-      # The version is hardcoded on purpose: a bump to the pins in
+      # The versions are hardcoded on purpose: a bump to the pins in
       # test/coverage_helper.rb and .github/workflows/checks.yml must
       # consciously touch this tripwire too, so the three sites cannot
       # drift apart silently.
+      assert_includes err, 'gem install simplecov_json_formatter -v 0.1.4'
       assert_includes err, 'gem install simplecov -v 0.22.0'
     end
   end
@@ -104,6 +131,9 @@ class CoverageHelperTest < Minitest::Test
   # SimpleCov's at_exit, so the probe writes no artifact and leaves
   # no resultset entry behind.
   def test_pins_root_and_merge_window_from_any_cwd
+    skip_unless_installed('simplecov', '0.22.0')
+    skip_unless_installed('simplecov_json_formatter', '0.1.4')
+
     out, err, status = Open3.capture3(
       { 'COVERAGE' => '1' },
       RbConfig.ruby, '-e',
@@ -111,7 +141,6 @@ class CoverageHelperTest < Minitest::Test
       '$stdout.flush; Process.exit!(0)',
       chdir: File.join(REPO_ROOT, 'test')
     )
-    skip 'simplecov not installed in this environment' if err.include?('gem install simplecov')
     assert status.success?, "helper subprocess failed: #{err}"
     assert_equal [REPO_ROOT, 3600].inspect, out
   end
