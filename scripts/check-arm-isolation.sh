@@ -204,8 +204,14 @@ fi
 
 # A user-level load without the flag shows the hook fires, so two arms
 # that report no project file are missing the file, not the hook.
+# The path checked is the session's own folder layout, the one place this
+# has been seen.
 if [ -n "$plain_files" ] && [ -z "$(loaded Project flagged)" ] && [ -z "$(loaded Project plain)" ]; then
-  cannot_tell "neither arm loaded its own project file, though the hook fired. Claude Code reads no project instruction files in $scratch, as it does not inside a Claude Code session's scratchpad. Set TMPDIR to a directory outside it, such as /tmp."
+  where="$(printf '%s\n' "${TMPDIR:-/tmp}" | tilde)"
+  case "$scratch" in
+    */scratchpad/*) cannot_tell "neither arm loaded its own project file, though the hook fired. TMPDIR ($where) is inside a Claude Code session's scratchpad, where Claude Code reads no project instruction files. Set TMPDIR to a directory outside it, such as /tmp." ;;
+    *) cannot_tell "neither arm loaded its own project file, though the hook fired, so Claude Code read no project instruction files under TMPDIR ($where). Set TMPDIR to another directory and run the check again." ;;
+  esac
 fi
 
 if [ -z "$(loaded Project flagged)" ]; then

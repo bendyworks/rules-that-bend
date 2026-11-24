@@ -225,21 +225,47 @@ class CheckArmIsolationTest < Minitest::Test
     assert_empty out
   end
 
-  def test_cannot_tell_when_neither_arm_loads_its_project_file_but_user_files_load
+  def test_names_the_scratchpad_when_neither_arm_reports_its_project_file_there
+    scratchpad = File.join(@tmp, '11111111-2222-3333-4444-555555555555', 'scratchpad')
+    FileUtils.mkdir_p(scratchpad)
+
+    out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: scratchpad)
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: neither arm loaded its own project file/, err)
+    assert_match(/inside a Claude Code session's scratchpad/, err)
+    assert_match(/Set TMPDIR to a directory outside it/, err)
+    assert_empty out
+  end
+
+  def test_names_no_scratchpad_when_neither_arm_reports_its_project_file_elsewhere
     out, err, status = check(plain: [['User', USER_FILE]], flagged: [])
 
     assert_equal 2, status.exitstatus, out + err
     assert_match(/cannot tell: neither arm loaded its own project file/, err)
-    assert_match(/scratchpad/, err)
+    refute_match(/session's scratchpad/, err)
     assert_match(/TMPDIR/, err)
-    assert_empty out
+  end
+
+  def test_writes_the_temporary_directory_under_the_home_directory_with_a_tilde
+    home_tmp = File.join(@tmp, 'tmp')
+    Dir.mkdir(home_tmp)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: home_tmp)
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'TMPDIR (~/tmp)'
   end
 
   def test_blames_no_scratchpad_when_neither_arm_reports_anything
-    _out, err, status = check(plain: [], flagged: [])
+    scratchpad = File.join(@tmp, '11111111-2222-3333-4444-555555555555', 'scratchpad')
+    FileUtils.mkdir_p(scratchpad)
+
+    _out, err, status = check(plain: [], flagged: [], TMPDIR: scratchpad)
 
     assert_equal 2, status.exitstatus, err
-    refute_match(/scratchpad/, err)
+    refute_match(/neither arm loaded/, err)
   end
 
   def test_cannot_tell_when_the_unflagged_arm_reports_nothing_at_all
