@@ -660,7 +660,12 @@ Where the plan has stack layers, items 1 to 3 repeat for each layer.
    wording. It is the finish phase's entry gate, completed by that
    phase's Step 1 checks, and it waits for the user to trigger finish.
    **Leave it out in Deploy-on-Merge Mode,** where the merge in step 4
-   is the deploy.
+   is the deploy. Where production loads none of the files the
+   story's PRs change at hand-off (list each PR's files as check 2 of
+   finished-issue-housekeeping's Step 1 does), the hand-off says the
+   finish phase can run once they merge: finish Step 1 checks that
+   again from the merged files. A listing that fails leaves the
+   hand-off saying nothing about it.
 7. **Run finished-issue-housekeeping (finish phase, user-triggered).**
    Use that wording. The housekeeping pass ticks it, and the item above
    when the plan has one.
@@ -899,9 +904,10 @@ each group of them:
 The work is done when the user has confirmed nothing is outstanding, not
 when the code ships. **Never auto-advance into this phase from record:**
 wait for the user to ask, and outside Deploy-on-Merge Mode, for the
-deploy as well as the merge. This phase checks the preconditions and
-hands off to the finished-issue-housekeeping skill (bundled in this
-plugin), which does the cleanup.
+deploy as well as the merge, unless production loads none of the files
+the story changed (Step 1, check 2). This phase checks the
+preconditions and hands off to the finished-issue-housekeeping skill
+(bundled in this plugin), which does the cleanup.
 
 ### Step 1 -- Confirm preconditions
 
@@ -917,9 +923,12 @@ session runs.
    state,mergedAt,mergeCommit`.
 2. **The merged code is live in production.** In Deploy-on-Merge Mode
    check 1 satisfies this one, provided nothing after the merge can
-   still fail or be skipped. Otherwise check the deploy: `heroku
-   releases -a <prod-app>` on Heroku, the project's deploy log
-   elsewhere, or ask the user.
+   still fail or be skipped. Check 1 also satisfies it when production
+   loads none of the files the story's PRs changed, as check 2 of
+   finished-issue-housekeeping's Step 1 (bundled in this plugin) says
+   how to tell. Otherwise check the deploy: `heroku releases -a
+   <prod-app>` on Heroku, the project's deploy log elsewhere, or ask
+   the user.
 3. **The user explicitly confirms** the plan is wrapped up.
 
 If any of these is "no", **stop** and return the confirm-shipped task to
