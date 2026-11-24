@@ -255,10 +255,30 @@ class CheckArmIsolationTest < Minitest::Test
   end
 
   def test_names_no_session_scratchpad_for_another_folder_called_scratchpad
-    own = File.join(@tmp, 'notes', 'scratchpad')
+    own = File.join(@tmp, 'a', 'b', 'notes', 'scratchpad')
     FileUtils.mkdir_p(own)
 
     _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: own)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
+  end
+
+  def test_names_no_session_scratchpad_two_levels_too_far_below_a_uid_folder
+    deep = File.join(@tmp, 'claude-7', 'x', 'notes', 'deep', 'scratchpad')
+    FileUtils.mkdir_p(deep)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: deep)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
+  end
+
+  def test_names_no_session_scratchpad_under_a_uid_folder_with_letters
+    lettered = File.join(@tmp, 'claude-1abc', '-Users-dev-project', 'session', 'scratchpad')
+    FileUtils.mkdir_p(lettered)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: lettered)
 
     assert_equal 2, status.exitstatus, err
     refute_match(/session's scratchpad/, err)

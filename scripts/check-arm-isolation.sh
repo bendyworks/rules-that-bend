@@ -179,6 +179,27 @@ arm_failed() {
   exit 2
 }
 
+# Succeeds when path $1 lies in a folder laid out as a Claude Code
+# session's scratchpad, claude-<uid>/<project>/<session>/scratchpad, the
+# one place a session has been seen to read no project instruction
+# files. Each folder is checked by name, since a glob's * also matches /.
+in_session_scratchpad() {
+  local path="$1/" session project uid
+  case "$path" in */scratchpad/*) ;; *) return 1 ;; esac
+  path="${path%/scratchpad/*}"
+  session="${path##*/}"
+  path="${path%/*}"
+  project="${path##*/}"
+  path="${path%/*}"
+  uid="${path##*/}"
+  [ -n "$session" ] && [ -n "$project" ] || return 1
+  case "$uid" in
+    claude- | claude-*[!0-9]*) return 1 ;;
+    claude-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The paths of the files of kind $1 (User or Project) in arm $2's log,
 # as the log writes them. The pattern steps over an escaped quote, so a
 # path with a quote in it is not cut short.
@@ -208,15 +229,13 @@ fi
 
 # A user-level load without the flag shows the hook fires, so two arms
 # that report no project file are missing the file, not the hook.
-# The path checked is a session's scratchpad folder,
-# claude-<uid>/<project>/<session>/scratchpad, the one place this has
-# been seen.
 if [ -n "$plain_files" ] && [ -z "$(loaded Project flagged)" ] && [ -z "$(loaded Project plain)" ]; then
   where="$(printf '%s\n' "${TMPDIR:-/tmp}" | tilde)"
-  case "$scratch" in
-    */claude-[0-9]*/*/*/scratchpad/*) cannot_tell "neither arm loaded its own project file, though the hook fired. TMPDIR ($where) is inside a Claude Code session's scratchpad, where Claude Code reads no project instruction files. Set TMPDIR to a directory outside it, such as /tmp." ;;
-    *) cannot_tell "neither arm loaded its own project file, though the hook fired: Claude Code read no project instruction files under TMPDIR ($where), or reported them in a form this check does not read. Set TMPDIR to another directory and run the check again; if this message stays, open an issue in rules-that-bend with it." ;;
-  esac
+  if in_session_scratchpad "$scratch"; then
+    cannot_tell "neither arm loaded its own project file, though the hook fired. TMPDIR ($where) is inside a Claude Code session's scratchpad, where Claude Code reads no project instruction files. Set TMPDIR to a directory outside it, such as /tmp."
+  else
+    cannot_tell "neither arm loaded its own project file, though the hook fired: Claude Code read no project instruction files under TMPDIR ($where), or reported them in a form this check does not read. Set TMPDIR to another directory and run the check again; if this message stays, open an issue in rules-that-bend with it."
+  fi
 fi
 
 if [ -z "$(loaded Project flagged)" ]; then
