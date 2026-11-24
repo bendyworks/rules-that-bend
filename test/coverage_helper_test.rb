@@ -9,11 +9,13 @@
 
 require_relative 'cli_test_case'
 
-require 'fileutils'
+require_relative 'fake_gems'
 require 'open3'
 require 'tmpdir'
 
 class CoverageHelperTest < Minitest::Test
+  include FakeGems
+
   REPO_ROOT = File.expand_path('..', __dir__)
   HELPER = File.join(REPO_ROOT, 'test', 'coverage_helper.rb')
 
@@ -212,32 +214,5 @@ class CoverageHelperTest < Minitest::Test
     assert helper_require < minitest_require,
            'coverage_helper must be required before minitest/autorun, or coverage ' \
            'collapses to load-time-only while every artifact check stays green'
-  end
-
-  private
-
-  # Decided from what this process sees installed, never from the
-  # child's output, so a missing pin skips the test while a helper
-  # that loads the wrong version fails it.
-  def skip_unless_installed(name, version)
-    return if Gem::Specification.find_all_by_name(name, version).any?
-
-    skip "#{name} #{version} not installed in this environment"
-  end
-
-  def install_fake_gem(gem_dir, name, version, source, deps: {})
-    spec = Gem::Specification.new do |s|
-      s.name = name
-      s.version = version
-      s.summary = 'stand-in for a version other than the pin'
-      s.authors = ['coverage_helper_test']
-      s.require_paths = ['lib']
-      deps.each { |dep_name, requirement| s.add_runtime_dependency(dep_name, requirement) }
-    end
-    FileUtils.mkdir_p(File.join(gem_dir, 'specifications'))
-    File.write(File.join(gem_dir, 'specifications', "#{name}-#{version}.gemspec"), spec.to_ruby)
-    lib_dir = File.join(gem_dir, 'gems', "#{name}-#{version}", 'lib')
-    FileUtils.mkdir_p(lib_dir)
-    File.write(File.join(lib_dir, "#{name}.rb"), source)
   end
 end
