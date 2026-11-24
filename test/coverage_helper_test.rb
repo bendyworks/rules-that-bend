@@ -193,9 +193,9 @@ class CoverageHelperTest < Minitest::Test
 
   private
 
-  # Decided here, from what this process can see installed, rather
-  # than from the child's output: before the pin, a newer simplecov
-  # on the path makes the helper print the install hint too.
+  # Decided from what this process sees installed, never from the
+  # child's output, so a missing pin skips the test while a helper
+  # that loads the wrong version fails it.
   def skip_unless_installed(name, version)
     return if Gem::Specification.find_all_by_name(name, version).any?
 
