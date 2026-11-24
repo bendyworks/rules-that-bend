@@ -41,8 +41,8 @@ unless ENV['COVERAGE'].to_s.empty?
     gem 'simplecov', simplecov_version
     require 'simplecov'
     require 'simplecov_json_formatter'
-  rescue Gem::MissingSpecError
-    abort 'coverage_helper: COVERAGE is set but the pinned simplecov is ' \
+  rescue Gem::MissingSpecError => e
+    abort "coverage_helper: COVERAGE is set but #{e.name} (#{e.requirement}) is " \
           "not installed; run: gem install simplecov_json_formatter -v #{formatter_version} " \
           "&& gem install simplecov -v #{simplecov_version}"
   end

@@ -90,6 +90,7 @@ class CoverageHelperTest < Minitest::Test
       )
       assert_equal 1, status.exitstatus, 'a missing pinned version must exit 1'
       refute_includes err, 'FAKE SIMPLECOV LOADED', 'the helper must not load an unpinned simplecov'
+      assert_includes err, 'simplecov (= 0.22.0) is not installed'
       assert_includes err, 'gem install simplecov -v 0.22.0'
     end
   end
@@ -147,6 +148,7 @@ class CoverageHelperTest < Minitest::Test
       # test/coverage_helper.rb and .github/workflows/checks.yml must
       # consciously touch this tripwire too, so the three sites cannot
       # drift apart silently.
+      assert_includes err, 'simplecov_json_formatter (= 0.1.4) is not installed'
       assert_includes err, 'gem install simplecov_json_formatter -v 0.1.4'
       assert_includes err, 'gem install simplecov -v 0.22.0'
     end
