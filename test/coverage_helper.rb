@@ -33,13 +33,15 @@ unless ENV['COVERAGE'].to_s.empty?
     # may not be the one CI measures with. The formatter is activated
     # first: simplecov accepts any ~> 0.1, so activating simplecov
     # first would settle the formatter on the newest 0.x. With a pin
-    # missing, gem raises a LoadError subclass and the hint below
-    # names the fix.
+    # missing, gem raises Gem::MissingSpecError and the hint below
+    # names the fix. Any other load error, such as another simplecov
+    # already activated, raises as it is, since installing the pin
+    # would not fix it.
     gem 'simplecov_json_formatter', formatter_version
     gem 'simplecov', simplecov_version
     require 'simplecov'
     require 'simplecov_json_formatter'
-  rescue LoadError
+  rescue Gem::MissingSpecError
     abort 'coverage_helper: COVERAGE is set but the pinned simplecov is ' \
           "not installed; run: gem install simplecov_json_formatter -v #{formatter_version} " \
           "&& gem install simplecov -v #{simplecov_version}"

@@ -91,6 +91,26 @@ class CoverageHelperTest < Minitest::Test
     end
   end
 
+  # Another simplecov activated before the helper runs (RUBYOPT, an
+  # earlier require) is a conflict, not a missing install: the install
+  # hint would name a gem that is already there.
+  def test_version_conflict_reports_the_conflict_not_the_install_hint
+    skip_unless_installed('simplecov', '0.22.0')
+    skip_unless_installed('simplecov_json_formatter', '0.1.4')
+
+    Dir.mktmpdir('fake-gems') do |fake_gem_dir|
+      install_fake_gem(fake_gem_dir, 'simplecov', '9.9.9', FAKE_SIMPLECOV)
+      _out, err, status = Open3.capture3(
+        { 'COVERAGE' => '1', 'GEM_PATH' => [fake_gem_dir, *Gem.path].join(File::PATH_SEPARATOR) },
+        RbConfig.ruby, '-e', "gem 'simplecov', '9.9.9'; require #{HELPER.dump}",
+        chdir: REPO_ROOT
+      )
+      refute status.success?, 'a version conflict must not let the run go on'
+      assert_includes err, 'already activated simplecov-9.9.9'
+      refute_includes err, 'gem install simplecov'
+    end
+  end
+
   def test_noop_when_coverage_unset
     out, err, status = Open3.capture3(
       { 'COVERAGE' => nil },
