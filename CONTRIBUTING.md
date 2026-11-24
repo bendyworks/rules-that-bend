@@ -303,7 +303,9 @@ functions raise a custom error, plus a thin CLI class that talks to the
 outside world and rescues to `abort`, dispatched behind
 `if $PROGRAM_NAME == __FILE__` -- the test file under `test/` can then
 `load` the bin file without executing the CLI, and CI runs it with a
-bare `ruby test/<name>_test.rb`. Shared test scaffolding for
+bare `ruby test/<name>_test.rb`. The tests run on a pinned minitest
+(install it once; when it is missing, each test file aborts naming the
+exact install command). Shared test scaffolding for
 CLI-invoking tests lives in `test/cli_test_case.rb`; its header
 comment explains the naming that keeps it outside CI's
 `test/*_test.rb` glob. Subclasses name their entry point in

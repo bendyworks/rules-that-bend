@@ -27,8 +27,24 @@
 require_relative 'coverage_helper'
 
 require 'fileutils'
-require 'minitest/autorun'
 require 'tmpdir'
+
+# A plain require activates the newest minitest installed, which may
+# not be the one CI runs. The pin is a minitest 6 release because
+# minitest 5's plugin loader requires the plugin files of every
+# installed minitest, and minitest 6's server and sprint plugins then
+# load minitest 6 on top of 5, which leaves no tests to run. The
+# version must match the pinned install in .github/workflows/checks.yml
+# (ruby-tests job) and the tripwire assertion in
+# test/minitest_pin_test.rb; update all three together.
+minitest_version = '6.0.6'
+begin
+  gem 'minitest', minitest_version
+rescue Gem::MissingSpecError => e
+  abort "cli_test_case: #{e.name} (#{e.requirement}) is not installed; " \
+        "run: gem install minitest -v #{minitest_version}"
+end
+require 'minitest/autorun'
 
 class CliTestCase < Minitest::Test
   # The variables that aim git at a repository other than the one named

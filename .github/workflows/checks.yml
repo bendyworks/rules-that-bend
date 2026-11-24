@@ -34,14 +34,21 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4'
-      # The simplecov pin must match the install hint in
-      # test/coverage_helper.rb and the tripwire assertion in
+      # Both pins must match the versions test/coverage_helper.rb
+      # activates and the tripwire assertions in
       # test/coverage_helper_test.rb; update all three together. The
-      # json formatter is installed first at a pinned version because
-      # the integrity guard below depends on coverage.json's schema.
-      # That pins what is installed, not what is activated: simplecov
-      # constrains the formatter only as ~> 0.1, so a runner image
-      # shipping a newer 0.x would activate that instead.
+      # json formatter is pinned because the integrity guard below
+      # depends on coverage.json's schema. The helper activates
+      # exactly these two versions, whatever newer ones a runner
+      # image ships; simplecov's other dependencies (docile,
+      # simplecov-html) are not pinned.
+      # The minitest pin must match the version test/cli_test_case.rb
+      # activates and the tripwire assertion in
+      # test/minitest_pin_test.rb; update all three together. Ruby's
+      # bundled minitest is older, so without this install the tests
+      # abort with the install hint.
+      - name: Install minitest
+        run: gem install minitest -v 6.0.6
       - name: Install SimpleCov
         run: |
           gem install simplecov_json_formatter -v 0.1.4

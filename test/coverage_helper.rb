@@ -22,20 +22,31 @@
 # zeros -- do not read uncovered lines from it directly.
 
 unless ENV['COVERAGE'].to_s.empty?
-  # Must match the pinned install in .github/workflows/checks.yml
-  # (ruby-tests job) and the tripwire assertion in
+  # Both must match the pinned installs in .github/workflows/checks.yml
+  # (ruby-tests job) and the tripwire assertions in
   # test/coverage_helper_test.rb; update all three together.
+  formatter_version = '0.1.4'
   simplecov_version = '0.22.0'
 
   begin
+    # A plain require activates the newest version installed, which
+    # may not be the one CI measures with. The formatter needs its own
+    # pin: simplecov accepts any formatter ~> 0.1, and with several
+    # installed, activating simplecov leaves the choice to its require,
+    # which takes the newest 0.x. With a pin or one of simplecov's
+    # dependencies missing, gem raises Gem::MissingSpecError, and the
+    # abort below names that gem and the installs that bring it in.
+    # Any other load error, such as another simplecov already
+    # activated, raises as it is, since installing the pin would not
+    # fix it.
+    gem 'simplecov_json_formatter', formatter_version
+    gem 'simplecov', simplecov_version
     require 'simplecov'
-    # Declared as a runtime dependency of simplecov, so the install
-    # hint below covers it too; inside the rescue so a partial
-    # install aborts with the hint instead of a raw LoadError.
     require 'simplecov_json_formatter'
-  rescue LoadError
-    abort "coverage_helper: COVERAGE is set but simplecov is not " \
-          "installed; run: gem install simplecov -v #{simplecov_version}"
+  rescue Gem::MissingSpecError => e
+    abort "coverage_helper: COVERAGE is set but #{e.name} (#{e.requirement}) is " \
+          "not installed; run: gem install simplecov_json_formatter -v #{formatter_version} " \
+          "&& gem install simplecov -v #{simplecov_version}"
   end
 
   # Root and the tracked glob are both pinned to absolute paths:
