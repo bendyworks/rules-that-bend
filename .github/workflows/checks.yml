@@ -42,6 +42,13 @@ jobs:
       # exactly these two versions, whatever newer ones a runner
       # image ships; simplecov's other dependencies (docile,
       # simplecov-html) are not pinned.
+      # The minitest pin must match the version test/cli_test_case.rb
+      # activates and the tripwire assertion in
+      # test/minitest_pin_test.rb; update all three together. Ruby's
+      # bundled minitest is older, so without this install the tests
+      # abort with the install hint.
+      - name: Install minitest
+        run: gem install minitest -v 6.0.6
       - name: Install SimpleCov
         run: |
           gem install simplecov_json_formatter -v 0.1.4
