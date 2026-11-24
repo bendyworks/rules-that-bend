@@ -30,9 +30,9 @@ unless ENV['COVERAGE'].to_s.empty?
 
   begin
     # A plain require activates the newest version installed, which
-    # may not be the one CI measures with. The formatter is activated
-    # first: simplecov accepts any ~> 0.1, so activating simplecov
-    # first would settle the formatter on the newest 0.x. With a pin
+    # may not be the one CI measures with. The formatter needs its own
+    # pin: simplecov accepts any formatter ~> 0.1 and leaves choosing
+    # one to its require, which takes the newest 0.x. With a pin
     # missing, gem raises Gem::MissingSpecError and the hint below
     # names the fix. Any other load error, such as another simplecov
     # already activated, raises as it is, since installing the pin
