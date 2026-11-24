@@ -114,6 +114,14 @@ class CheckArmIsolationTest < Minitest::Test
     calls.find { |call| !call['argv'].include?('--setting-sources') }
   end
 
+  # A folder laid out as a Claude Code session's scratchpad is:
+  # claude-<uid>/<project>/<session>/scratchpad.
+  def session_scratchpad
+    path = File.join(@tmp, 'claude-501', '-Users-dev-project', '11111111-2222-3333-4444-555555555555', 'scratchpad')
+    FileUtils.mkdir_p(path)
+    path
+  end
+
   def scratch_leftovers(dir = @tmp)
     Dir.glob(File.join(dir, 'check-arm-isolation.*'))
   end
@@ -225,6 +233,85 @@ class CheckArmIsolationTest < Minitest::Test
     assert_empty out
   end
 
+  def test_names_the_scratchpad_when_neither_arm_reports_its_project_file_there
+    scratchpad = session_scratchpad
+
+    out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: scratchpad)
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: neither arm loaded its own project file/, err)
+    assert_match(/inside a Claude Code session's scratchpad/, err)
+    assert_match(/Set TMPDIR to a directory outside it/, err)
+    assert_empty out
+  end
+
+  def test_names_no_scratchpad_when_neither_arm_reports_its_project_file_elsewhere
+    out, err, status = check(plain: [['User', USER_FILE]], flagged: [])
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: neither arm loaded its own project file/, err)
+    refute_match(/session's scratchpad/, err)
+    assert_match(/TMPDIR/, err)
+  end
+
+  def test_names_no_session_scratchpad_for_another_folder_called_scratchpad
+    own = File.join(@tmp, 'a', 'b', 'notes', 'scratchpad')
+    FileUtils.mkdir_p(own)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: own)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
+  end
+
+  def test_names_no_session_scratchpad_two_levels_too_far_below_a_uid_folder
+    deep = File.join(@tmp, 'claude-7', 'x', 'notes', 'deep', 'scratchpad')
+    FileUtils.mkdir_p(deep)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: deep)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
+  end
+
+  def test_names_no_session_scratchpad_under_a_uid_folder_with_letters
+    lettered = File.join(@tmp, 'claude-1abc', '-Users-dev-project', 'session', 'scratchpad')
+    FileUtils.mkdir_p(lettered)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: lettered)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
+  end
+
+  def test_writes_a_temporary_directory_that_is_the_home_directory_as_a_tilde
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: @tmp)
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'TMPDIR (~)'
+  end
+
+  def test_writes_the_temporary_directory_under_the_home_directory_with_a_tilde
+    home_tmp = File.join(@tmp, 'tmp')
+    Dir.mkdir(home_tmp)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: home_tmp)
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'TMPDIR (~/tmp)'
+  end
+
+  def test_blames_no_scratchpad_when_neither_arm_reports_anything
+    scratchpad = session_scratchpad
+
+    _out, err, status = check(plain: [], flagged: [], TMPDIR: scratchpad)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/neither arm loaded/, err)
+  end
+
   def test_cannot_tell_when_the_unflagged_arm_reports_nothing_at_all
     out, err, status = check(plain: [])
 
@@ -234,6 +321,14 @@ class CheckArmIsolationTest < Minitest::Test
   end
 
   # --- an arm that fails ---
+
+  def test_writes_the_home_directory_in_an_arms_error_output_as_a_tilde
+    _out, err, status = check(STUB_PLAIN_EXIT: '4', STUB_PLAIN_STDERR: "could not read #{@tmp}/settings.json")
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, 'could not read ~/settings.json'
+  end
 
   def test_names_the_unflagged_arm_when_it_alone_fails_and_shows_its_error
     out, err, status = check(STUB_PLAIN_EXIT: '4', STUB_PLAIN_STDERR: "Invalid API key\nPlease sign in",
@@ -327,6 +422,14 @@ class CheckArmIsolationTest < Minitest::Test
 
     assert_equal 0, status.exitstatus, out + err
     assert_equal 2, calls.size
+  end
+
+  def test_writes_the_home_directory_in_a_message_as_a_tilde
+    _out, err, status = check(CLAUDE_BIN: File.join(@tmp, 'bin', 'claude'))
+
+    assert_equal 2, status.exitstatus, err
+    refute_includes err, @tmp
+    assert_includes err, '~/bin/claude is not installed'
   end
 
   def test_cannot_tell_when_claude_is_not_installed

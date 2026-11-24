@@ -123,10 +123,12 @@ the run the answer the skill was supposed to supply. When writing a
 project declaration for an arm, state the fact the project asserts,
 never the behavior you expect from the skill. Build those directories
 under the system's `$TMPDIR` (`mktemp -d`), never inside a Claude Code
-session's scratchpad (`/private/tmp/claude-<uid>/...`): an arm there
-loads its `CLAUDE.md` and path-scoped rules but no unscoped file under
-`.claude/rules/`, so a rule copied in that way never reaches the arm,
-and `scripts/check-arm-isolation.sh` run with `TMPDIR` there exits 2.
+session's scratchpad (`/private/tmp/claude-<uid>/.../scratchpad`): an
+arm there loads neither its `CLAUDE.md` nor an unscoped file under
+`.claude/rules/`, with or without `--setting-sources project`, so the
+rules it was given never reach it. `scripts/check-arm-isolation.sh` run
+with `TMPDIR` there exits 2, and on a machine with user-level
+instruction files it names the scratchpad as the reason.
 Keep them outside every checkout too: an arm under this repo's
 ignored `tmp/` had every edit to its own files refused in a headless
 run, so a skill that edits stopped and asked for permission while the

@@ -43,7 +43,32 @@
 # error.
 set -uo pipefail
 
-say() { echo "check-arm-isolation: $*"; }
+# Copies stdin with every path under the home directory, and a line
+# that is the home directory itself, written with ~ in its place, so a
+# report pasted into an issue carries no home-directory path. Trailing
+# slashes come off HOME first, or it would match no path. The line is
+# split with %% and # rather than ${line//...}, which bash 3.2 mangles
+# when the pattern is quoted.
+tilde() {
+  local line out home="${HOME:-}"
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done
+  while IFS= read -r line; do
+    if [ -n "$home" ]; then
+      [ "$line" != "$home" ] || line="~"
+      out=
+      while :; do
+        case "$line" in
+          *"$home"/*) out="$out${line%%"$home"/*}~/"; line="${line#*"$home"/}" ;;
+          *) break ;;
+        esac
+      done
+      line="$out$line"
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
+say() { echo "check-arm-isolation: $*" | tilde; }
 cannot_tell() { say "cannot tell: $*" >&2; exit 2; }
 
 [ "$#" -eq 0 ] || { say "usage: $0" >&2; exit 2; }
@@ -56,20 +81,6 @@ case "$CLAUDE" in
   /*) ;;
   *) cannot_tell "${CLAUDE_BIN:-claude} resolves to $CLAUDE, not to a file's absolute path. Set CLAUDE_BIN to the absolute path of claude." ;;
 esac
-
-# Copies stdin with a leading home directory written as ~, so a report
-# pasted into an issue carries no home-directory path. A HOME ending in
-# a slash would match the front of no path.
-tilde() {
-  local line home="${HOME:-}"
-  home="${home%/}"
-  while IFS= read -r line; do
-    if [ -n "$home" ]; then
-      case "$line" in "$home"/*) line="~${line#"$home"}" ;; esac
-    fi
-    printf '%s\n' "$line"
-  done
-}
 
 # Copies the error output saved in file $1, indented, or says there was
 # none.
@@ -170,9 +181,30 @@ flagged_pid=
 arm_failed() {
   {
     say "cannot tell: the arm $1 exited $2:"
-    indented "$scratch/$3.err"
+    indented "$scratch/$3.err" | tilde
   } >&2
   exit 2
+}
+
+# Succeeds when path $1 lies in a folder laid out as a Claude Code
+# session's scratchpad, claude-<uid>/<project>/<session>/scratchpad, the
+# one place a session has been seen to read no project instruction
+# files. Each folder is checked by name, since a glob's * also matches /.
+in_session_scratchpad() {
+  local path="$1/" session project uid
+  case "$path" in */scratchpad/*) ;; *) return 1 ;; esac
+  path="${path%/scratchpad/*}"
+  session="${path##*/}"
+  path="${path%/*}"
+  project="${path##*/}"
+  path="${path%/*}"
+  uid="${path##*/}"
+  [ -n "$session" ] && [ -n "$project" ] || return 1
+  case "$uid" in
+    claude- | claude-*[!0-9]*) return 1 ;;
+    claude-*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # The paths of the files of kind $1 (User or Project) in arm $2's log,
@@ -201,6 +233,17 @@ fi
 # went on to fail.
 [ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
 [ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
+
+# A user-level load without the flag shows the hook fires, so two arms
+# that report no project file are missing the file, not the hook.
+if [ -n "$plain_files" ] && [ -z "$(loaded Project flagged)" ] && [ -z "$(loaded Project plain)" ]; then
+  where="$(printf '%s\n' "${TMPDIR:-/tmp}" | tilde)"
+  if in_session_scratchpad "$scratch"; then
+    cannot_tell "neither arm loaded its own project file, though the hook fired. TMPDIR ($where) is inside a Claude Code session's scratchpad, where Claude Code reads no project instruction files. Set TMPDIR to a directory outside it, such as /tmp."
+  else
+    cannot_tell "neither arm loaded its own project file, though the hook fired: Claude Code read no project instruction files under TMPDIR ($where), or reported them in a form this check does not read. Set TMPDIR to another directory and run the check again; if this message stays, open an issue in rules-that-bend with it."
+  fi
+fi
 
 if [ -z "$(loaded Project flagged)" ]; then
   cannot_tell "the arm with the flag did not report loading its own project file, so the hook may not fire under the flag on $version, and its silence about user-level files proves nothing."
