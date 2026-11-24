@@ -225,6 +225,23 @@ class CheckArmIsolationTest < Minitest::Test
     assert_empty out
   end
 
+  def test_cannot_tell_when_neither_arm_loads_its_project_file_but_user_files_load
+    out, err, status = check(plain: [['User', USER_FILE]], flagged: [])
+
+    assert_equal 2, status.exitstatus, out + err
+    assert_match(/cannot tell: neither arm loaded its own project file/, err)
+    assert_match(/scratchpad/, err)
+    assert_match(/TMPDIR/, err)
+    assert_empty out
+  end
+
+  def test_blames_no_scratchpad_when_neither_arm_reports_anything
+    _out, err, status = check(plain: [], flagged: [])
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/scratchpad/, err)
+  end
+
   def test_cannot_tell_when_the_unflagged_arm_reports_nothing_at_all
     out, err, status = check(plain: [])
 

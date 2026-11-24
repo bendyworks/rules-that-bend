@@ -202,6 +202,12 @@ fi
 [ "$plain_status" -eq 0 ] || arm_failed "without the flag" "$plain_status" plain
 [ "$flagged_status" -eq 0 ] || arm_failed "with the flag" "$flagged_status" flagged
 
+# A user-level load without the flag shows the hook fires, so two arms
+# that report no project file are missing the file, not the hook.
+if [ -n "$plain_files" ] && [ -z "$(loaded Project flagged)" ] && [ -z "$(loaded Project plain)" ]; then
+  cannot_tell "neither arm loaded its own project file, though the hook fired. Claude Code reads no project instruction files in $scratch, as it does not inside a Claude Code session's scratchpad. Set TMPDIR to a directory outside it, such as /tmp."
+fi
+
 if [ -z "$(loaded Project flagged)" ]; then
   cannot_tell "the arm with the flag did not report loading its own project file, so the hook may not fire under the flag on $version, and its silence about user-level files proves nothing."
 fi
