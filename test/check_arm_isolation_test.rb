@@ -114,6 +114,14 @@ class CheckArmIsolationTest < Minitest::Test
     calls.find { |call| !call['argv'].include?('--setting-sources') }
   end
 
+  # A folder laid out as a Claude Code session's scratchpad is:
+  # claude-<uid>/<project>/<session>/scratchpad.
+  def session_scratchpad
+    path = File.join(@tmp, 'claude-501', '-Users-dev-project', '11111111-2222-3333-4444-555555555555', 'scratchpad')
+    FileUtils.mkdir_p(path)
+    path
+  end
+
   def scratch_leftovers(dir = @tmp)
     Dir.glob(File.join(dir, 'check-arm-isolation.*'))
   end
@@ -226,8 +234,7 @@ class CheckArmIsolationTest < Minitest::Test
   end
 
   def test_names_the_scratchpad_when_neither_arm_reports_its_project_file_there
-    scratchpad = File.join(@tmp, '11111111-2222-3333-4444-555555555555', 'scratchpad')
-    FileUtils.mkdir_p(scratchpad)
+    scratchpad = session_scratchpad
 
     out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: scratchpad)
 
@@ -245,6 +252,16 @@ class CheckArmIsolationTest < Minitest::Test
     assert_match(/cannot tell: neither arm loaded its own project file/, err)
     refute_match(/session's scratchpad/, err)
     assert_match(/TMPDIR/, err)
+  end
+
+  def test_names_no_session_scratchpad_for_another_folder_called_scratchpad
+    own = File.join(@tmp, 'notes', 'scratchpad')
+    FileUtils.mkdir_p(own)
+
+    _out, err, status = check(plain: [['User', USER_FILE]], flagged: [], TMPDIR: own)
+
+    assert_equal 2, status.exitstatus, err
+    refute_match(/session's scratchpad/, err)
   end
 
   def test_writes_a_temporary_directory_that_is_the_home_directory_as_a_tilde
@@ -267,8 +284,7 @@ class CheckArmIsolationTest < Minitest::Test
   end
 
   def test_blames_no_scratchpad_when_neither_arm_reports_anything
-    scratchpad = File.join(@tmp, '11111111-2222-3333-4444-555555555555', 'scratchpad')
-    FileUtils.mkdir_p(scratchpad)
+    scratchpad = session_scratchpad
 
     _out, err, status = check(plain: [], flagged: [], TMPDIR: scratchpad)
 
