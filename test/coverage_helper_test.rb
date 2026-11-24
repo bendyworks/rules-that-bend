@@ -95,6 +95,24 @@ class CoverageHelperTest < Minitest::Test
     end
   end
 
+  # Both pins are installed, but simplecov's own dependency is not:
+  # the abort names the dependency, and installing simplecov again
+  # brings it in.
+  def test_abort_names_a_missing_simplecov_dependency
+    Dir.mktmpdir('fake-gems') do |fake_gem_dir|
+      install_fake_gem(fake_gem_dir, 'simplecov_json_formatter', '0.1.4', FAKE_JSON_FORMATTER)
+      install_fake_gem(fake_gem_dir, 'simplecov', '0.22.0', FAKE_SIMPLECOV, deps: { 'docile' => '~> 1.1' })
+      _out, err, status = Open3.capture3(
+        { 'COVERAGE' => '1', 'GEM_HOME' => fake_gem_dir, 'GEM_PATH' => fake_gem_dir },
+        RbConfig.ruby, '-e', "require #{HELPER.dump}",
+        chdir: REPO_ROOT
+      )
+      assert_equal 1, status.exitstatus, 'a missing dependency must exit 1'
+      assert_includes err, 'docile (~> 1.1) is not installed'
+      assert_includes err, 'gem install simplecov -v 0.22.0'
+    end
+  end
+
   # Another simplecov activated before the helper runs (RUBYOPT, an
   # earlier require) is a conflict, not a missing install: the install
   # hint would name a gem that is already there.
@@ -207,13 +225,14 @@ class CoverageHelperTest < Minitest::Test
     skip "#{name} #{version} not installed in this environment"
   end
 
-  def install_fake_gem(gem_dir, name, version, source)
+  def install_fake_gem(gem_dir, name, version, source, deps: {})
     spec = Gem::Specification.new do |s|
       s.name = name
       s.version = version
       s.summary = 'stand-in for a version other than the pin'
       s.authors = ['coverage_helper_test']
       s.require_paths = ['lib']
+      deps.each { |dep_name, requirement| s.add_runtime_dependency(dep_name, requirement) }
     end
     FileUtils.mkdir_p(File.join(gem_dir, 'specifications'))
     File.write(File.join(gem_dir, 'specifications', "#{name}-#{version}.gemspec"), spec.to_ruby)
