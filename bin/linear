@@ -447,7 +447,6 @@ module Linear
 
     rest = parse_options(args, usage) do |o|
       value_option(o, '--team KEY') { |v| team_key = v }
-      value_option(o, '--due YYYY-MM-DD', 'Set the due date') { |v| due = v }
       value_option(o, '--priority LEVEL', 'REQUIRED: urgent|high|medium|low, or an explicit none (or 0-4)') { |v| priority = v }
       value_option(o, '--project NAME') { |v| project_name = v }
       value_option(o, '--title TITLE') { |v| title = v }
@@ -457,6 +456,7 @@ module Linear
       value_option(o, '--parent ABC-NNN', 'Make the new issue a sub-issue of this parent') { |v| parent_id = v }
       value_option(o, '--assignee EMAIL|me',
                    'Assign the issue (required when creating in a started state like In Progress)') { |v| assignee = v }
+      value_option(o, '--due YYYY-MM-DD', 'Set the due date') { |v| due = v }
       o.on('--no-project') { no_project = true }
       o.on('--json') { json_mode = true }
     end
@@ -587,7 +587,6 @@ module Linear
 
     rest = parse_options(args, usage) do |o|
       value_option(o, '--priority LEVEL', 'Set priority (none|urgent|high|medium|low or 0-4)') { |v| priority = v }
-      value_option(o, '--due YYYY-MM-DD|none', 'Set the due date, or clear it with none') { |v| due = v }
       value_option(o, '--state NAME') { |v| state_name = v }
       value_option(o, '--title TITLE') { |v| title = v }
       value_option(o, '--description TEXT') { |v| description = v }
@@ -596,6 +595,7 @@ module Linear
       value_option(o, '--parent ABC-NNN', 'Reparent the issue under this parent') { |v| parent_id = v }
       value_option(o, '--assignee EMAIL|me',
                    'Assign the issue (required when moving to a started state like In Progress)') { |v| assignee = v }
+      value_option(o, '--due YYYY-MM-DD|none', 'Set the due date, or clear it with none') { |v| due = v }
       o.on('--json') { json_mode = true }
     end
     identifier = take_positionals!(rest, 1, usage).first
