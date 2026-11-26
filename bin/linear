@@ -14,6 +14,7 @@
 # without executing the CLI.
 
 require 'net/http'
+require 'date'
 require 'json'
 require 'uri'
 require 'optparse'
@@ -256,6 +257,7 @@ module Linear
     project { name }
     parent { identifier title }
     children { nodes { identifier title state { name } } }
+    dueDate
   GQL
 
   LIST_FIELDS = <<~GQL
@@ -280,6 +282,7 @@ module Linear
     puts "Team: #{team} | Project: #{project}"
     assignee = issue.dig('assignee', 'name')
     puts "Assignee: #{assignee || '(unassigned)'}"
+    puts "Due: #{issue['dueDate']}" if issue['dueDate']
     if (parent = issue['parent'])
       puts "Parent: #{parent['identifier']} #{parent['title']}"
     end
@@ -428,7 +431,7 @@ module Linear
   def cmd_create(args)
     usage = 'Usage: linear create --team KEY --title TITLE --priority LEVEL (--project NAME | --no-project) ' \
             '[--description TEXT | --description-file PATH] [--state NAME] [--parent ABC-NNN] ' \
-            '[--assignee EMAIL|me] [--json]'
+            '[--assignee EMAIL|me] [--due YYYY-MM-DD] [--json]'
     team_key = nil
     project_name = nil
     title = nil
@@ -439,10 +442,12 @@ module Linear
     parent_id = nil
     assignee = nil
     priority = nil
+    due = nil
     json_mode = false
 
     rest = parse_options(args, usage) do |o|
       value_option(o, '--team KEY') { |v| team_key = v }
+      value_option(o, '--due YYYY-MM-DD', 'Set the due date') { |v| due = v }
       value_option(o, '--priority LEVEL', 'REQUIRED: urgent|high|medium|low, or an explicit none (or 0-4)') { |v| priority = v }
       value_option(o, '--project NAME') { |v| project_name = v }
       value_option(o, '--title TITLE') { |v| title = v }
@@ -474,6 +479,7 @@ module Linear
     reject_conflicting_sources!('--description' => !description.nil?,
                                 '--description-file' => !description_file.nil?)
     description = read_file_option!(description_file, '--description-file') if description_file
+    due_date = resolve_due_date(due, allow_none: false) if due
 
     client = Client.new
 
@@ -513,12 +519,13 @@ module Linear
     input[:parentId] = client.resolve_issue(parent_id)['id'] if parent_id
     input[:assigneeId] = assignee_id if assignee_id
     input[:priority] = resolve_priority(priority) if priority
+    input[:dueDate] = due_date if due_date
 
     res = client.query(<<~GQL, { input: input })
       mutation($input: IssueCreateInput!) {
         issueCreate(input: $input) {
           success
-          issue { identifier title url state { name } project { name } parent { identifier } assignee { name } priorityLabel }
+          issue { identifier title url state { name } project { name } parent { identifier } assignee { name } priorityLabel dueDate }
         }
       }
     GQL
@@ -532,7 +539,8 @@ module Linear
     raise Error, "linear: create failed: #{res.inspect}" unless issue
     puts "Created #{issue['identifier']}: #{issue['title']}"
     puts "State: #{issue.dig('state', 'name')} | Project: #{issue.dig('project', 'name') || '-'}"
-    puts "Assignee: #{issue.dig('assignee', 'name') || '-'} | Priority: #{issue['priorityLabel'] || '-'}"
+    puts "Assignee: #{issue.dig('assignee', 'name') || '-'} | Priority: #{issue['priorityLabel'] || '-'} | " \
+         "Due: #{issue['dueDate'] || '-'}"
     puts "Parent: #{issue.dig('parent', 'identifier')}" if issue['parent']
     puts issue['url']
   end
@@ -546,10 +554,21 @@ module Linear
     PRIORITY_NAMES[key] || raise(Error, "linear: invalid priority #{value.inspect}; use none|urgent|high|medium|low or 0-4")
   end
 
+  # Returns the date to send as dueDate, or nil to clear it. Only update
+  # allows "none": a new issue has no due date to clear.
+  def resolve_due_date(value, allow_none:)
+    return nil if allow_none && value.downcase == 'none'
+
+    match = value.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
+    return value if match && Date.valid_date?(*match.captures.map(&:to_i))
+
+    raise Error, "linear: --due must be YYYY-MM-DD#{' or none' if allow_none}, got #{value.inspect}"
+  end
+
   def cmd_update(args)
     usage = 'Usage: linear update ABC-NNN [--state NAME] [--title TITLE] ' \
             '[--description TEXT | --description-file PATH] [--project NAME] [--parent ABC-NNN] ' \
-            '[--assignee EMAIL|me] [--priority none|urgent|high|medium|low] [--json]'
+            '[--assignee EMAIL|me] [--priority none|urgent|high|medium|low] [--due YYYY-MM-DD|none] [--json]'
     state_name = nil
     title = nil
     description = nil
@@ -558,10 +577,12 @@ module Linear
     project_name = nil
     parent_id = nil
     assignee = nil
+    due = nil
     json_mode = false
 
     rest = parse_options(args, usage) do |o|
       value_option(o, '--priority LEVEL', 'Set priority (none|urgent|high|medium|low or 0-4)') { |v| priority = v }
+      value_option(o, '--due YYYY-MM-DD|none', 'Set the due date, or clear it with none') { |v| due = v }
       value_option(o, '--state NAME') { |v| state_name = v }
       value_option(o, '--title TITLE') { |v| title = v }
       value_option(o, '--description TEXT') { |v| description = v }
@@ -577,6 +598,7 @@ module Linear
     reject_conflicting_sources!('--description' => !description.nil?,
                                 '--description-file' => !description_file.nil?)
     description = read_file_option!(description_file, '--description-file') if description_file
+    due_date = resolve_due_date(due, allow_none: true) if due
 
     client = Client.new
     issue = client.resolve_issue(identifier, fields: 'id identifier team { id } assignee { id name }')
@@ -609,15 +631,17 @@ module Linear
     input[:description] = description if description
     input[:projectId] = client.resolve_project_id(issue.dig('team', 'id'), project_name) if project_name
     input[:parentId] = client.resolve_issue(parent_id)['id'] if parent_id
+    input[:dueDate] = due_date if due # nil clears the due date
     if input.empty?
-      raise Error, 'linear: nothing to update; pass --state, --title, --description, --project, --parent, --assignee, or --priority'
+      raise Error, 'linear: nothing to update; pass --state, --title, --description, --project, --parent, ' \
+                   '--assignee, --priority, or --due'
     end
 
     res = client.query(<<~GQL, { id: issue['id'], input: input })
       mutation($id: String!, $input: IssueUpdateInput!) {
         issueUpdate(id: $id, input: $input) {
           success
-          issue { identifier title url state { name } project { name } parent { identifier } assignee { name } priorityLabel }
+          issue { identifier title url state { name } project { name } parent { identifier } assignee { name } priorityLabel dueDate }
         }
       }
     GQL
@@ -631,7 +655,8 @@ module Linear
     raise Error, "linear: update failed: #{res.inspect}" unless updated
     puts "Updated #{updated['identifier']}: [#{updated.dig('state', 'name')}] #{updated['title']}"
     puts "Project: #{updated.dig('project', 'name') || '-'} | Parent: #{updated.dig('parent', 'identifier') || '-'}"
-    puts "Assignee: #{updated.dig('assignee', 'name') || '-'} | Priority: #{updated['priorityLabel'] || '-'}"
+    puts "Assignee: #{updated.dig('assignee', 'name') || '-'} | Priority: #{updated['priorityLabel'] || '-'} | " \
+         "Due: #{updated['dueDate'] || '-'}"
     puts updated['url']
   end
 
@@ -904,7 +929,7 @@ module Linear
         linear create --team KEY --title TITLE --priority LEVEL
                       (--project NAME | --no-project)
                       [--description TEXT | --description-file PATH] [--state NAME]
-                      [--parent ABC-NNN] [--assignee EMAIL|me] [--json]
+                      [--parent ABC-NNN] [--assignee EMAIL|me] [--due YYYY-MM-DD] [--json]
             Create a new issue. --project is required; pass --no-project to override.
             --priority is required: urgent = money/data actively wrong in prod;
             high = users can hit it today or it gates scheduled work; medium =
@@ -915,12 +940,14 @@ module Linear
             --parent makes the new issue a sub-issue of the given parent.
             --assignee takes an email, a name substring, or the literal "me"
             (the token's own user). Required when the state is a started state.
+            --due sets the due date.
 
         linear update ABC-NNN [--state NAME] [--title TITLE]
                       [--description TEXT | --description-file PATH]
                       [--project NAME] [--parent ABC-NNN] [--assignee EMAIL|me]
-                      [--priority none|urgent|high|medium|low] [--json]
-            Update state, title, description, project, parent, assignee, or priority.
+                      [--priority none|urgent|high|medium|low] [--due YYYY-MM-DD|none] [--json]
+            Update state, title, description, project, parent, assignee, priority,
+            or due date. --due none clears the due date.
             --project moves the issue; --parent reparents it as a sub-issue.
             Moving to a started state (e.g. In Progress) requires an assignee:
             pass --assignee, or the issue must already have one.

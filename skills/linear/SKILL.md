@@ -21,7 +21,7 @@ linear list --team KEY (--project NAME | --since YYYY-MM-DD | --mine) [--all] [-
 linear project-list --team KEY [--json]
 ```
 
-- `get` shows title, state, description, team, project, parent, children, URL.
+- `get` shows title, state, description, team, project, parent, children, due date (when set), URL.
 - `--full` adds the comment thread.
 - `--json` emits the raw GraphQL response for piping.
 - `search` is case-insensitive substring match over title and description, sorted by most-recently-updated.
@@ -34,11 +34,13 @@ linear project-list --team KEY [--json]
 linear create --team KEY --title TITLE --priority LEVEL \
               (--project NAME | --no-project) \
               [--description TEXT | --description-file PATH] \
-              [--state NAME] [--parent ABC-NNN] [--assignee EMAIL|me] [--json]
+              [--state NAME] [--parent ABC-NNN] [--assignee EMAIL|me] \
+              [--due YYYY-MM-DD] [--json]
 
 linear update ABC-NNN [--state NAME] [--title TITLE] [--priority LEVEL] \
               [--description TEXT | --description-file PATH] \
-              [--project NAME] [--parent ABC-NNN] [--assignee EMAIL|me] [--json]
+              [--project NAME] [--parent ABC-NNN] [--assignee EMAIL|me] \
+              [--due YYYY-MM-DD|none] [--json]
 
 linear comment ABC-NNN ("message body" | --body TEXT | --body-file PATH)
 linear comment-delete COMMENT_ID
@@ -51,8 +53,8 @@ linear project-update --id PROJECT_ID [--name NAME] [--description TEXT] \
 
 - `create` requires `--team`, `--title`, and `--priority`. `--project` is required by default (new issues should always be attached to a project); pass `--no-project` to override deliberately. Project name match is exact-then-substring.
   - **Ask the user which project before creating; do not guess.** The same work can be contracted maintenance or billable requested-additional-work depending on context only the user knows, and the choice has billing consequences. Offer the candidate projects and let the user pick rather than defaulting from a "bug -> maintenance" heuristic.
-  - `--state` sets the initial workflow state (default Todo, never Triage/Backlog); pass `--state "In Progress"` when the issue is already being worked. `--parent ABC-NNN` makes the new issue a sub-issue. `--assignee` takes an email, a name substring, or the literal `me`; required when creating in a started state like In Progress.
-- `update` accepts any combination of `--state`, `--title`, `--priority`, `--description`, `--project` (moves the issue), `--parent` (reparents it as a sub-issue), and `--assignee`. State name must match a workflow state on the issue's team. Moving to a started state (e.g. In Progress) requires an assignee: pass `--assignee`, or the issue must already have one.
+  - `--state` sets the initial workflow state (default Todo, never Triage/Backlog); pass `--state "In Progress"` when the issue is already being worked. `--parent ABC-NNN` makes the new issue a sub-issue. `--assignee` takes an email, a name substring, or the literal `me`; required when creating in a started state like In Progress. `--due YYYY-MM-DD` sets a due date.
+- `update` accepts any combination of `--state`, `--title`, `--priority`, `--description`, `--project` (moves the issue), `--parent` (reparents it as a sub-issue), `--assignee`, and `--due` (`--due none` clears the due date). State name must match a workflow state on the issue's team. Moving to a started state (e.g. In Progress) requires an assignee: pass `--assignee`, or the issue must already have one.
 - `comment` appends a comment. Pass the body as the second positional arg (quote it), or use `--body TEXT` / `--body-file PATH` for long or markdown bodies.
 - `comment-delete` deletes a comment by id (ids are shown by `linear comments ABC-NNN`).
 - `relate` links two issues (default type `related`).

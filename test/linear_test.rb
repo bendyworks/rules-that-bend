@@ -213,6 +213,27 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(%w[list --team ABC --since 01-01-2026])
   end
 
+  # The due date is checked before the client is built, so a bad value
+  # fails on its own message and never reaches the token check.
+  def test_create_refuses_a_due_date_in_another_form_before_reading_the_token
+    assert_equal 'linear: --due must be YYYY-MM-DD, got "12/15/2026"',
+                 abort_message(%w[create --team ABC --title T --priority low --no-project --due 12/15/2026])
+  end
+
+  def test_create_refuses_due_none
+    assert_equal 'linear: --due must be YYYY-MM-DD, got "none"',
+                 abort_message(%w[create --team ABC --title T --priority low --no-project --due none])
+  end
+
+  def test_update_refuses_a_bad_due_date_before_reading_the_token
+    assert_equal 'linear: --due must be YYYY-MM-DD or none, got "bogus"',
+                 abort_message(%w[update ABC-1 --due bogus])
+  end
+
+  def test_update_accepts_due_none
+    assert_equal TOKEN_MISSING, abort_message(%w[update ABC-1 --due none])
+  end
+
   def test_create_requires_team_and_title
     assert_includes abort_message(['create']), 'Usage: linear create --team KEY --title TITLE'
   end
@@ -606,6 +627,126 @@ class QuerySentTest < LinearTestCase
     cli_stdout(%w[get ABC-1 --json])
     CHECK_FIELDS.each { |field| assert_includes @recorder.graphql, field }
   end
+
+  def test_get_asks_for_the_due_date
+    cli_stdout(%w[get ABC-1 --json])
+    assert_includes @recorder.graphql, 'dueDate'
+  end
+end
+
+# Runs create and update against a client that answers each query by
+# what it asks for and records every call, so a test can read the
+# mutation input and the printed summary.
+class DueDateSentTest < LinearTestCase
+  AnsweringClient = Struct.new(:calls, :due_date) do
+    def query(graphql, variables = {})
+      calls << [graphql, variables]
+      { 'data' => answer(graphql) }
+    end
+
+    def resolve_issue(_identifier, fields: 'id')
+      { 'id' => 'issue-1', 'identifier' => 'ABC-1', 'team' => { 'id' => 'team-1' }, 'assignee' => nil }
+    end
+
+    def mutation_input
+      calls.reverse.find { |graphql, _| graphql.include?('mutation') }&.last&.fetch(:input)
+    end
+
+    private
+
+    def answer(graphql)
+      if graphql.include?('issueCreate') then { 'issueCreate' => { 'success' => true, 'issue' => issue } }
+      elsif graphql.include?('issueUpdate') then { 'issueUpdate' => { 'success' => true, 'issue' => issue } }
+      elsif graphql.include?('workflowStates')
+        { 'workflowStates' => { 'nodes' => [{ 'id' => 'state-1', 'name' => 'Todo', 'type' => 'unstarted' }] } }
+      elsif graphql.include?('teams') then { 'teams' => { 'nodes' => [{ 'id' => 'team-1', 'key' => 'ABC' }] } }
+      else {}
+      end
+    end
+
+    def issue
+      { 'identifier' => 'ABC-1', 'title' => 'T', 'url' => 'https://example.test/ABC-1',
+        'state' => { 'name' => 'Todo' }, 'priorityLabel' => 'Low', 'dueDate' => due_date }
+    end
+  end
+
+  CREATE = %w[create --team ABC --title T --priority low --no-project].freeze
+
+  def setup
+    @client = AnsweringClient.new([], nil)
+    client = @client
+    @real_new = Linear::Client.method(:new)
+    Linear::Client.define_singleton_method(:new) { client }
+  end
+
+  def teardown
+    real_new = @real_new
+    Linear::Client.define_singleton_method(:new) { |*args| real_new.call(*args) }
+  end
+
+  # The command's printed output; an abort fails the test with its
+  # message rather than ending the run.
+  def summary(argv)
+    cli_stdout(argv.dup)
+  rescue SystemExit => e
+    flunk "#{argv.join(' ')} aborted: #{e.message}"
+  end
+
+  def test_create_sends_the_due_date_and_prints_it
+    @client.due_date = '2026-12-15'
+    output = summary(CREATE + %w[--due 2026-12-15])
+
+    assert_equal '2026-12-15', @client.mutation_input[:dueDate]
+    assert_includes output, 'Due: 2026-12-15'
+  end
+
+  def test_create_without_due_sends_no_due_date
+    summary(CREATE)
+    refute @client.mutation_input.key?(:dueDate)
+  end
+
+  def test_update_sends_the_due_date
+    summary(%w[update ABC-1 --due 2026-12-20])
+    assert_equal '2026-12-20', @client.mutation_input[:dueDate]
+  end
+
+  def test_update_due_none_sends_an_empty_due_date_to_clear_it
+    summary(%w[update ABC-1 --due none])
+
+    assert @client.mutation_input.key?(:dueDate)
+    assert_nil @client.mutation_input[:dueDate]
+  end
+
+  def test_update_summary_shows_a_dash_when_the_issue_has_no_due_date
+    assert_includes summary(%w[update ABC-1 --due none]), 'Due: -'
+  end
+
+  def test_both_mutations_ask_for_the_due_date_back
+    summary(CREATE)
+    summary(%w[update ABC-1 --title U])
+    mutations = @client.calls.map(&:first).grep(/mutation/)
+
+    assert_equal 2, mutations.size
+    mutations.each { |graphql| assert_includes graphql, 'dueDate' }
+  end
+end
+
+class PrintIssueTest < Minitest::Test
+  ISSUE = { 'identifier' => 'ABC-1', 'title' => 'T', 'state' => { 'name' => 'Todo' },
+            'assignee' => { 'name' => 'Dana' } }.freeze
+
+  def printed(issue)
+    out, _err = capture_io { Linear.print_issue(issue, include_comments: false) }
+    out
+  end
+
+  def test_shows_the_due_date_beside_the_assignee
+    assert_includes printed(ISSUE.merge('dueDate' => '2026-12-15')), "Assignee: Dana\nDue: 2026-12-15\n"
+  end
+
+  def test_shows_no_due_line_for_an_issue_without_one
+    refute_includes printed(ISSUE.merge('dueDate' => nil)), 'Due:'
+  end
 end
 
 class PureHelpersTest < Minitest::Test
@@ -654,5 +795,29 @@ class PureHelpersTest < Minitest::Test
     assert_equal 'linear: invalid priority "7"; use none|urgent|high|medium|low or 0-4', error.message
     error = assert_raises(Linear::Error) { Linear.resolve_priority('nonsense') }
     assert_equal 'linear: invalid priority "nonsense"; use none|urgent|high|medium|low or 0-4', error.message
+  end
+
+  def test_resolve_due_date_returns_an_iso_date_unchanged
+    assert_equal '2026-12-15', Linear.resolve_due_date('2026-12-15', allow_none: false)
+  end
+
+  def test_resolve_due_date_reads_none_as_clearing_where_allowed
+    assert_nil Linear.resolve_due_date('none', allow_none: true)
+    assert_nil Linear.resolve_due_date('NONE', allow_none: true)
+  end
+
+  def test_resolve_due_date_refuses_none_where_there_is_nothing_to_clear
+    error = assert_raises(Linear::Error) { Linear.resolve_due_date('none', allow_none: false) }
+    assert_equal 'linear: --due must be YYYY-MM-DD, got "none"', error.message
+  end
+
+  def test_resolve_due_date_refuses_another_date_form
+    error = assert_raises(Linear::Error) { Linear.resolve_due_date('12/15/2026', allow_none: true) }
+    assert_equal 'linear: --due must be YYYY-MM-DD or none, got "12/15/2026"', error.message
+  end
+
+  def test_resolve_due_date_refuses_a_day_the_calendar_lacks
+    error = assert_raises(Linear::Error) { Linear.resolve_due_date('2026-02-30', allow_none: false) }
+    assert_equal 'linear: --due must be YYYY-MM-DD, got "2026-02-30"', error.message
   end
 end
