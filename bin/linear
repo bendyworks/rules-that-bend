@@ -569,10 +569,12 @@ module Linear
     raise Error, "linear: --due must be YYYY-MM-DD#{' or none' if allow_none}, got #{value.inspect}"
   end
 
-  # True for YYYY-MM-DD naming a day the calendar has (not 2026-02-30).
+  # True for YYYY-MM-DD naming a day the Gregorian calendar has (not
+  # 2026-02-30). ISO dates use that calendar in every year; Ruby's default
+  # switches to Julian rules before 1582.
   def iso_date?(value)
     match = value.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
-    !match.nil? && Date.valid_date?(*match.captures.map(&:to_i))
+    !match.nil? && Date.valid_date?(*match.captures.map(&:to_i), Date::GREGORIAN)
   end
 
   def cmd_update(args)
