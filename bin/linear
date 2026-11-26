@@ -564,10 +564,15 @@ module Linear
       raise Error, 'linear: --due none clears a due date, which only update can do; pass YYYY-MM-DD'
     end
 
-    match = date.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
-    return date if match && Date.valid_date?(*match.captures.map(&:to_i))
+    return date if iso_date?(date)
 
     raise Error, "linear: --due must be YYYY-MM-DD#{' or none' if allow_none}, got #{value.inspect}"
+  end
+
+  # True for YYYY-MM-DD naming a day the calendar has (not 2026-02-30).
+  def iso_date?(value)
+    match = value.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
+    !match.nil? && Date.valid_date?(*match.captures.map(&:to_i))
   end
 
   def cmd_update(args)
@@ -1020,7 +1025,7 @@ module Linear
     team_key = team_opt || ENV['LINEAR_TEAM_KEY']
     limit = limit_str ? parse_limit(limit_str) : 100
     raise Error, usage if team_key.nil? || team_key.empty? || (project_name.nil? && since.nil? && !mine)
-    if since && since !~ /\A\d{4}-\d{2}-\d{2}\z/
+    if since && !iso_date?(since)
       raise Error, "linear: --since must be YYYY-MM-DD, got #{since.inspect}"
     end
 

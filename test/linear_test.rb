@@ -226,6 +226,11 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(%w[list --team ABC --since 01-01-2026])
   end
 
+  def test_list_since_refuses_a_day_the_calendar_lacks
+    assert_equal 'linear: --since must be YYYY-MM-DD, got "2026-02-30"',
+                 abort_message(%w[list --team ABC --since 2026-02-30])
+  end
+
   # The due date is checked before the client is built, so a bad value
   # fails on its own message and never reaches the token check.
   def test_create_refuses_a_due_date_in_another_form_before_reading_the_token
