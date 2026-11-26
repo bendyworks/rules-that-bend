@@ -52,6 +52,19 @@ class LinearTestCase < CliTestCase
   def dispatch_cli(argv)
     Linear::CLI.run(argv)
   end
+
+  # Makes Linear::Client.new return +client+ for the rest of the test.
+  def stub_client(client)
+    Linear::Client.define_singleton_method(:new) { client }
+  end
+
+  # Removes stub_client's replacement, so the next test builds the real
+  # client. In after_teardown so a subclass's teardown cannot skip it.
+  def after_teardown
+    stubbed = Linear::Client.singleton_class
+    stubbed.send(:remove_method, :new) if stubbed.instance_methods(false).include?(:new)
+    super
+  end
 end
 
 class DispatchTest < LinearTestCase
@@ -593,14 +606,7 @@ class QuerySentTest < LinearTestCase
 
   def setup
     @recorder = QueryRecorder.new
-    recorder = @recorder
-    @real_new = Linear::Client.method(:new)
-    Linear::Client.define_singleton_method(:new) { recorder }
-  end
-
-  def teardown
-    real_new = @real_new
-    Linear::Client.define_singleton_method(:new) { |*args| real_new.call(*args) }
+    stub_client(@recorder)
   end
 
   def test_mine_goes_into_the_list_query
@@ -674,14 +680,7 @@ class DueDateSentTest < LinearTestCase
 
   def setup
     @client = AnsweringClient.new([], nil)
-    client = @client
-    @real_new = Linear::Client.method(:new)
-    Linear::Client.define_singleton_method(:new) { client }
-  end
-
-  def teardown
-    real_new = @real_new
-    Linear::Client.define_singleton_method(:new) { |*args| real_new.call(*args) }
+    stub_client(@client)
   end
 
   # The command's printed output; an abort fails the test with its
