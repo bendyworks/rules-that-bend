@@ -557,10 +557,15 @@ module Linear
   # Returns the date to send as dueDate, or nil to clear it. Only update
   # allows "none": a new issue has no due date to clear.
   def resolve_due_date(value, allow_none:)
-    return nil if allow_none && value.downcase == 'none'
+    date = value.strip
+    if date.casecmp?('none')
+      return nil if allow_none
 
-    match = value.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
-    return value if match && Date.valid_date?(*match.captures.map(&:to_i))
+      raise Error, 'linear: --due none clears a due date, which only update can do; pass YYYY-MM-DD'
+    end
+
+    match = date.match(/\A(\d{4})-(\d{2})-(\d{2})\z/)
+    return date if match && Date.valid_date?(*match.captures.map(&:to_i))
 
     raise Error, "linear: --due must be YYYY-MM-DD#{' or none' if allow_none}, got #{value.inspect}"
   end
