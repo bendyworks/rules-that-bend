@@ -243,10 +243,6 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(%w[update ABC-1 --due bogus])
   end
 
-  def test_update_accepts_due_none
-    assert_equal TOKEN_MISSING, abort_message(%w[update ABC-1 --due none])
-  end
-
   def test_create_requires_team_and_title
     assert_includes abort_message(['create']), 'Usage: linear create --team KEY --title TITLE'
   end
@@ -709,24 +705,36 @@ class DueDateSentTest < LinearTestCase
     assert_equal '2026-12-20', @client.mutation_input[:dueDate]
   end
 
-  def test_update_due_none_sends_an_empty_due_date_to_clear_it
+  def test_update_due_none_sends_a_null_due_date_to_clear_it
     summary(%w[update ABC-1 --due none])
 
     assert @client.mutation_input.key?(:dueDate)
     assert_nil @client.mutation_input[:dueDate]
   end
 
-  def test_update_summary_shows_a_dash_when_the_issue_has_no_due_date
-    assert_includes summary(%w[update ABC-1 --due none]), 'Due: -'
+  # Upper case reaches the mutation as a clear only if update sends what
+  # resolve_due_date returns.
+  def test_update_summary_shows_a_dash_after_clearing_with_upper_case_none
+    output = summary(%w[update ABC-1 --due NONE])
+
+    assert_nil @client.mutation_input.fetch(:dueDate)
+    assert_includes output, 'Due: -'
   end
 
-  def test_both_mutations_ask_for_the_due_date_back
-    summary(CREATE)
-    summary(%w[update ABC-1 --title U])
-    mutations = @client.calls.map(&:first).grep(/mutation/)
+  def test_update_with_nothing_to_change_lists_every_option_including_due
+    assert_equal 'linear: nothing to update; pass --state, --title, --description, --project, --parent, ' \
+                 '--assignee, --priority, or --due',
+                 abort_message(%w[update ABC-1])
+  end
 
-    assert_equal 2, mutations.size
-    mutations.each { |graphql| assert_includes graphql, 'dueDate' }
+  def test_create_asks_for_the_due_date_back
+    summary(CREATE)
+    assert_includes @client.calls.map(&:first).grep(/issueCreate/).first, 'dueDate'
+  end
+
+  def test_update_asks_for_the_due_date_back
+    summary(%w[update ABC-1 --title U])
+    assert_includes @client.calls.map(&:first).grep(/issueUpdate/).first, 'dueDate'
   end
 end
 
