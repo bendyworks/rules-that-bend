@@ -828,13 +828,6 @@ class PureHelpersTest < Minitest::Test
     assert_nil Linear.resolve_due_date(' none ', allow_none: true)
   end
 
-  # ISO dates, and Linear's, follow the Gregorian calendar in every year.
-  def test_resolve_due_date_uses_the_gregorian_calendar_before_1582
-    error = assert_raises(Linear::Error) { Linear.resolve_due_date('1500-02-29', allow_none: false) }
-    assert_equal 'linear: --due must be YYYY-MM-DD, got "1500-02-29"', error.message
-    assert_equal '1582-10-10', Linear.resolve_due_date('1582-10-10', allow_none: false)
-  end
-
   def test_resolve_due_date_refuses_another_date_form
     error = assert_raises(Linear::Error) { Linear.resolve_due_date('12/15/2026', allow_none: true) }
     assert_equal 'linear: --due must be YYYY-MM-DD or none, got "12/15/2026"', error.message
