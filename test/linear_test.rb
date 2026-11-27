@@ -357,6 +357,14 @@ class UsageErrorsTest < LinearTestCase
     assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', 'some-id', '--body', "  \n"])
   end
 
+  def test_comment_edit_refuses_a_blank_body_file
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'blank.md')
+      File.write(path, "\n  \n")
+      assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
   def test_comment_edit_body_file_must_exist
     assert_equal 'linear: --body-file not found: /nonexistent-battery-file',
                  abort_message(%w[comment-edit some-id --body-file /nonexistent-battery-file])
@@ -447,6 +455,10 @@ class DuplicateOptionRejectionsTest < LinearTestCase
     assert_equal 'linear: duplicate --body', abort_message(%w[comment ABC-1 --body a --body b])
   end
 
+  def test_comment_edit_rejects_duplicate_body
+    assert_equal 'linear: duplicate --body', abort_message(%w[comment-edit some-id --body a --body b])
+  end
+
   def test_repeating_a_boolean_flag_stays_harmless
     # Deliberately out of scope: a repeated switch discards no input,
     # so there is nothing to protect the user from.
@@ -496,6 +508,10 @@ class FlagShapedValueRejectionsTest < LinearTestCase
     assert_equal 'linear: invalid argument: --body --json ' \
                  '(comment takes a positional message, --body TEXT, or --body-file PATH)',
                  abort_message(%w[comment ABC-1 --body --json])
+  end
+
+  def test_comment_edit_rejects_flag_shaped_body
+    assert_equal 'linear: invalid argument: --body --json', abort_message(%w[comment-edit some-id --body --json])
   end
 
   # An empty value does not begin with a dash, so the guard must accept
@@ -812,8 +828,18 @@ class CommentEditSentTest < LinearTestCase
   def test_sends_the_new_body_to_comment_update_for_that_comment
     command_output(%w[comment-edit comment-1 --body fixed])
 
-    assert_includes @client.graphql, 'commentUpdate'
+    assert_includes @client.graphql, 'commentUpdate(id: $id, input: $input)'
     assert_equal({ id: 'comment-1', input: { body: 'fixed' } }, @client.variables)
+  end
+
+  # The fake answers success and the URL whatever the query asks for,
+  # and Linear answers only what it is asked, so the query itself has
+  # to ask.
+  def test_asks_for_the_success_flag_and_the_comment_url
+    command_output(%w[comment-edit comment-1 --body fixed])
+
+    assert_match(/commentUpdate\([^)]*\)\s*\{[^{]*\bsuccess\b/, @client.graphql)
+    assert_match(/\bcomment\s*\{[^}]*\burl\b/, @client.graphql)
   end
 
   def test_sends_a_body_file_unchanged
@@ -839,7 +865,10 @@ class CommentEditSentTest < LinearTestCase
 
   def test_a_refused_edit_aborts_with_the_response
     @client.success = false
-    assert_match(/\Alinear: comment edit failed: /, abort_message(%w[comment-edit comment-1 --body fixed]))
+    message = abort_message(%w[comment-edit comment-1 --body fixed])
+
+    assert_match(/\Alinear: comment edit failed: /, message)
+    assert_match(/"success" ?=> ?false/, message)
   end
 end
 
