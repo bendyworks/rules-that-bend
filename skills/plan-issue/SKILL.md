@@ -719,11 +719,12 @@ for word:
 > command that prints no value:
 > `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for
 > whether a file sets it (an `.envrc` that loads another file with
-> `dotenv` sets what that file sets),
-> `test -n "$NAME" && echo set || echo unset` for whether your own shell
-> has it (which may not have loaded the project's `.envrc`), and the
-> code that reads it (`ENV.fetch`, a `credentials` call) for how it is
-> used.
+> `dotenv`, which reads `.env` by default, `source_env`, or `source_up`
+> sets what that file sets),
+> `sh -c 'test -n "$NAME" && echo set || echo unset'` for whether the
+> environment has it, run under `direnv exec .` where the project uses
+> direnv, since your own shell has not loaded its `.envrc`, and the code
+> that reads it (`ENV.fetch`, a `credentials` call) for how it is used.
 
 It also tells the agent:
 
