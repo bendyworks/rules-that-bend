@@ -452,20 +452,18 @@ branch someone else has pushed to.
 
 **Verify ahead what a person will merge.** A person's merge puts every other
 prepared pull request behind, and Dependabot's rebase gives each a new head. So
-when the second pass holds two or more pull requests that step 1 found current,
-verify them together: in a throwaway worktree (`git worktree add --detach
-<path> <remote>/<default-branch>`) holding copies of the ignored files the
-project needs to boot, `git merge --no-edit <head>` each in Phase 3 order,
-noting `git rev-parse HEAD^{tree}` after each as that pull request's `<tree>`,
-then run steps 3 and 4 there once, in place of each one's own run, under the
-first one's task. A conflict ends the stack there, and the rest take steps 2 to
-4 one at a time; so does every one in it when the stacked run fails. Hand them
-over together, in order, asking that they merge in it: the run tested each
-together with those after it, and Phase 5's run after each merge tests the
-default branch it leaves. When a head later changes, the run carries over only
-when `git rev-parse <new-head>^{tree}` is that pull request's `<tree>`;
-otherwise it takes steps 2 to 4 again. Remove the worktree with `git worktree
-remove --force` after.
+when two or more pull requests will be left for a person, in either pass, take
+each through step 1 first, then stack the current ones in Phase 3 order in the
+checkout: `git checkout --detach <remote>/<default-branch>`, then for each in
+turn, under its own task, `git merge --no-edit --no-verify <head>`, note
+`git rev-parse HEAD^{tree}` as its `<tree>`, and run steps 3 and 4 on that
+tree, in place of its own steps 2 to 4. A conflict or a failed verify ends the
+stack there (`git merge --abort` after a conflict): the pull requests already
+verified keep their runs, and the rest take steps 2 to 4 one at a time. Return
+to the default branch after. Hand them over together, in order, asking that
+they merge in it. When a head later changes, its run carries over only when
+`git rev-parse <new-head>^{tree}` is its `<tree>`, the tree its run tested;
+otherwise it takes steps 2 to 4 again.
 
 **Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
