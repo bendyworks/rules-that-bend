@@ -33,6 +33,8 @@ TOKEN_MISSING = 'linear: LINEAR_API_TOKEN env var not set'
 # still independent literals, never imported from bin/linear.
 SEARCH_USAGE = 'Usage: linear search "phrase" [--team KEY] [--limit N] [--json]'
 COMMENT_USAGE = 'Usage: linear comment ABC-NNN ("message" | --body TEXT | --body-file PATH)'
+COMMENT_EDIT_USAGE = 'Usage: linear comment-edit COMMENT_ID (--body TEXT | --body-file PATH) ' \
+                     '(see "linear comments ABC-NNN")'
 
 # Base class: scrubs the Linear-related environment so results do not
 # depend on this machine's token, default team, or POSIX parsing mode.
@@ -51,6 +53,15 @@ class LinearTestCase < CliTestCase
 
   def dispatch_cli(argv)
     Linear::CLI.run(argv)
+  end
+
+  # The command's printed output; an abort fails the test with its
+  # message rather than ending the run, which Minitest lets SystemExit
+  # do.
+  def command_output(argv)
+    cli_stdout(argv.dup)
+  rescue SystemExit => e
+    flunk "#{argv.join(' ')} aborted: #{e.message}"
   end
 
   # Makes Linear::Client.new return +client+ for the rest of the test.
@@ -287,6 +298,63 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(%w[comment ABC-1 --body-file /nonexistent-battery-file])
   end
 
+  def test_comment_edit_body_file_must_be_readable
+    Dir.mktmpdir('comment-edit') do |dir|
+      assert_equal "linear: --body-file could not be read: #{dir} (Is a directory)",
+                   abort_message(['comment-edit', 'some-id', '--body-file', dir])
+    end
+  end
+
+  def test_comment_edit_body_file_must_be_utf8
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'latin1.md')
+      File.binwrite(path, "caf\xE9 fixed\n".b)
+      assert_equal "linear: --body-file is not valid UTF-8: #{path}",
+                   abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
+  # A UTF-16 mark (Windows Notepad's "Unicode", PowerShell's Out-File)
+  # is the usual file in another encoding.
+  def test_comment_edit_refuses_a_utf16_body_file
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'utf16.md')
+      File.binwrite(path, "\xFF\xFE".b + "# Fixed\n".encode('UTF-16LE').b)
+      assert_equal "linear: --body-file is not valid UTF-8: #{path}",
+                   abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
+  # A failure Ruby has no Errno class for arrives as a plain
+  # SystemCallError, which still gets the plain refusal.
+  def test_a_read_failure_with_no_errno_class_gets_a_plain_refusal
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'body.md')
+      File.write(path, "fixed\n")
+      File.define_singleton_method(:binread) { |*| raise SystemCallError.new('odd failure', 9999) }
+      begin
+        # The operating system words the reason ("Unknown error: 9999"
+        # on macOS, "Unknown error 9999" on Linux).
+        assert_match(/\Alinear: --body-file could not be read: #{Regexp.escape(path)} \(Unknown error:? 9999\)\z/,
+                     abort_message(['comment-edit', 'some-id', '--body-file', path]))
+      ensure
+        File.singleton_class.send(:remove_method, :binread)
+      end
+    end
+  end
+
+  # create reads its --description-file through the same helper and
+  # never strips the text, so the check has to come from the helper.
+  def test_create_description_file_must_be_utf8
+    Dir.mktmpdir('create') do |dir|
+      path = File.join(dir, 'latin1.md')
+      File.binwrite(path, "caf\xE9\n".b)
+      assert_equal "linear: --description-file is not valid UTF-8: #{path}",
+                   abort_message(['create', '--team', 'ABC', '--title', 'T', '--priority', 'low',
+                                  '--no-project', '--description-file', path])
+    end
+  end
+
   # The other file-taking options guard a missing path the same way,
   # rather than letting File.read escape as a raw Errno backtrace.
   def test_create_description_file_must_exist
@@ -313,6 +381,47 @@ class UsageErrorsTest < LinearTestCase
   def test_comment_delete_requires_id
     assert_equal 'Usage: linear comment-delete COMMENT_ID (see "linear comments ABC-NNN")',
                  abort_message(['comment-delete'])
+  end
+
+  def test_comment_edit_requires_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit'])
+  end
+
+  def test_comment_edit_with_body_but_no_id_shows_usage
+    assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit --body text])
+  end
+
+  def test_comment_edit_refuses_an_empty_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', '', '--body', 'fixed'])
+  end
+
+  def test_comment_edit_refuses_a_blank_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', '  ', '--body', 'fixed'])
+  end
+
+  def test_comment_edit_requires_body
+    assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit some-id])
+  end
+
+  def test_comment_edit_refuses_a_blank_body
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', 'some-id', '--body', "  \n"])
+  end
+
+  def test_comment_edit_refuses_a_blank_body_file
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'blank.md')
+      File.write(path, "\n  \n")
+      assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
+  def test_comment_edit_body_file_must_exist
+    assert_equal 'linear: --body-file not found: /nonexistent-battery-file',
+                 abort_message(%w[comment-edit some-id --body-file /nonexistent-battery-file])
+  end
+
+  def test_comment_edit_with_id_and_body_reaches_the_client
+    assert_equal TOKEN_MISSING, abort_message(%w[comment-edit some-id --body fixed])
   end
 
   def test_relate_requires_two_identifiers
@@ -396,6 +505,10 @@ class DuplicateOptionRejectionsTest < LinearTestCase
     assert_equal 'linear: duplicate --body', abort_message(%w[comment ABC-1 --body a --body b])
   end
 
+  def test_comment_edit_rejects_duplicate_body
+    assert_equal 'linear: duplicate --body', abort_message(%w[comment-edit some-id --body a --body b])
+  end
+
   def test_repeating_a_boolean_flag_stays_harmless
     # Deliberately out of scope: a repeated switch discards no input,
     # so there is nothing to protect the user from.
@@ -447,6 +560,10 @@ class FlagShapedValueRejectionsTest < LinearTestCase
                  abort_message(%w[comment ABC-1 --body --json])
   end
 
+  def test_comment_edit_rejects_flag_shaped_body
+    assert_equal 'linear: invalid argument: --body --json', abort_message(%w[comment-edit some-id --body --json])
+  end
+
   # An empty value does not begin with a dash, so the guard must accept
   # it: clearing a field is `--description ''`, and refusing that is a
   # confusing way to fail. Reaching the sentinel proves the parser took
@@ -475,6 +592,11 @@ class ConflictingSourceRejectionsTest < LinearTestCase
   def test_comment_rejects_body_and_body_file
     assert_equal 'linear: --body and --body-file are mutually exclusive',
                  abort_message(%w[comment ABC-1 --body inline --body-file /nonexistent-battery-file])
+  end
+
+  def test_comment_edit_rejects_body_and_body_file
+    assert_equal 'linear: --body and --body-file are mutually exclusive',
+                 abort_message(%w[comment-edit some-id --body inline --body-file /nonexistent-battery-file])
   end
 
   def test_comment_rejects_all_three_message_sources_at_once
@@ -528,7 +650,8 @@ class PosixlyCorrectImmunityTest < LinearTestCase
     %w[update ABC-1 ABC-2 --state Done],
     %w[relate ABC-1 ABC-2 ABC-3 --type blocks],
     %w[comment ABC-1 --body a --body b],
-    %w[comment-delete some-id --json]
+    %w[comment-delete some-id --json],
+    %w[comment-edit some-id --body a --body b]
   ].freeze
 
   def test_parsing_is_identical_with_and_without_posixly_correct
@@ -684,34 +807,26 @@ class DueDateSentTest < LinearTestCase
     stub_client(@client)
   end
 
-  # The command's printed output; an abort fails the test with its
-  # message rather than ending the run.
-  def summary(argv)
-    cli_stdout(argv.dup)
-  rescue SystemExit => e
-    flunk "#{argv.join(' ')} aborted: #{e.message}"
-  end
-
   def test_create_sends_the_due_date_and_prints_it
     @client.due_date = '2026-12-15'
-    output = summary(CREATE + %w[--due 2026-12-15])
+    output = command_output(CREATE + %w[--due 2026-12-15])
 
     assert_equal '2026-12-15', @client.mutation_input[:dueDate]
     assert_includes output, 'Due: 2026-12-15'
   end
 
   def test_create_without_due_sends_no_due_date
-    summary(CREATE)
+    command_output(CREATE)
     refute @client.mutation_input.key?(:dueDate)
   end
 
   def test_update_sends_the_due_date
-    summary(%w[update ABC-1 --due 2026-12-20])
+    command_output(%w[update ABC-1 --due 2026-12-20])
     assert_equal '2026-12-20', @client.mutation_input[:dueDate]
   end
 
   def test_update_due_none_sends_a_null_due_date_to_clear_it
-    summary(%w[update ABC-1 --due none])
+    command_output(%w[update ABC-1 --due none])
 
     assert @client.mutation_input.key?(:dueDate)
     assert_nil @client.mutation_input[:dueDate]
@@ -720,7 +835,7 @@ class DueDateSentTest < LinearTestCase
   # Upper case reaches the mutation as a clear only if update sends what
   # resolve_due_date returns.
   def test_update_summary_shows_a_dash_after_clearing_with_upper_case_none
-    output = summary(%w[update ABC-1 --due NONE])
+    output = command_output(%w[update ABC-1 --due NONE])
 
     assert_nil @client.mutation_input.fetch(:dueDate)
     assert_includes output, 'Due: -'
@@ -733,13 +848,98 @@ class DueDateSentTest < LinearTestCase
   end
 
   def test_create_asks_for_the_due_date_back
-    summary(CREATE)
+    command_output(CREATE)
     assert_includes @client.calls.map(&:first).grep(/issueCreate/).first, 'dueDate'
   end
 
   def test_update_asks_for_the_due_date_back
-    summary(%w[update ABC-1 --title U])
+    command_output(%w[update ABC-1 --title U])
     assert_includes @client.calls.map(&:first).grep(/issueUpdate/).first, 'dueDate'
+  end
+end
+
+# Runs comment-edit against a client that records the mutation and
+# answers it, so a test can read what was sent and what was printed.
+class CommentEditSentTest < LinearTestCase
+  EditClient = Struct.new(:graphql, :variables, :success, :comment_returned) do
+    def query(graphql, variables = {})
+      self.graphql = graphql
+      self.variables = variables
+      comment = { 'id' => variables[:id], 'url' => 'https://example.test/ABC-1#comment-1' }
+      { 'data' => { 'commentUpdate' => { 'success' => success, 'comment' => (comment if comment_returned) } } }
+    end
+  end
+
+  def setup
+    @client = EditClient.new(nil, nil, true, true)
+    stub_client(@client)
+  end
+
+  def test_sends_the_new_body_to_comment_update_for_that_comment
+    command_output(%w[comment-edit comment-1 --body fixed])
+
+    assert_includes @client.graphql, 'commentUpdate(id: $id, input: $input)'
+    assert_equal({ id: 'comment-1', input: { body: 'fixed' } }, @client.variables)
+  end
+
+  # The fake answers success and the URL whatever the query asks for,
+  # and Linear answers only what it is asked, so the query itself has
+  # to ask.
+  def test_asks_for_the_success_flag_and_the_comment_url
+    command_output(%w[comment-edit comment-1 --body fixed])
+
+    assert_match(/commentUpdate\([^)]*\)\s*\{[^{]*\bsuccess\b/, @client.graphql)
+    assert_match(/\bcomment\s*\{[^}]*\burl\b/, @client.graphql)
+  end
+
+  def test_leaves_a_body_files_byte_order_mark_out
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'bom.md')
+      File.binwrite(path, "\xEF\xBB\xBF# Fixed\n".b)
+      command_output(['comment-edit', 'comment-1', '--body-file', path])
+    end
+
+    assert_equal "# Fixed\n", @client.variables.dig(:input, :body)
+  end
+
+  def test_sends_a_body_file_unchanged
+    body = "# Fixed\n\n- first line\n  indented line\n"
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'body.md')
+      File.write(path, body)
+      command_output(['comment-edit', 'comment-1', '--body-file', path])
+    end
+
+    assert_equal body, @client.variables.dig(:input, :body)
+  end
+
+  def test_prints_the_edited_comment_url
+    assert_equal "Edited comment comment-1: https://example.test/ABC-1#comment-1\n",
+                 command_output(%w[comment-edit comment-1 --body fixed])
+  end
+
+  def test_an_edit_answered_without_its_comment_aborts
+    @client.comment_returned = false
+    assert_match(/\Alinear: comment edit failed: /, abort_message(%w[comment-edit comment-1 --body fixed]))
+  end
+
+  def test_json_prints_the_response
+    output = JSON.parse(command_output(%w[comment-edit comment-1 --body fixed --json]))
+    assert_equal 'https://example.test/ABC-1#comment-1', output.dig('data', 'commentUpdate', 'comment', 'url')
+  end
+
+  def test_json_prints_a_refused_edit_without_aborting
+    @client.success = false
+    output = JSON.parse(command_output(%w[comment-edit comment-1 --body fixed --json]))
+    assert_equal false, output.dig('data', 'commentUpdate', 'success')
+  end
+
+  def test_a_refused_edit_aborts_with_the_response
+    @client.success = false
+    message = abort_message(%w[comment-edit comment-1 --body fixed])
+
+    assert_match(/\Alinear: comment edit failed: /, message)
+    assert_match(/"success" ?=> ?false/, message)
   end
 end
 
