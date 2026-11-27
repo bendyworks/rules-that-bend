@@ -122,6 +122,7 @@ Give every critic the SAME prompt spine:
   (job-class strings in a schedulers repo, command strings in a sibling
   service), so "no in-repo caller" is not "dead" until the siblings are
   checked.
+- The secret paragraph from the execution notes, word for word.
 - A **cap of 3-5 honestly-sized candidates** per critic. This is the single
   most important anti-lint-list lever at the critic layer: uncapped, a critic
   fed a file list returns per-file nits that Phase 4's cap never touches.
@@ -381,9 +382,10 @@ to the appendix.
 
 - Phases 1-4 fan out as parallel subagents once Phase 0 has fixed the
   taxonomy; Phase 0 itself parallelizes per subsystem.
-- Every subagent prompt, Phases 0-4, carries this paragraph word for word,
-  and the main agent follows it in its own commands: the telemetry input
-  asks whether an error-tracker token exists, a question about a secret.
+- Every subagent prompt, the plan's cold read (lesson 3) and Phases 0-4,
+  carries this paragraph word for word, and the main agent follows it in
+  its own commands: the telemetry input asks whether an error-tracker token
+  exists, a question about a secret.
 
   > **Never print a secret's value.** Your output goes into the developer's
   > session transcript, and a secret printed there has to be rotated. Do not
