@@ -391,17 +391,19 @@ to the appendix.
   > or `config/credentials/*.key`, a private key (`*.pem`, `*.key`, `id_rsa`,
   > `id_ed25519`), `.netrc`, or any other credentials file: not with the Read
   > tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or `-l`,
-  > `git show` or `git log -p`, or anything else that shows its lines. Do not
-  > run a command that lists environment variables or a service's settings
-  > (`env`, `printenv`, a bare `set` or `export`, `heroku config`,
-  > `rails credentials:show`), and do not echo a variable whose name says it
-  > holds a token, key, or password. When a command needs a token, pass it by
-  > the variable's name, never its value, and with no verbose or trace flag
-  > that prints request headers (`curl -v`). When a finding turns on a
-  > setting, check it with a command that prints no value:
-  > `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for whether a
-  > file sets it, `test -n "$NAME" && echo set || echo unset` for whether the
-  > environment has it, and the code that reads it (`ENV.fetch`, a
+  > `git diff`, `git show`, or `git log -p`, or anything else that shows its
+  > lines. When a diff you are told to read touches such a file, read it with
+  > that path left out (`git diff <range> -- . ':(exclude)<path>'`) and say in
+  > your report that you did. Do not run a command that lists environment
+  > variables or a service's settings (`env`, `printenv`, a bare `set` or
+  > `export`, `heroku config`, `rails credentials:show`), and do not echo a
+  > variable whose name says it holds a token, key, or password. When a
+  > command needs a token, pass it by the variable's name, never its value,
+  > and with no verbose or trace flag that prints request headers (`curl -v`).
+  > When a finding turns on a setting, check it with a command that prints no
+  > value: `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for
+  > whether a file sets it, `test -n "$NAME" && echo set || echo unset` for
+  > whether the environment has it, and the code that reads it (`ENV.fetch`, a
   > `credentials` call) for how it is used.
 - Verify any headline claim an agent makes before enshrining it (e.g. "zero
   production callers" gets a fresh grep).
