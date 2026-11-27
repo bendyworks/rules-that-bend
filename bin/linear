@@ -771,6 +771,9 @@ module Linear
       }
     GQL
 
+    # --json hands back Linear's answer whatever it says, a refusal
+    # included, as every other subcommand's --json does: the caller
+    # reads the success field. Without --json a refusal aborts.
     if json_mode
       puts JSON.pretty_generate(res)
       return

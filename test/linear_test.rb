@@ -863,6 +863,17 @@ class CommentEditSentTest < LinearTestCase
     assert_match(/\Alinear: comment edit failed: /, abort_message(%w[comment-edit comment-1 --body fixed]))
   end
 
+  def test_json_prints_the_response
+    output = JSON.parse(command_output(%w[comment-edit comment-1 --body fixed --json]))
+    assert_equal 'https://example.test/ABC-1#comment-1', output.dig('data', 'commentUpdate', 'comment', 'url')
+  end
+
+  def test_json_prints_a_refused_edit_without_aborting
+    @client.success = false
+    output = JSON.parse(command_output(%w[comment-edit comment-1 --body fixed --json]))
+    assert_equal false, output.dig('data', 'commentUpdate', 'success')
+  end
+
   def test_a_refused_edit_aborts_with_the_response
     @client.success = false
     message = abort_message(%w[comment-edit comment-1 --body fixed])
