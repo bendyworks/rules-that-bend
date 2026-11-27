@@ -122,6 +122,7 @@ Give every critic the SAME prompt spine:
   (job-class strings in a schedulers repo, command strings in a sibling
   service), so "no in-repo caller" is not "dead" until the siblings are
   checked.
+- The secret paragraph from the execution notes, word for word.
 - A **cap of 3-5 honestly-sized candidates** per critic. This is the single
   most important anti-lint-list lever at the critic layer: uncapped, a critic
   fed a file list returns per-file nits that Phase 4's cap never touches.
@@ -381,6 +382,37 @@ to the appendix.
 
 - Phases 1-4 fan out as parallel subagents once Phase 0 has fixed the
   taxonomy; Phase 0 itself parallelizes per subsystem.
+- Every subagent prompt (the plan's cold read for lesson 3, and Phases
+  0-4) carries this paragraph word for word, and the main agent follows it in
+  its own commands: the telemetry input asks whether an error-tracker token
+  exists, a question about a secret.
+
+  > **Never print a secret's value.** Your output goes into the developer's
+  > session transcript, and a secret printed there has to be rotated. Do not
+  > show the contents of `.env` or its variants, `.envrc`, `config/master.key`
+  > or `config/credentials/*.key`, a private key (`*.pem`, `*.key`, `id_rsa`,
+  > `id_ed25519`), `.netrc`, or any other credentials file: not with the Read
+  > tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or `-l`,
+  > `git diff`, `git show`, or `git log -p`, or anything else that shows its
+  > lines. Read every `git diff`, `git show`, and `git log -p` with env files
+  > and `.key` and `.pem` files left out by pattern, which also leaves out
+  > both paths of a renamed one: end the command with
+  > `-- . ':(exclude)*.env*' ':(exclude)*.envrc' ':(exclude)*.key' ':(exclude)*.pem'`,
+  > and say in your report when that left a file out (its `--name-status` list
+  > shows which). Do not run a command that lists environment variables or a
+  > service's settings (`env`, `printenv`, a bare `set` or `export`,
+  > `heroku config`, `rails credentials:show`), and do not echo a variable
+  > whose name says it holds a token, key, or password. When a command needs a
+  > token, pass it by the variable's name, never its value, and with no
+  > verbose or trace flag that prints request headers (`curl -v`). When a
+  > finding turns on a setting, check it with a command that prints no value:
+  > `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for whether a
+  > file sets it (an `.envrc` that loads another file with `dotenv`, which
+  > reads `.env` by default, `source_env`, or `source_up` sets what that file
+  > sets), `sh -c 'test -n "$NAME" && echo set || echo unset'` for whether the
+  > environment has it, run under `direnv exec .` where the project uses
+  > direnv, since your own shell has not loaded its `.envrc`, and the code
+  > that reads it (`ENV.fetch`, a `credentials` call) for how it is used.
 - Verify any headline claim an agent makes before enshrining it (e.g. "zero
   production callers" gets a fresh grep).
 - The survey changes no production code, so there is no test/lint/PR tail --
