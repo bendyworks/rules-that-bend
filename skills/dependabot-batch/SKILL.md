@@ -440,6 +440,19 @@ branch someone else has pushed to.
    | Runtime + patch/minor + `merge_runtime_bumps: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <head>` |
    | Either dial set to `ask` | Announce green, leave for a person |
 
+**Verify ahead what a person will merge.** A person's merge puts every other
+prepared pull request behind, and Dependabot's rebase gives each a new head. So
+when two or more first-pass pull requests will be left for a person on a dial at
+`ask`, verify them together: in a throwaway worktree (`git worktree add --detach
+<path> <remote>/<default-branch>`), `git merge --no-edit <head>` each in Phase 3
+order, noting `git rev-parse HEAD^{tree}` after each as that pull request's
+`<tree>`, and run step 4 once on the result in place of each one's own run. A
+conflict ends the stack there, and the rest take step 4 one at a time; so does
+every one in it when the stacked run fails. Hand them over together, in order,
+asking that they merge in it. When a head later changes, the run carries over
+only when `git rev-parse <new-head>^{tree}` is that pull request's `<tree>`;
+otherwise it takes step 4 again. Remove the worktree after.
+
 **Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
 refused by branch protection or required approvals is a gate working: set the PR
