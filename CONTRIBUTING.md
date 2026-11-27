@@ -403,6 +403,11 @@ loop with coverage on, uploads `coverage/` on every run that gets
 that far, and then asserts every `bin/` CLI appears in the artifact
 with covered lines.
 
+CI runs the tests on Linux, and contributors usually run them on
+macOS, so a test never pins text the operating system supplies, such
+as an `Errno` message: macOS writes "Unknown error: 9999" where Linux
+writes "Unknown error 9999". Match the part the code controls.
+
 When adding a mode to an existing CLI, place it by this convention: a
 new mode of one resource rides a flag on that resource's subcommand
 (like `gh-issue-sync section --delete`), while an operation with its
