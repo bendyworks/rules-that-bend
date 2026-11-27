@@ -703,18 +703,22 @@ for word:
 > (`*.pem`, `*.key`, `id_rsa`, `id_ed25519`), `.netrc`, or any other
 > credentials file: not with the Read tool, Grep in content mode, `cat`,
 > `head`, `grep` without `-c` or `-l`, `git diff`, `git show`, or
-> `git log -p`, or anything else that shows its lines. When a diff you
-> are told to read touches such a file, read it with that path left out
-> (`git diff <range> -- . ':(exclude)<path>'`) and say in your report
-> that you did. Do not run a command that lists environment variables or
-> a service's settings (`env`, `printenv`, a bare `set` or `export`,
-> `heroku config`, `rails credentials:show`), and do not echo a variable
-> whose name says it holds a token, key, or password. When a command
-> needs a token, pass it by the variable's name, never its value, and
-> with no verbose or trace flag that prints request headers (`curl -v`).
-> When a finding turns on a setting, check it with a command that prints
-> no value: `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc`
-> for whether a file sets it (an `.envrc` that loads another file with
+> `git log -p`, or anything else that shows its lines. Read every
+> `git diff`, `git show`, and `git log -p` with those files left out by
+> pattern, which also leaves out both paths of a renamed one: end the
+> command with
+> `-- . ':(exclude)*.env*' ':(exclude)*.envrc' ':(exclude)*.key' ':(exclude)*.pem'`,
+> and say in your report when that left a file out (its `--name-status`
+> list shows which). Do not run a command that lists environment
+> variables or a service's settings (`env`, `printenv`, a bare `set` or
+> `export`, `heroku config`, `rails credentials:show`), and do not echo
+> a variable whose name says it holds a token, key, or password. When a
+> command needs a token, pass it by the variable's name, never its
+> value, and with no verbose or trace flag that prints request headers
+> (`curl -v`). When a finding turns on a setting, check it with a
+> command that prints no value:
+> `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for
+> whether a file sets it (an `.envrc` that loads another file with
 > `dotenv` sets what that file sets),
 > `test -n "$NAME" && echo set || echo unset` for whether your own shell
 > has it (which may not have loaded the project's `.envrc`), and the
