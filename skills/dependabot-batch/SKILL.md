@@ -240,8 +240,9 @@ Phases 1 to 3, creates no tasks. The examples below are one batch.
   cannot run. A yes to the Phase 6 question carries on in that task, renamed to
   the deploy, and adds the confirm task. A task reading "Merge" that never
   merged misleads whoever reads the list.
-- **A stop leaves the list true.** When a failed Phase 5 or a failed deploy stops
-  the run, its task stays `in_progress` and the tasks after it stay `pending`.
+- **A stop leaves the list true.** When a red default branch, a failed Phase 5 or
+  a failed deploy stops the run, its task stays `in_progress` and the tasks
+  after it stay `pending`.
 - **New work takes the next number,** never a finished task reopened: a flake-fix
   pull request, the confirm task a yes adds, and each repeat of Phases 5 and 6.
   A task added after loading lands at the end of the list.
@@ -299,14 +300,33 @@ For each PR, extract and display in a compact table:
   `curl --proto =https --max-redirs 0`, then read only the number in
   `compatibility: NN%`. Report `N/A` for `unknown` or no badge.
 
+**Alerts no pull request covers.** Dependabot opens no security pull request
+for a fix it cannot resolve, so an empty queue can sit beside open alerts. Run
+`gh api 'repos/<repo>/dependabot/alerts?state=open&per_page=100' --paginate`,
+even when no pull request is open. An alert is covered when an open Dependabot
+pull request changes its `dependency.manifest_path` and moves its package, in
+its ecosystem, to at least its
+`security_vulnerability.first_patched_version.identifier`; one with no patched
+version is never covered. Count the rest by severity for the summary. A call
+that fails for any reason is "alerts not checked", never zero.
+
 ## Phase 2: Pre-flight & triage
 
-**Main-health precheck.** Before touching any PR branch, confirm the default
-branch's latest CI run is green
-(`gh run list --branch <default-branch> --limit 1`). If red, bail with a
-message and stop -- do not verify against a broken base. Use the default
-branch the Phase 1 repo-of-record call reported rather than assuming
-`main`.
+**Main-health precheck.** With no open pull request, skip it. Otherwise, before
+touching any, check the default branch's tip, `<tip>` (`git fetch <remote>
+<default-branch>`, then `git rev-parse <remote>/<default-branch>`), by the
+checks the Dependabot pull requests run: every name in any open one's
+`statusCheckRollup` (`gh pr view <n> --json statusCheckRollup`). Read them on
+`<tip>` with `gh api 'repos/<repo>/commits/<tip>/check-runs?per_page=100'` (by
+`name`) and `gh api 'repos/<repo>/commits/<tip>/status'` (by `context`, timed
+by its `updated_at`). Green means there is at least one name and each is there,
+finished, successful, and finished within the last day; a check that failed
+(conclusion `failure`, `timed_out` or `startup_failure`, state `failure` or
+`error`) within the last day stops the run. Anything else is no evidence, whatever the
+branch's latest workflow run says: it may be another workflow's, or older than
+a failure that depends on the date. On no evidence, check out `<tip>` detached,
+then install and verify as Phase 4 steps 3 and 4 do; a failed verify there
+stops the run.
 
 **Merge-method detection.** Query the repo to find which merge strategies are
 allowed and pick the method this batch will use:
@@ -342,6 +362,15 @@ fingerprints, and set the PR aside with the trace. When it matches a known flake
 and `separate_flake_fix_pr` is on, propose a standalone flake-fix PR in the
 summary.
 
+**The same failure twice.** When a pull request fails, in CI or in Phase 4's
+install or verify, on the same test, or with the same install or boot error, as
+one already failed in this run, verify the default branch's tip before setting
+it aside: fetched again and checked out as the precheck's fallback does, unless
+this run's own verify already passed on that commit, and under the failing pull
+request's task once the task list exists. Failing there, the default branch is
+red: the run stops, and the summary, and the task of each pull request that
+failed that way, give that as the reason. Passing, each is set aside as usual.
+
 ## Phase 3: Merge order
 
 Order them, lowest blast radius first:
@@ -350,8 +379,8 @@ Order them, lowest blast radius first:
 2. Dev-only minor bumps
 3. Runtime patch bumps
 4. Runtime minor bumps
-5. Anything the Phase 4 gating table would not auto-merge, apart from a grouped
-   pull request, which stays refused
+5. Anything the Phase 4 gating table would not auto-merge, whatever its bump
+   type, apart from a grouped pull request, which stays refused
 
 **Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
 6, so routine bumps ship without waiting on anything. The second takes group 5
@@ -424,6 +453,25 @@ branch someone else has pushed to.
    | Runtime + patch/minor + `merge_runtime_bumps: auto` | `dependabot-merge <n> <merge-flag> --match-head-commit <head>` |
    | Either dial set to `ask` | Announce green, leave for a person |
 
+**Verify ahead what a person will merge.** A person's merge puts every other
+prepared pull request behind, and Dependabot's rebase gives each a new head. So
+when the second pass holds two or more, start it by taking each through step 1,
+then stack the current ones in Phase 3 order in the checkout, on the default
+branch the first pass left: `git fetch <remote> <default-branch>` and
+`git checkout --detach <remote>/<default-branch>`, then for each in turn, under
+its own task, `git -c core.hooksPath=/dev/null merge --no-edit <head>` (no
+hooks run), note `git rev-parse HEAD^{tree}` as its `<tree>`, and run steps 3
+and 4 on that tree, in place of its own steps 2 to 4. Before each merge, a
+tracked file the last install or verify changed is restored with
+`git checkout -- .`. A conflict (`git merge --abort`) or a failed verify ends
+the stack there: the pull requests already verified keep their runs, and the
+one that conflicted or failed, with the rest, takes steps 2 to 4 one at a time.
+Return to the default branch, then take each stacked one through steps 5 and 6.
+Hand them over together, in order, asking that they merge in it. When a head
+changes, whether during step 5 or after a person's merge, take it through step
+1; its run carries over only when `git rev-parse <new-head>^{tree}` is its
+`<tree>`, the tree its run tested, and otherwise it takes steps 2 to 4 again.
+
 **Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
 refused by branch protection or required approvals is a gate working: set the PR
@@ -495,14 +543,18 @@ Close the session with a table:
 | #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (no rebase from Dependabot in 20 minutes; `@dependabot recreate` restores it) |
 | ... | ... | ... | ... |
 
-Plus:
+Plus, on every run, including one with an empty queue:
+- Open alerts no pull request covers, by severity, or "alerts not checked". When
+  any are open, say so in plain words and suggest a tracker issue; file none.
 - Flake-fix PR (if any): number, status
 - Deploy: release identifier, commits shipped, health check result and live commit;
   or the Deploy veto line that asked, or what failed and what production is serving
 
 ## Escalation rules (short reference)
 
-- Default-branch CI red at start -> stop the run
+- Default branch's checks red within the last day at start, or a verify on its
+  tip fails (the precheck's fallback, or once two or more pull requests fail
+  the same way) -> stop the run
 - Phase 5 verification fails -> stop the run, do not deploy
 - Grouped PR present -> refuse that PR, point at config, carry on
 - Lint offense -> leave that PR for a person with the fix described, carry on
