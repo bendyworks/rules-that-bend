@@ -34,7 +34,6 @@ gh pr ready
 gh pr view
 gh repo set-default
 gh repo view
-gh run list
 gh run view
 gh stack checkout
 gh stack init

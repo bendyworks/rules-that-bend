@@ -301,12 +301,18 @@ For each PR, extract and display in a compact table:
 
 ## Phase 2: Pre-flight & triage
 
-**Main-health precheck.** Before touching any PR branch, confirm the default
-branch's latest CI run is green
-(`gh run list --branch <default-branch> --limit 1`). If red, bail with a
-message and stop -- do not verify against a broken base. Use the default
-branch the Phase 1 repo-of-record call reported rather than assuming
-`main`.
+**Main-health precheck.** Before touching any pull request, check the default
+branch's tip, `<tip>` (`git fetch <remote> <default-branch>`, then
+`git rev-parse <remote>/<default-branch>`), by the checks a Dependabot pull
+request runs: the names in its `statusCheckRollup` (`gh pr view <n> --json
+statusCheckRollup`). Read them on `<tip>` with
+`gh api 'repos/<repo>/commits/<tip>/check-runs?per_page=100'` (by `name`) and
+`gh api 'repos/<repo>/commits/<tip>/status'` (by `context`). Green means each
+is there, finished, successful, and finished within the last day. Anything else
+is no evidence, whatever the branch's latest workflow run says: it may be
+another workflow's, or older than a failure that depends on the date. On no
+evidence, check out `<tip>` detached, then install and verify as Phase 4 steps
+3 and 4 do. A failed check on `<tip>`, or a failed verify there, stops the run.
 
 **Merge-method detection.** Query the repo to find which merge strategies are
 allowed and pick the method this batch will use:
