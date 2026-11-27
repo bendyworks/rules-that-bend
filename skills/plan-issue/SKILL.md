@@ -695,12 +695,14 @@ to the same brief, and say so. The brief tells the agent:
 - **Never print a secret's value**, in this paragraph, word for word:
 
   > **Never print a secret's value.** Your output goes into the
-  > developer's session transcript, and a secret printed there has to
-  > be rotated. Do not open `.env` or its variants, `.envrc`,
+  > developer's session transcript, and a secret printed there has to be
+  > rotated. Do not open `.env` or its variants, `.envrc`,
   > `config/master.key`, `*.pem`, or a credentials file with the Read
   > tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or
-  > `-l`, or anything else that shows its lines. Do not run `env`,
-  > `printenv`, or a bare `set`, and do not echo a variable whose name
+  > `-l`, or anything else that shows its lines. Do not run a command
+  > that lists environment variables or a service's settings (`env`,
+  > `printenv`, a bare `set` or `export`, `heroku config`,
+  > `rails credentials:show`), and do not echo a variable whose name
   > says it holds a token, key, or password. When a finding turns on a
   > setting, check it with a command that prints no value:
   > `grep -cE '^(export )?NAME=' .envrc` for whether a file sets it,
