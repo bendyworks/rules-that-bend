@@ -55,6 +55,15 @@ class LinearTestCase < CliTestCase
     Linear::CLI.run(argv)
   end
 
+  # The command's printed output; an abort fails the test with its
+  # message rather than ending the run, which Minitest lets SystemExit
+  # do.
+  def command_output(argv)
+    cli_stdout(argv.dup)
+  rescue SystemExit => e
+    flunk "#{argv.join(' ')} aborted: #{e.message}"
+  end
+
   # Makes Linear::Client.new return +client+ for the rest of the test.
   def stub_client(client)
     Linear::Client.define_singleton_method(:new) { client }
@@ -732,34 +741,26 @@ class DueDateSentTest < LinearTestCase
     stub_client(@client)
   end
 
-  # The command's printed output; an abort fails the test with its
-  # message rather than ending the run.
-  def summary(argv)
-    cli_stdout(argv.dup)
-  rescue SystemExit => e
-    flunk "#{argv.join(' ')} aborted: #{e.message}"
-  end
-
   def test_create_sends_the_due_date_and_prints_it
     @client.due_date = '2026-12-15'
-    output = summary(CREATE + %w[--due 2026-12-15])
+    output = command_output(CREATE + %w[--due 2026-12-15])
 
     assert_equal '2026-12-15', @client.mutation_input[:dueDate]
     assert_includes output, 'Due: 2026-12-15'
   end
 
   def test_create_without_due_sends_no_due_date
-    summary(CREATE)
+    command_output(CREATE)
     refute @client.mutation_input.key?(:dueDate)
   end
 
   def test_update_sends_the_due_date
-    summary(%w[update ABC-1 --due 2026-12-20])
+    command_output(%w[update ABC-1 --due 2026-12-20])
     assert_equal '2026-12-20', @client.mutation_input[:dueDate]
   end
 
   def test_update_due_none_sends_a_null_due_date_to_clear_it
-    summary(%w[update ABC-1 --due none])
+    command_output(%w[update ABC-1 --due none])
 
     assert @client.mutation_input.key?(:dueDate)
     assert_nil @client.mutation_input[:dueDate]
@@ -768,7 +769,7 @@ class DueDateSentTest < LinearTestCase
   # Upper case reaches the mutation as a clear only if update sends what
   # resolve_due_date returns.
   def test_update_summary_shows_a_dash_after_clearing_with_upper_case_none
-    output = summary(%w[update ABC-1 --due NONE])
+    output = command_output(%w[update ABC-1 --due NONE])
 
     assert_nil @client.mutation_input.fetch(:dueDate)
     assert_includes output, 'Due: -'
@@ -781,12 +782,12 @@ class DueDateSentTest < LinearTestCase
   end
 
   def test_create_asks_for_the_due_date_back
-    summary(CREATE)
+    command_output(CREATE)
     assert_includes @client.calls.map(&:first).grep(/issueCreate/).first, 'dueDate'
   end
 
   def test_update_asks_for_the_due_date_back
-    summary(%w[update ABC-1 --title U])
+    command_output(%w[update ABC-1 --title U])
     assert_includes @client.calls.map(&:first).grep(/issueUpdate/).first, 'dueDate'
   end
 end
@@ -808,16 +809,8 @@ class CommentEditSentTest < LinearTestCase
     stub_client(@client)
   end
 
-  # The command's printed output; an abort fails the test with its
-  # message rather than ending the run.
-  def edit_output(argv)
-    cli_stdout(argv.dup)
-  rescue SystemExit => e
-    flunk "#{argv.join(' ')} aborted: #{e.message}"
-  end
-
   def test_sends_the_new_body_to_comment_update_for_that_comment
-    edit_output(%w[comment-edit comment-1 --body fixed])
+    command_output(%w[comment-edit comment-1 --body fixed])
 
     assert_includes @client.graphql, 'commentUpdate'
     assert_equal({ id: 'comment-1', input: { body: 'fixed' } }, @client.variables)
@@ -828,7 +821,7 @@ class CommentEditSentTest < LinearTestCase
     Dir.mktmpdir('comment-edit') do |dir|
       path = File.join(dir, 'body.md')
       File.write(path, body)
-      edit_output(['comment-edit', 'comment-1', '--body-file', path])
+      command_output(['comment-edit', 'comment-1', '--body-file', path])
     end
 
     assert_equal body, @client.variables.dig(:input, :body)
@@ -836,7 +829,7 @@ class CommentEditSentTest < LinearTestCase
 
   def test_prints_the_edited_comment_url
     assert_equal "Edited comment comment-1: https://example.test/ABC-1#comment-1\n",
-                 edit_output(%w[comment-edit comment-1 --body fixed])
+                 command_output(%w[comment-edit comment-1 --body fixed])
   end
 
   def test_an_edit_answered_without_its_comment_aborts
