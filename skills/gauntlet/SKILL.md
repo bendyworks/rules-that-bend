@@ -38,13 +38,17 @@ Each sub-agent reads the relevant CLAUDE.md(s) itself. The one exception is Phas
 
 **No sub-agent whose prompt this skill writes changes the working tree, in any phase, not even with a change it means to undo. Every such prompt carries, word for word, the parts of the no-write block the table gives its lane.** A sub-agent sees only its prompt, never this skill, so a rule left out of the prompt does not exist for it. The built-ins this skill invokes, `/code-review` and `/security-review`, write their own prompts; Phase 1 says what to do if `/code-review` edits, and `/security-review` runs inside the `security` agent, whose prompt carries the block. Nobody is watching the tree while an audit runs, and a change an agent leaves behind reads as the developer's own edit in the next commit.
 
+**The main agent follows the block's third paragraph in its own commands too.** Its output lands in the same transcript as a sub-agent's.
+
 ### The no-write block
 
-The block is two paragraphs and one of two endings.
+The block is three paragraphs and one of two endings.
 
 > **Never write to the working tree, not even a change you intend to undo.** An undo that depends on you finishing normally is not an undo. Run `git rev-parse --show-toplevel` first: that directory is the checkout. Inside it, do not edit, create, move, or delete any file (the records git keeps under `.git` aside), and do not run `git stash`, `git restore`, `git reset`, `git checkout <ref> -- <path>`, or any other command that rewrites files there. Do not run the project's tests or code there either: a run writes coverage files, logs, and test-database rows. Read files, run read-only commands, and report.
 >
 > **Reading a test can rule a dependency out, never in.** A test that never observes a value cannot depend on it, and reading settles that. A test that does observe it may still pass with the production code broken: a default, a setup record, a second code path, or a loose assertion can supply the same answer. A claim that a test does or does not depend on something it observes needs a run, not a read. **A doubt you reach by reading is a finding either way, never something to drop:** report it as confirmed when a run confirms it, and with `unverified:` in front when no run settled it.
+>
+> **Never print a secret's value.** Your output goes into the developer's session transcript, and a secret printed there has to be rotated. Do not open `.env` or its variants, `.envrc`, `config/master.key`, `*.pem`, or a credentials file with the Read tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or `-l`, or anything else that shows its lines. Do not run `env`, `printenv`, or a bare `set`, and do not echo a variable whose name says it holds a token, key, or password. When a finding turns on a setting, check it with a command that prints no value: `grep -cE '^(export )?NAME=' .envrc` for whether a file sets it, `test -n "$NAME" && echo set || echo unset` for whether the environment has it, and the code that reads it (`ENV.fetch`, a `credentials` call) for how it is used.
 
 The experiments ending:
 
@@ -67,12 +71,12 @@ The report-only ending:
 
 Which prompt carries which part:
 
-| Dispatch                                                                 | Block                                 |
-|--------------------------------------------------------------------------|---------------------------------------|
-| `rspec-quality`                                                          | Both paragraphs, experiments ending   |
-| The Phase 4 agent, on both of its passes                                 | Both paragraphs, experiments ending   |
-| Every other Phase 1 agent                                                | Both paragraphs, report-only ending   |
-| Phase 5's `prose` and `prose-defaults` lanes                             | The first paragraph only              |
+| Dispatch                                     | Block                                    |
+|----------------------------------------------|------------------------------------------|
+| `rspec-quality`                              | All three paragraphs, experiments ending |
+| The Phase 4 agent, on both of its passes     | All three paragraphs, experiments ending |
+| Every other Phase 1 agent                    | All three paragraphs, report-only ending |
+| Phase 5's `prose` and `prose-defaults` lanes | The first and third paragraphs           |
 
 **Only one agent holding the experiments ending runs at a time.** Worktrees of one checkout may share its test database, so two experiment runs can collide. Each dispatch above sends at most one such agent. The main agent starts no gate run while such an agent is running.
 
@@ -455,7 +459,7 @@ Phases 3 and 4 change code after the branch's commit messages were written, so a
 
 Two lanes, `prose` and `prose-defaults`, each read every commit on the branch, `git log main..HEAD` (`prose-defaults` leaves merge commits out): a stale claim can sit in a commit written before any fix, and no Phase 1 lane reads commit messages for their prose.
 
-**Each lane is a fresh sub-agent, even in light mode**, dispatched in a single message with the tree fingerprinted around the dispatch ("Watching the tree"): the session that wrote the fixes is the least independent reviewer of what it wrote about them. Give each lane its brief, the first paragraph of the no-write block, and the findings format from item 4 of Phase 1's list: a sub-agent sees only its prompt.
+**Each lane is a fresh sub-agent, even in light mode**, dispatched in a single message with the tree fingerprinted around the dispatch ("Watching the tree"): the session that wrote the fixes is the least independent reviewer of what it wrote about them. Give each lane its brief, the first and third paragraphs of the no-write block, and the findings format from item 4 of Phase 1's list: a sub-agent sees only its prompt.
 
 ### Agent: prose
 
@@ -466,7 +470,7 @@ Two lanes, `prose` and `prose-defaults`, each read every commit on the branch, `
 >
 > For each finding, name the commit SHA or the description. Use the standard findings format.
 
-Paste the no-write block's first paragraph after this brief ("The no-write block").
+Paste the no-write block's first and third paragraphs after this brief ("The no-write block").
 
 ### Agent: prose-defaults
 
@@ -480,7 +484,7 @@ Paste the no-write block's first paragraph after this brief ("The no-write block
 >
 > Report each commit's matches as one finding under nit, in the form `<sha> -- prose defaults: <the quoted words>`. In the pull request description, when one exists and you can read it, check only the words ("silently" and "quietly", the metaphors, and the mental verbs), and report its matches as one finding under nit: `pull request description -- prose defaults: <the quoted words>`. Use the standard findings format.
 
-Paste the no-write block's first paragraph after this brief ("The no-write block").
+Paste the no-write block's first and third paragraphs after this brief ("The no-write block").
 
 This brief restates lists the commit-messages and code-comments guidance own, on purpose, where every other brief leaves a rule to the file that owns it: the lane has to work for a team that does not import that guidance.
 
