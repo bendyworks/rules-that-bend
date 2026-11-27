@@ -692,6 +692,22 @@ find. Where no subagent can be dispatched, do the critique yourself,
 to the same brief, and say so. The brief tells the agent:
 
 - **Read the plan cold, and the code it names.**
+- **Never print a secret's value**, in this paragraph, word for word:
+
+  > **Never print a secret's value.** Your output goes into the
+  > developer's session transcript, and a secret printed there has to
+  > be rotated. Do not open `.env` or its variants, `.envrc`,
+  > `config/master.key`, `*.pem`, or a credentials file with the Read
+  > tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or
+  > `-l`, or anything else that shows its lines. Do not run `env`,
+  > `printenv`, or a bare `set`, and do not echo a variable whose name
+  > says it holds a token, key, or password. When a finding turns on a
+  > setting, check it with a command that prints no value:
+  > `grep -cE '^(export )?NAME=' .envrc` for whether a file sets it,
+  > `test -n "$NAME" && echo set || echo unset` for whether the
+  > environment has it, and the code that reads it (`ENV.fetch`, a
+  > `credentials` call) for how it is used.
+
 - **A plan that needs no change is an ordinary result, and the report
   then says so.** Propose a change only where the plan as written
   would give a worse result than the change would: a wrong
