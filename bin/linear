@@ -222,14 +222,18 @@ module Linear
     raise Error, "linear: #{list} are mutually exclusive"
   end
 
-  # Reads a --*-file option's path, refusing a missing or unreadable
-  # file (a directory, a file without read permission) with the
-  # option's own name rather than letting File.read escape as a raw
-  # Errno backtrace.
+  # Reads a --*-file option's path as UTF-8, dropping a leading
+  # byte-order mark, and refuses a missing or unreadable file (a
+  # directory, a file without read permission) or one that is not valid
+  # UTF-8 with the option's own name rather than letting File.read or a
+  # later string call escape as a raw backtrace.
   def read_file_option!(path, flag)
     raise Error, "linear: #{flag} not found: #{path}" unless File.exist?(path)
 
-    File.read(path)
+    text = File.read(path, mode: 'r:BOM|UTF-8')
+    raise Error, "linear: #{flag} is not valid UTF-8: #{path}" unless text.valid_encoding?
+
+    text
   rescue SystemCallError
     raise Error, "linear: #{flag} could not be read: #{path}"
   end

@@ -305,6 +305,27 @@ class UsageErrorsTest < LinearTestCase
     end
   end
 
+  def test_comment_edit_body_file_must_be_utf8
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'latin1.md')
+      File.binwrite(path, "caf\xE9 fixed\n".b)
+      assert_equal "linear: --body-file is not valid UTF-8: #{path}",
+                   abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
+  # create reads its --description-file through the same helper and
+  # never strips the text, so the check has to come from the helper.
+  def test_create_description_file_must_be_utf8
+    Dir.mktmpdir('create') do |dir|
+      path = File.join(dir, 'latin1.md')
+      File.binwrite(path, "caf\xE9\n".b)
+      assert_equal "linear: --description-file is not valid UTF-8: #{path}",
+                   abort_message(['create', '--team', 'ABC', '--title', 'T', '--priority', 'low',
+                                  '--no-project', '--description-file', path])
+    end
+  end
+
   # The other file-taking options guard a missing path the same way,
   # rather than letting File.read escape as a raw Errno backtrace.
   def test_create_description_file_must_exist
@@ -840,6 +861,16 @@ class CommentEditSentTest < LinearTestCase
 
     assert_match(/commentUpdate\([^)]*\)\s*\{[^{]*\bsuccess\b/, @client.graphql)
     assert_match(/\bcomment\s*\{[^}]*\burl\b/, @client.graphql)
+  end
+
+  def test_leaves_a_body_files_byte_order_mark_out
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'bom.md')
+      File.binwrite(path, "\xEF\xBB\xBF# Fixed\n".b)
+      command_output(['comment-edit', 'comment-1', '--body-file', path])
+    end
+
+    assert_equal "# Fixed\n", @client.variables.dig(:input, :body)
   end
 
   def test_sends_a_body_file_unchanged
