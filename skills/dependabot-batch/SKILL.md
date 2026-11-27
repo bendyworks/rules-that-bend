@@ -240,8 +240,9 @@ Phases 1 to 3, creates no tasks. The examples below are one batch.
   cannot run. A yes to the Phase 6 question carries on in that task, renamed to
   the deploy, and adds the confirm task. A task reading "Merge" that never
   merged misleads whoever reads the list.
-- **A stop leaves the list true.** When a failed Phase 5 or a failed deploy stops
-  the run, its task stays `in_progress` and the tasks after it stay `pending`.
+- **A stop leaves the list true.** When a red default branch, a failed Phase 5 or
+  a failed deploy stops the run, its task stays `in_progress` and the tasks
+  after it stay `pending`.
 - **New work takes the next number,** never a finished task reopened: a flake-fix
   pull request, the confirm task a yes adds, and each repeat of Phases 5 and 6.
   A task added after loading lands at the end of the list.
@@ -361,12 +362,13 @@ and `separate_flake_fix_pr` is on, propose a standalone flake-fix PR in the
 summary.
 
 **The same failure twice.** When a pull request fails, in CI or in Phase 4's
-local verify, on the same test as one already failed in this run, verify the
-default branch's tip before setting it aside: fetched again and checked out as
-the precheck's fallback does, unless this run already verified that commit, and
-under the failing pull request's task. Failing there, the default branch is
-red: the run stops, and the summary gives that as the reason for each pull
-request that failed on the test. Passing, each is set aside as usual.
+install or verify, on the same test, or with the same install or boot error, as
+one already failed in this run, verify the default branch's tip before setting
+it aside: fetched again and checked out as the precheck's fallback does, unless
+this run's own verify already passed on that commit, and under the failing pull
+request's task once the task list exists. Failing there, the default branch is
+red: the run stops, and the summary, and the task of each pull request that
+failed that way, give that as the reason. Passing, each is set aside as usual.
 
 ## Phase 3: Merge order
 
