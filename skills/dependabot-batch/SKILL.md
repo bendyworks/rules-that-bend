@@ -317,13 +317,14 @@ touching any, check the default branch's tip, `<tip>` (`git fetch <remote>
 checks the Dependabot pull requests run: every name in any open one's
 `statusCheckRollup` (`gh pr view <n> --json statusCheckRollup`). Read them on
 `<tip>` with `gh api 'repos/<repo>/commits/<tip>/check-runs?per_page=100'` (by
-`name`) and `gh api 'repos/<repo>/commits/<tip>/status'` (by `context`). Green
-means there is at least one name and each is there, finished, successful, and
-finished within the last day. Anything else is no evidence, whatever the
+`name`) and `gh api 'repos/<repo>/commits/<tip>/status'` (by `context`, timed
+by its `updated_at`). Green means there is at least one name and each is there,
+finished, successful, and finished within the last day; a check that failed
+within the last day stops the run. Anything else is no evidence, whatever the
 branch's latest workflow run says: it may be another workflow's, or older than
 a failure that depends on the date. On no evidence, check out `<tip>` detached,
-then install and verify as Phase 4 steps 3 and 4 do. A failed check on `<tip>`,
-or a failed verify there, stops the run.
+then install and verify as Phase 4 steps 3 and 4 do; a failed verify there
+stops the run.
 
 **Merge-method detection.** Query the repo to find which merge strategies are
 allowed and pick the method this batch will use:
