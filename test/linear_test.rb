@@ -300,7 +300,7 @@ class UsageErrorsTest < LinearTestCase
 
   def test_comment_edit_body_file_must_be_readable
     Dir.mktmpdir('comment-edit') do |dir|
-      assert_equal "linear: --body-file could not be read: #{dir}",
+      assert_equal "linear: --body-file could not be read: #{dir} (Is a directory)",
                    abort_message(['comment-edit', 'some-id', '--body-file', dir])
     end
   end

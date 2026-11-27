@@ -234,8 +234,10 @@ module Linear
     raise Error, "linear: #{flag} is not valid UTF-8: #{path}" unless text.valid_encoding?
 
     text
-  rescue SystemCallError
-    raise Error, "linear: #{flag} could not be read: #{path}"
+  rescue SystemCallError => e
+    # The bare reason ("Is a directory"), without the path and the
+    # system call name e.message adds.
+    raise Error, "linear: #{flag} could not be read: #{path} (#{e.class.new.message})"
   end
 
   # Base 10 explicitly: bare Integer() honours the literal prefixes, so
