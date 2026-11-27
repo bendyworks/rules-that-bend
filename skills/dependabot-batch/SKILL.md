@@ -303,9 +303,9 @@ For each PR, extract and display in a compact table:
 for a fix it cannot resolve, so an empty queue can sit beside open alerts. Run
 `gh api 'repos/<repo>/dependabot/alerts?state=open&per_page=100' --paginate`,
 even when no pull request is open. An alert is covered when an open pull request
-moves its package, in its ecosystem, to at least its
-`security_vulnerability.first_patched_version`. Count the rest by severity for
-the summary. A refused call (403 or 404) is "alerts not checked", never zero.
+changes its `dependency.manifest_path` and moves its package, in its ecosystem,
+to at least its `security_vulnerability.first_patched_version`; one with no
+patched version is never covered. Count the rest by severity for the summary. A refused call (403 or 404) is "alerts not checked", never zero.
 
 ## Phase 2: Pre-flight & triage
 
@@ -527,7 +527,7 @@ Close the session with a table:
 | #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (no rebase from Dependabot in 20 minutes; `@dependabot recreate` restores it) |
 | ... | ... | ... | ... |
 
-Plus, on every run, an empty queue's included:
+Plus, on every run, including one with an empty queue:
 - Open alerts no pull request covers, by severity, or "alerts not checked". When
   any are open, say so in plain words and suggest a tracker issue; file none.
 - Flake-fix PR (if any): number, status
