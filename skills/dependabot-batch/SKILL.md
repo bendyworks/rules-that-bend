@@ -540,7 +540,9 @@ Plus, on every run, including one with an empty queue:
 
 ## Escalation rules (short reference)
 
-- Default-branch CI red at start -> stop the run
+- Default branch's checks red at start, or a verify on its tip fails (the
+  precheck's fallback, or after two or more pull requests fail on the same
+  test) -> stop the run
 - Phase 5 verification fails -> stop the run, do not deploy
 - Grouped PR present -> refuse that PR, point at config, carry on
 - Lint offense -> leave that PR for a person with the fix described, carry on
