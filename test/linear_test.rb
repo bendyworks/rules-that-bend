@@ -289,6 +289,13 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(%w[comment ABC-1 --body-file /nonexistent-battery-file])
   end
 
+  def test_comment_edit_body_file_must_be_readable
+    Dir.mktmpdir('comment-edit') do |dir|
+      assert_equal "linear: --body-file could not be read: #{dir}",
+                   abort_message(['comment-edit', 'some-id', '--body-file', dir])
+    end
+  end
+
   # The other file-taking options guard a missing path the same way,
   # rather than letting File.read escape as a raw Errno backtrace.
   def test_create_description_file_must_exist

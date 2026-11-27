@@ -222,13 +222,16 @@ module Linear
     raise Error, "linear: #{list} are mutually exclusive"
   end
 
-  # Reads a --*-file option's path, refusing a missing file with the
+  # Reads a --*-file option's path, refusing a missing or unreadable
+  # file (a directory, a file without read permission) with the
   # option's own name rather than letting File.read escape as a raw
   # Errno backtrace.
   def read_file_option!(path, flag)
     raise Error, "linear: #{flag} not found: #{path}" unless File.exist?(path)
 
     File.read(path)
+  rescue SystemCallError
+    raise Error, "linear: #{flag} could not be read: #{path}"
   end
 
   # Base 10 explicitly: bare Integer() honours the literal prefixes, so
