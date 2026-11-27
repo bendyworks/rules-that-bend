@@ -761,7 +761,7 @@ module Linear
     end
     comment_id = take_positionals!(rest, 1, usage).first
     reject_conflicting_sources!('--body' => !body_opt.nil?, '--body-file' => !body_file.nil?)
-    body = body_file ? read_file_option!(body_file, '--body-file') : body_opt.to_s
+    body = body_file ? read_file_option!(body_file, '--body-file') : body_opt || ''
     raise Error, usage if comment_id.strip.empty? || body.strip.empty?
 
     client = Client.new
