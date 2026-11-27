@@ -773,8 +773,11 @@ module Linear
       return
     end
 
-    raise Error, "linear: comment edit failed: #{res.inspect}" unless res.dig('data', 'commentUpdate', 'success')
-    puts "Edited comment #{comment_id}: #{res.dig('data', 'commentUpdate', 'comment', 'url')}"
+    payload = res.dig('data', 'commentUpdate')
+    comment = payload['comment'] if payload&.dig('success')
+    raise Error, "linear: comment edit failed: #{res.inspect}" unless comment
+
+    puts "Edited comment #{comment_id}: #{comment['url']}"
   end
 
   def cmd_relate(args)

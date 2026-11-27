@@ -779,17 +779,17 @@ end
 # Runs comment-edit against a client that records the mutation and
 # answers it, so a test can read what was sent and what was printed.
 class CommentEditSentTest < LinearTestCase
-  EditClient = Struct.new(:graphql, :variables, :success) do
+  EditClient = Struct.new(:graphql, :variables, :success, :comment_returned) do
     def query(graphql, variables = {})
       self.graphql = graphql
       self.variables = variables
       comment = { 'id' => variables[:id], 'url' => 'https://example.test/ABC-1#comment-1' }
-      { 'data' => { 'commentUpdate' => { 'success' => success, 'comment' => comment } } }
+      { 'data' => { 'commentUpdate' => { 'success' => success, 'comment' => (comment if comment_returned) } } }
     end
   end
 
   def setup
-    @client = EditClient.new(nil, nil, true)
+    @client = EditClient.new(nil, nil, true, true)
     stub_client(@client)
   end
 
@@ -822,6 +822,11 @@ class CommentEditSentTest < LinearTestCase
   def test_prints_the_edited_comment_url
     assert_equal "Edited comment comment-1: https://example.test/ABC-1#comment-1\n",
                  edit_output(%w[comment-edit comment-1 --body fixed])
+  end
+
+  def test_an_edit_answered_without_its_comment_aborts
+    @client.comment_returned = false
+    assert_match(/\Alinear: comment edit failed: /, abort_message(%w[comment-edit comment-1 --body fixed]))
   end
 
   def test_a_refused_edit_aborts_with_the_response
