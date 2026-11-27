@@ -444,7 +444,7 @@ If the agent finds nothing:
 
 1. Relay the agent's "where I looked" summary in the batch. It tells the user the bug hunt happened and what it covered. For a Phase 4 that ran after the batch, that summary is the whole of the last short batch it owes, and it is still sent.
 
-Either way, return to step 3 of the Phase 3 tail, the fix review. A Phase 4 requested after the batch, whose record file already has a `Phase 5 decision:` line, gets the fix review over its own fixes, from a `Fix review from:` line appended before its first fix, as "When the answers come" runs it, then the end gate as step 4 of the tail says, then step 6.
+Either way, return to step 3 of the Phase 3 tail, the fix review, unless the record file already has a `Fix review:` line: then this Phase 4's fixes get a review of their own, from a `Fix review from:` line appended before the first of them, and the end gate, as "When the answers come" runs both. A Phase 4 requested after the batch, whose record file already has a `Phase 5 decision:` line, goes from that gate to step 6.
 
 ---
 
