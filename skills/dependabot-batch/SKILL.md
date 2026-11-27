@@ -321,8 +321,8 @@ checks the Dependabot pull requests run: every name in any open one's
 `name`) and `gh api 'repos/<repo>/commits/<tip>/status'` (by `context`, timed
 by its `updated_at`). Green means there is at least one name and each is there,
 finished, successful, and finished within the last day; a check that failed
-(conclusion `failure` or `timed_out`, state `failure` or `error`) within the
-last day stops the run. Anything else is no evidence, whatever the
+(conclusion `failure`, `timed_out` or `startup_failure`, state `failure` or
+`error`) within the last day stops the run. Anything else is no evidence, whatever the
 branch's latest workflow run says: it may be another workflow's, or older than
 a failure that depends on the date. On no evidence, check out `<tip>` detached,
 then install and verify as Phase 4 steps 3 and 4 do; a failed verify there
@@ -553,8 +553,8 @@ Plus, on every run, including one with an empty queue:
 ## Escalation rules (short reference)
 
 - Default branch's checks red within the last day at start, or a verify on its
-  tip fails (the precheck's fallback, or after two pull requests fail the same
-  way) -> stop the run
+  tip fails (the precheck's fallback, or once two or more pull requests fail
+  the same way) -> stop the run
 - Phase 5 verification fails -> stop the run, do not deploy
 - Grouped PR present -> refuse that PR, point at config, carry on
 - Lint offense -> leave that PR for a person with the fix described, carry on
