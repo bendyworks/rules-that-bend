@@ -299,6 +299,14 @@ For each PR, extract and display in a compact table:
   `curl --proto =https --max-redirs 0`, then read only the number in
   `compatibility: NN%`. Report `N/A` for `unknown` or no badge.
 
+**Alerts no pull request covers.** Dependabot opens no security pull request
+for a fix it cannot resolve, so an empty queue can sit beside open alerts. Run
+`gh api 'repos/<repo>/dependabot/alerts?state=open&per_page=100' --paginate`,
+even when no pull request is open. An alert is covered when an open pull request
+moves its package, in its ecosystem, to at least its
+`security_vulnerability.first_patched_version`. Count the rest by severity for
+the summary. A refused call (403 or 404) is "alerts not checked", never zero.
+
 ## Phase 2: Pre-flight & triage
 
 **Main-health precheck.** Before touching any pull request, check the default
@@ -503,7 +511,9 @@ Close the session with a table:
 | #27 | baz-gem | 1.4.0 -> 1.4.1 | set aside (no rebase from Dependabot in 20 minutes; `@dependabot recreate` restores it) |
 | ... | ... | ... | ... |
 
-Plus:
+Plus, on every run, an empty queue's included:
+- Open alerts no pull request covers, by severity, or "alerts not checked". When
+  any are open, say so in plain words and suggest a tracker issue; file none.
 - Flake-fix PR (if any): number, status
 - Deploy: release identifier, commits shipped, health check result and live commit;
   or the Deploy veto line that asked, or what failed and what production is serving
