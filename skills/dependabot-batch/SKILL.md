@@ -346,7 +346,9 @@ point the user at `.github/dependabot.yml`.
 (`gh run view <run-id> --log-failed`), match it against `known-flakes.md`
 fingerprints, and set the PR aside with the trace. When it matches a known flake
 and `separate_flake_fix_pr` is on, propose a standalone flake-fix PR in the
-summary.
+summary. **When two or more fail on the same test, verify `<tip>` first,** as
+the precheck's fallback does: failing there, the default branch is red, and the
+run stops.
 
 ## Phase 3: Merge order
 
