@@ -382,8 +382,8 @@ to the appendix.
 
 - Phases 1-4 fan out as parallel subagents once Phase 0 has fixed the
   taxonomy; Phase 0 itself parallelizes per subsystem.
-- Every subagent prompt, the plan's cold read (lesson 3) and Phases 0-4,
-  carries this paragraph word for word, and the main agent follows it in
+- Every subagent prompt (the plan's cold read for lesson 3, and Phases
+  0-4) carries this paragraph word for word, and the main agent follows it in
   its own commands: the telemetry input asks whether an error-tracker token
   exists, a question about a secret.
 
