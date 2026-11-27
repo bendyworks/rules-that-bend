@@ -358,11 +358,15 @@ point the user at `.github/dependabot.yml`.
 (`gh run view <run-id> --log-failed`), match it against `known-flakes.md`
 fingerprints, and set the PR aside with the trace. When it matches a known flake
 and `separate_flake_fix_pr` is on, propose a standalone flake-fix PR in the
-summary. **When two or more fail on the same test, verify the default branch's
-tip before setting them aside,** fetched again and checked out as the
-precheck's fallback does, unless this run already verified that commit: failing
-there, the default branch is red, and the run stops; passing, each is set aside
-as usual.
+summary.
+
+**The same failure twice.** When a pull request fails, in CI or in Phase 4's
+local verify, on the same test as one already failed in this run, verify the
+default branch's tip before setting it aside: fetched again and checked out as
+the precheck's fallback does, unless this run already verified that commit, and
+under the failing pull request's task. Failing there, the default branch is
+red: the run stops, and the summary gives that as the reason for each pull
+request that failed on the test. Passing, each is set aside as usual.
 
 ## Phase 3: Merge order
 
