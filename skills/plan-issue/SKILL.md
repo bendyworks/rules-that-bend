@@ -714,10 +714,12 @@ for word:
 > with no verbose or trace flag that prints request headers (`curl -v`).
 > When a finding turns on a setting, check it with a command that prints
 > no value: `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc`
-> for whether a file sets it,
-> `test -n "$NAME" && echo set || echo unset` for whether the
-> environment has it, and the code that reads it (`ENV.fetch`, a
-> `credentials` call) for how it is used.
+> for whether a file sets it (an `.envrc` that loads another file with
+> `dotenv` sets what that file sets),
+> `test -n "$NAME" && echo set || echo unset` for whether your own shell
+> has it (which may not have loaded the project's `.envrc`), and the
+> code that reads it (`ENV.fetch`, a `credentials` call) for how it is
+> used.
 
 It also tells the agent:
 
