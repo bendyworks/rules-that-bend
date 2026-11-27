@@ -230,7 +230,10 @@ module Linear
   def read_file_option!(path, flag)
     raise Error, "linear: #{flag} not found: #{path}" unless File.exist?(path)
 
-    text = File.read(path, mode: 'r:BOM|UTF-8')
+    # Bytes, not a text-mode read: a text read honours a UTF-16 or
+    # UTF-32 mark by switching encodings and then raises outside the
+    # rescue below, and transcodes when Encoding.default_internal is set.
+    text = File.binread(path).force_encoding(Encoding::UTF_8).delete_prefix("\u{FEFF}")
     raise Error, "linear: #{flag} is not valid UTF-8: #{path}" unless text.valid_encoding?
 
     text

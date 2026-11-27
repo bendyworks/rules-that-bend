@@ -314,6 +314,17 @@ class UsageErrorsTest < LinearTestCase
     end
   end
 
+  # A UTF-16 mark (Windows Notepad's "Unicode", PowerShell's Out-File)
+  # is the usual file in another encoding.
+  def test_comment_edit_refuses_a_utf16_body_file
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'utf16.md')
+      File.binwrite(path, "\xFF\xFE".b + "# Fixed\n".encode('UTF-16LE').b)
+      assert_equal "linear: --body-file is not valid UTF-8: #{path}",
+                   abort_message(['comment-edit', 'some-id', '--body-file', path])
+    end
+  end
+
   # create reads its --description-file through the same helper and
   # never strips the text, so the check has to come from the helper.
   def test_create_description_file_must_be_utf8
