@@ -325,6 +325,14 @@ class UsageErrorsTest < LinearTestCase
     assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit --body text])
   end
 
+  def test_comment_edit_refuses_an_empty_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', '', '--body', 'fixed'])
+  end
+
+  def test_comment_edit_refuses_a_blank_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', '  ', '--body', 'fixed'])
+  end
+
   def test_comment_edit_requires_body
     assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit some-id])
   end
