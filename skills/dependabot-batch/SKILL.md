@@ -302,10 +302,12 @@ For each PR, extract and display in a compact table:
 **Alerts no pull request covers.** Dependabot opens no security pull request
 for a fix it cannot resolve, so an empty queue can sit beside open alerts. Run
 `gh api 'repos/<repo>/dependabot/alerts?state=open&per_page=100' --paginate`,
-even when no pull request is open. An alert is covered when an open pull request
-changes its `dependency.manifest_path` and moves its package, in its ecosystem,
-to at least its `security_vulnerability.first_patched_version`; one with no
-patched version is never covered. Count the rest by severity for the summary. A refused call (403 or 404) is "alerts not checked", never zero.
+even when no pull request is open. An alert is covered when an open Dependabot
+pull request changes its `dependency.manifest_path` and moves its package, in
+its ecosystem, to at least its
+`security_vulnerability.first_patched_version.identifier`; one with no patched
+version is never covered. Count the rest by severity for the summary. A call
+that fails for any reason is "alerts not checked", never zero.
 
 ## Phase 2: Pre-flight & triage
 
