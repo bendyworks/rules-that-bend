@@ -394,9 +394,9 @@ to the appendix.
   > `id_ed25519`), `.netrc`, or any other credentials file: not with the Read
   > tool, Grep in content mode, `cat`, `head`, `grep` without `-c` or `-l`,
   > `git diff`, `git show`, or `git log -p`, or anything else that shows its
-  > lines. Read every `git diff`, `git show`, and `git log -p` with those
-  > files left out by pattern, which also leaves out both paths of a renamed
-  > one: end the command with
+  > lines. Read every `git diff`, `git show`, and `git log -p` with env files
+  > and `.key` and `.pem` files left out by pattern, which also leaves out
+  > both paths of a renamed one: end the command with
   > `-- . ':(exclude)*.env*' ':(exclude)*.envrc' ':(exclude)*.key' ':(exclude)*.pem'`,
   > and say in your report when that left a file out (its `--name-status` list
   > shows which). Do not run a command that lists environment variables or a
