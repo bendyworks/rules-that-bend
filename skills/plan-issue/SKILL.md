@@ -474,7 +474,11 @@ disagree on the remote or the trunk, follow it.
 Then learn what the repository says: the code and tests the issue
 touches, how similar work was done before (recent merged PRs), and for a
 bug, the suspected source and the code paths beside it. Use the Explore
-agent for broad exploration and grep for a targeted lookup.
+agent for broad exploration and grep for a targeted lookup. The
+challenge phase's paragraph on secrets governs this session's own
+commands in every phase, and an Explore agent's prompt carries it word
+for word: a setting the story turns on is checked without printing its
+value.
 
 ### Step 4 -- Frame the end-user story first
 
