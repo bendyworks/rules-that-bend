@@ -746,6 +746,37 @@ module Linear
     puts "Deleted comment #{comment_id}"
   end
 
+  def cmd_comment_edit(args)
+    usage = 'Usage: linear comment-edit COMMENT_ID (--body TEXT | --body-file PATH) (see "linear comments ABC-NNN")'
+    json_mode = false
+    body_file = nil
+    body_opt = nil
+    rest = parse_options(args, usage) do |o|
+      value_option(o, '--body TEXT') { |v| body_opt = v }
+      value_option(o, '--body-file PATH') { |v| body_file = v }
+      o.on('--json') { json_mode = true }
+    end
+    comment_id = take_positionals!(rest, 1, usage).first
+    reject_conflicting_sources!('--body' => !body_opt.nil?, '--body-file' => !body_file.nil?)
+    body = body_file ? read_file_option!(body_file, '--body-file') : body_opt.to_s
+    raise Error, usage if comment_id.empty? || body.strip.empty?
+
+    client = Client.new
+    res = client.query(<<~GQL, { id: comment_id, input: { body: body } })
+      mutation($id: String!, $input: CommentUpdateInput!) {
+        commentUpdate(id: $id, input: $input) { success comment { id url } }
+      }
+    GQL
+
+    if json_mode
+      puts JSON.pretty_generate(res)
+      return
+    end
+
+    raise Error, "linear: comment edit failed: #{res.inspect}" unless res.dig('data', 'commentUpdate', 'success')
+    puts "Edited comment #{comment_id}: #{res.dig('data', 'commentUpdate', 'comment', 'url')}"
+  end
+
   def cmd_relate(args)
     usage = 'Usage: linear relate ABC-AAA ABC-BBB [--type related|blocks|duplicate] [--json]'
     type = 'related'
@@ -968,6 +999,10 @@ module Linear
         linear comment-delete COMMENT_ID [--json]
             Delete a comment by id (ids are shown by "linear comments ABC-NNN").
 
+        linear comment-edit COMMENT_ID (--body TEXT | --body-file PATH) [--json]
+            Replace a comment's body, keeping its link and its place in the
+            thread (ids are shown by "linear comments ABC-NNN").
+
         linear relate ABC-AAA ABC-BBB [--type related|blocks|duplicate] [--json]
             Link two issues (default: related).
 
@@ -1097,6 +1132,7 @@ module Linear
       'update' => :cmd_update,
       'comment' => :cmd_comment,
       'comment-delete' => :cmd_comment_delete,
+      'comment-edit' => :cmd_comment_edit,
       'relate' => :cmd_relate,
       'project-create' => :cmd_project_create,
       'project-update' => :cmd_project_update,

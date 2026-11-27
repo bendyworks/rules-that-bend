@@ -33,6 +33,8 @@ TOKEN_MISSING = 'linear: LINEAR_API_TOKEN env var not set'
 # still independent literals, never imported from bin/linear.
 SEARCH_USAGE = 'Usage: linear search "phrase" [--team KEY] [--limit N] [--json]'
 COMMENT_USAGE = 'Usage: linear comment ABC-NNN ("message" | --body TEXT | --body-file PATH)'
+COMMENT_EDIT_USAGE = 'Usage: linear comment-edit COMMENT_ID (--body TEXT | --body-file PATH) ' \
+                     '(see "linear comments ABC-NNN")'
 
 # Base class: scrubs the Linear-related environment so results do not
 # depend on this machine's token, default team, or POSIX parsing mode.
@@ -315,6 +317,31 @@ class UsageErrorsTest < LinearTestCase
                  abort_message(['comment-delete'])
   end
 
+  def test_comment_edit_requires_id
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit'])
+  end
+
+  def test_comment_edit_with_body_but_no_id_shows_usage
+    assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit --body text])
+  end
+
+  def test_comment_edit_requires_body
+    assert_equal COMMENT_EDIT_USAGE, abort_message(%w[comment-edit some-id])
+  end
+
+  def test_comment_edit_refuses_a_blank_body
+    assert_equal COMMENT_EDIT_USAGE, abort_message(['comment-edit', 'some-id', '--body', "  \n"])
+  end
+
+  def test_comment_edit_body_file_must_exist
+    assert_equal 'linear: --body-file not found: /nonexistent-battery-file',
+                 abort_message(%w[comment-edit some-id --body-file /nonexistent-battery-file])
+  end
+
+  def test_comment_edit_with_id_and_body_reaches_the_client
+    assert_equal TOKEN_MISSING, abort_message(%w[comment-edit some-id --body fixed])
+  end
+
   def test_relate_requires_two_identifiers
     assert_equal 'Usage: linear relate ABC-AAA ABC-BBB [--type related|blocks|duplicate] [--json]',
                  abort_message(%w[relate ABC-1])
@@ -477,6 +504,11 @@ class ConflictingSourceRejectionsTest < LinearTestCase
                  abort_message(%w[comment ABC-1 --body inline --body-file /nonexistent-battery-file])
   end
 
+  def test_comment_edit_rejects_body_and_body_file
+    assert_equal 'linear: --body and --body-file are mutually exclusive',
+                 abort_message(%w[comment-edit some-id --body inline --body-file /nonexistent-battery-file])
+  end
+
   def test_comment_rejects_all_three_message_sources_at_once
     # The only path through the three-way join: a comma-separated list
     # closed with "and", so the rare all-three error still reads cleanly.
@@ -528,7 +560,8 @@ class PosixlyCorrectImmunityTest < LinearTestCase
     %w[update ABC-1 ABC-2 --state Done],
     %w[relate ABC-1 ABC-2 ABC-3 --type blocks],
     %w[comment ABC-1 --body a --body b],
-    %w[comment-delete some-id --json]
+    %w[comment-delete some-id --json],
+    %w[comment-edit some-id --body a --body b]
   ].freeze
 
   def test_parsing_is_identical_with_and_without_posixly_correct
@@ -740,6 +773,60 @@ class DueDateSentTest < LinearTestCase
   def test_update_asks_for_the_due_date_back
     summary(%w[update ABC-1 --title U])
     assert_includes @client.calls.map(&:first).grep(/issueUpdate/).first, 'dueDate'
+  end
+end
+
+# Runs comment-edit against a client that records the mutation and
+# answers it, so a test can read what was sent and what was printed.
+class CommentEditSentTest < LinearTestCase
+  EditClient = Struct.new(:graphql, :variables, :success) do
+    def query(graphql, variables = {})
+      self.graphql = graphql
+      self.variables = variables
+      comment = { 'id' => variables[:id], 'url' => 'https://example.test/ABC-1#comment-1' }
+      { 'data' => { 'commentUpdate' => { 'success' => success, 'comment' => comment } } }
+    end
+  end
+
+  def setup
+    @client = EditClient.new(nil, nil, true)
+    stub_client(@client)
+  end
+
+  # The command's printed output; an abort fails the test with its
+  # message rather than ending the run.
+  def edit_output(argv)
+    cli_stdout(argv.dup)
+  rescue SystemExit => e
+    flunk "#{argv.join(' ')} aborted: #{e.message}"
+  end
+
+  def test_sends_the_new_body_to_comment_update_for_that_comment
+    edit_output(%w[comment-edit comment-1 --body fixed])
+
+    assert_includes @client.graphql, 'commentUpdate'
+    assert_equal({ id: 'comment-1', input: { body: 'fixed' } }, @client.variables)
+  end
+
+  def test_sends_a_body_file_unchanged
+    body = "# Fixed\n\n- first line\n  indented line\n"
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'body.md')
+      File.write(path, body)
+      edit_output(['comment-edit', 'comment-1', '--body-file', path])
+    end
+
+    assert_equal body, @client.variables.dig(:input, :body)
+  end
+
+  def test_prints_the_edited_comment_url
+    assert_equal "Edited comment comment-1: https://example.test/ABC-1#comment-1\n",
+                 edit_output(%w[comment-edit comment-1 --body fixed])
+  end
+
+  def test_a_refused_edit_aborts_with_the_response
+    @client.success = false
+    assert_match(/\Alinear: comment edit failed: /, abort_message(%w[comment-edit comment-1 --body fixed]))
   end
 end
 
