@@ -376,8 +376,8 @@ Order them, lowest blast radius first:
 2. Dev-only minor bumps
 3. Runtime patch bumps
 4. Runtime minor bumps
-5. Anything the Phase 4 gating table would not auto-merge, apart from a grouped
-   pull request, which stays refused
+5. Anything the Phase 4 gating table would not auto-merge, whatever its bump
+   type, apart from a grouped pull request, which stays refused
 
 **Two passes.** The first takes groups 1 to 4 through Phase 4, then Phases 5 and
 6, so routine bumps ship without waiting on anything. The second takes group 5
@@ -452,18 +452,22 @@ branch someone else has pushed to.
 
 **Verify ahead what a person will merge.** A person's merge puts every other
 prepared pull request behind, and Dependabot's rebase gives each a new head. So
-when two or more pull requests will be left for a person, in either pass, take
-each through step 1 first, then stack the current ones in Phase 3 order in the
-checkout: `git checkout --detach <remote>/<default-branch>`, then for each in
-turn, under its own task, `git merge --no-edit --no-verify <head>`, note
-`git rev-parse HEAD^{tree}` as its `<tree>`, and run steps 3 and 4 on that
-tree, in place of its own steps 2 to 4. A conflict or a failed verify ends the
-stack there (`git merge --abort` after a conflict): the pull requests already
-verified keep their runs, and the rest take steps 2 to 4 one at a time. Return
-to the default branch after. Hand them over together, in order, asking that
-they merge in it. When a head later changes, its run carries over only when
-`git rev-parse <new-head>^{tree}` is its `<tree>`, the tree its run tested;
-otherwise it takes steps 2 to 4 again.
+when the second pass holds two or more, start it by taking each through step 1,
+then stack the current ones in Phase 3 order in the checkout, on the default
+branch the first pass left: `git fetch <remote> <default-branch>` and
+`git checkout --detach <remote>/<default-branch>`, then for each in turn, under
+its own task, `git -c core.hooksPath=/dev/null merge --no-edit <head>` (no
+hooks run), note `git rev-parse HEAD^{tree}` as its `<tree>`, and run steps 3
+and 4 on that tree, in place of its own steps 2 to 4. Before each merge, a
+tracked file the last install or verify changed is restored with
+`git checkout -- .`. A conflict (`git merge --abort`) or a failed verify ends
+the stack there: the pull requests already verified keep their runs, and the
+one that conflicted or failed, with the rest, takes steps 2 to 4 one at a time.
+Return to the default branch, then take each stacked one through steps 5 and 6.
+Hand them over together, in order, asking that they merge in it. When a head
+changes, whether during step 5 or after a person's merge, take it through step
+1; its run carries over only when `git rev-parse <new-head>^{tree}` is its
+`<tree>`, the tree its run tested, and otherwise it takes steps 2 to 4 again.
 
 **Run each `dependabot-merge` as a Bash command of its own.** A permission rule does
 not match a chained command, and auto mode denies a chain as a whole. A merge
