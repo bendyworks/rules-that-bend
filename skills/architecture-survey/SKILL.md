@@ -381,6 +381,22 @@ to the appendix.
 
 - Phases 1-4 fan out as parallel subagents once Phase 0 has fixed the
   taxonomy; Phase 0 itself parallelizes per subsystem.
+- Every subagent prompt, Phases 0-4, carries this paragraph word for word,
+  and the main agent follows it in its own commands: the telemetry input
+  asks whether an error-tracker token exists, a question about a secret.
+
+  > **Never print a secret's value.** Your output goes into the developer's
+  > session transcript, and a secret printed there has to be rotated. Do
+  > not open `.env` or its variants, `.envrc`, `config/master.key`,
+  > `*.pem`, or a credentials file with the Read tool, Grep in content
+  > mode, `cat`, `head`, `grep` without `-c` or `-l`, or anything else that
+  > shows its lines. Do not run `env`, `printenv`, or a bare `set`, and do
+  > not echo a variable whose name says it holds a token, key, or password.
+  > When a finding turns on a setting, check it with a command that prints
+  > no value: `grep -cE '^(export )?NAME=' .envrc` for whether a file sets
+  > it, `test -n "$NAME" && echo set || echo unset` for whether the
+  > environment has it, and the code that reads it (`ENV.fetch`, a
+  > `credentials` call) for how it is used.
 - Verify any headline claim an agent makes before enshrining it (e.g. "zero
   production callers" gets a fresh grep).
 - The survey changes no production code, so there is no test/lint/PR tail --
