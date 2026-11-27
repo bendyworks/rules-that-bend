@@ -333,8 +333,10 @@ class UsageErrorsTest < LinearTestCase
       File.write(path, "fixed\n")
       File.define_singleton_method(:binread) { |*| raise SystemCallError.new('odd failure', 9999) }
       begin
-        assert_equal "linear: --body-file could not be read: #{path} (Unknown error: 9999)",
-                     abort_message(['comment-edit', 'some-id', '--body-file', path])
+        # The operating system words the reason ("Unknown error: 9999"
+        # on macOS, "Unknown error 9999" on Linux).
+        assert_match(/\Alinear: --body-file could not be read: #{Regexp.escape(path)} \(Unknown error:? 9999\)\z/,
+                     abort_message(['comment-edit', 'some-id', '--body-file', path]))
       ensure
         File.singleton_class.send(:remove_method, :binread)
       end
