@@ -537,6 +537,6 @@ Report what was done, one line per item:
 - A stash or worktree made on the story's branch, a commit of the story's or this pass's that no remote has, or an uncommitted change to a file this session wrote or the story's pull requests changed.
 - A draft this session wrote that is not posted or filed, or a question or approval it is still waiting on.
 - An open pull request that names the story, whoever opened it, other than a housekeeping pull request.
-- A run of the default branch's checks since the story's last merge that failed or has not finished, even when a later run passed.
+- A run of the default branch's checks since the story's last merge that failed or timed out, even when a later run passed. A run of the last commit that merge put on the default branch, or of a commit this pass pushed there, that has not finished. A cancelled run of either, while no later run of the same workflow has passed. A run of any other commit that has not finished is not a reason.
 
 An item the developer has said to leave as it is is not a reason, and neither is the open-items offer from Step 9c: name each after the sentence. This check reports and fixes nothing. Between the check and its sentence, mark the run-housekeeping task completed and delete it (deferred from Step 8).
