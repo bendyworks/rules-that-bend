@@ -69,6 +69,12 @@ expect, or the run stops being a test. Decide the expected answer
 beforehand from your own reading of the project's state, then grade the
 output against it.
 
+**Grade the action the rule removes, not a count the skill's other steps
+add to.** A measure of "no verify run in turn 2" failed every treatment
+arm of one story, because a later phase of the skill requires a verify
+after every merge; counting only verifies of that pull request's own
+tree told control from treatment.
+
 **Test with inputs the text does not name.** When a rule's examples and
 an arm's fixture share wording, the session can copy the answer from the
 rule. Give each arm a fresh input, and report runs on the rule's own
