@@ -32,11 +32,11 @@ class SecretParagraphCopiesTest < Minitest::Test
   private
 
   def paragraph(skill)
-    text = File.read(File.join(ROOT, path(skill)))
+    text = File.read(File.join(ROOT, path(skill))).gsub(/^\s*>/, ' ').split.join(' ')
     start = text.index(FIRST) or flunk "#{path(skill)} has no paragraph starting #{FIRST.inspect}"
     finish = text.index(LAST, start) or flunk "#{path(skill)} has no #{LAST.inspect} after #{FIRST.inspect}"
 
-    text[start...(finish + LAST.size)].gsub(/^\s*>/, ' ').split.join(' ')
+    text[start...(finish + LAST.size)]
   end
 
   def path(skill)
