@@ -399,10 +399,10 @@ to the appendix.
   > the variable's name, never its value, and with no verbose or trace flag
   > that prints request headers (`curl -v`). When a finding turns on a
   > setting, check it with a command that prints no value:
-  > `grep -cE '^(export )?NAME=' .envrc` for whether a file sets it,
-  > `test -n "$NAME" && echo set || echo unset` for whether the environment
-  > has it, and the code that reads it (`ENV.fetch`, a `credentials` call) for
-  > how it is used.
+  > `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc` for whether a
+  > file sets it, `test -n "$NAME" && echo set || echo unset` for whether the
+  > environment has it, and the code that reads it (`ENV.fetch`, a
+  > `credentials` call) for how it is used.
 - Verify any headline claim an agent makes before enshrining it (e.g. "zero
   production callers" gets a fresh grep).
 - The survey changes no production code, so there is no test/lint/PR tail --

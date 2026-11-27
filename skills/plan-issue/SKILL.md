@@ -709,8 +709,9 @@ to the same brief, and say so. The brief tells the agent:
   > token, pass it by the variable's name, never its value, and with no
   > verbose or trace flag that prints request headers (`curl -v`). When
   > a finding turns on a setting, check it with a command that prints no
-  > value: `grep -cE '^(export )?NAME=' .envrc` for whether a file sets
-  > it, `test -n "$NAME" && echo set || echo unset` for whether the
+  > value: `grep -cE '^[[:space:]]*(export[[:space:]]+)?NAME=' .envrc`
+  > for whether a file sets it,
+  > `test -n "$NAME" && echo set || echo unset` for whether the
   > environment has it, and the code that reads it (`ENV.fetch`, a
   > `credentials` call) for how it is used.
 
