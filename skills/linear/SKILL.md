@@ -58,7 +58,7 @@ linear project-update --id PROJECT_ID [--name NAME] [--description TEXT] \
 - `update` accepts any combination of `--state`, `--title`, `--priority`, `--description`, `--project` (moves the issue), `--parent` (reparents it as a sub-issue), `--assignee`, and `--due` (`--due none` clears the due date). State name must match a workflow state on the issue's team. Moving to a started state (e.g. In Progress) requires an assignee: pass `--assignee`, or the issue must already have one.
 - `comment` appends a comment. Pass the body as the second positional arg (quote it), or use `--body TEXT` / `--body-file PATH` for long or markdown bodies.
 - `comment-delete` deletes a comment by id (ids are shown by `linear comments ABC-NNN`).
-- `comment-edit` replaces a comment's body by id, keeping its link and its place in the thread. To correct a posted comment, edit it rather than deleting it and posting again.
+- `comment-edit` replaces a comment's body by id, keeping its link and its place in the thread. To correct a posted comment, edit it rather than deleting it and posting again. It takes no positional message, so `--` cannot pass a body that starts with `-`: use `--body-file`.
 - `relate` links two issues (default type `related`).
 - `project-create` / `project-update` manage projects: `--description` is the one-line summary, `--content` the full markdown body. Move issues into a project afterward with `linear update ABC-NNN --project NAME`.
 
