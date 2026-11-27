@@ -325,6 +325,22 @@ class UsageErrorsTest < LinearTestCase
     end
   end
 
+  # A failure Ruby has no Errno class for arrives as a plain
+  # SystemCallError, which still gets the plain refusal.
+  def test_a_read_failure_with_no_errno_class_gets_a_plain_refusal
+    Dir.mktmpdir('comment-edit') do |dir|
+      path = File.join(dir, 'body.md')
+      File.write(path, "fixed\n")
+      File.define_singleton_method(:binread) { |*| raise SystemCallError.new('odd failure', 9999) }
+      begin
+        assert_equal "linear: --body-file could not be read: #{path} (Unknown error: 9999)",
+                     abort_message(['comment-edit', 'some-id', '--body-file', path])
+      ensure
+        File.singleton_class.send(:remove_method, :binread)
+      end
+    end
+  end
+
   # create reads its --description-file through the same helper and
   # never strips the text, so the check has to come from the helper.
   def test_create_description_file_must_be_utf8

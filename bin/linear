@@ -239,8 +239,9 @@ module Linear
     text
   rescue SystemCallError => e
     # The bare reason ("Is a directory"), without the path and the
-    # system call name e.message adds.
-    raise Error, "linear: #{flag} could not be read: #{path} (#{e.class.new.message})"
+    # system call name e.message adds; "Unknown error: N" for an errno
+    # Ruby has no Errno class for.
+    raise Error, "linear: #{flag} could not be read: #{path} (#{SystemCallError.new(nil, e.errno).message})"
   end
 
   # Base 10 explicitly: bare Integer() honours the literal prefixes, so
