@@ -696,7 +696,7 @@ find. Where no subagent can be dispatched, do the critique yourself,
 to the same brief, and say so. The brief tells the agent:
 
 - **Read the plan cold, and the code it names.**
-- **Never print a secret's value**, in this paragraph, word for word:
+- **Carry this paragraph word for word:**
 
   > **Never print a secret's value.** Your output goes into the
   > developer's session transcript, and a secret printed there has to be
@@ -718,7 +718,6 @@ to the same brief, and say so. The brief tells the agent:
   > `test -n "$NAME" && echo set || echo unset` for whether the
   > environment has it, and the code that reads it (`ENV.fetch`, a
   > `credentials` call) for how it is used.
-
 - **A plan that needs no change is an ordinary result, and the report
   then says so.** Propose a change only where the plan as written
   would give a worse result than the change would: a wrong
